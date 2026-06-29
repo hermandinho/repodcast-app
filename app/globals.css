@@ -1,26 +1,212 @@
 @import "tailwindcss";
 
+@theme {
+  /* ============================================================
+     Brand & surface
+     ============================================================ */
+  --color-canvas: #f4f6fa;
+  --color-surface: #ffffff;
+  --color-surface-2: #fbfcfe;
+  --color-surface-3: #f7f9fc;
+  --color-sidebar: #16243f;
+  --color-sidebar-text: #aeb9cc;
+  --color-sidebar-label: #5e6f8c;
+  --color-sidebar-user: #2c4068;
+
+  /* ============================================================
+     Text tones
+     ============================================================ */
+  --color-ink: #1a2a4a;
+  --color-ink-2: #2a3550;
+  --color-muted: #5a6473;
+  --color-muted-2: #8b95a6;
+  --color-subtle: #a0a9b8;
+  --color-disabled: #c3cbd8;
+
+  /* ============================================================
+     Borders
+     ============================================================ */
+  --color-border: #e6ebf3;
+  --color-border-2: #d6deec;
+  --color-border-subtle: #eaeef5;
+  --color-border-divider: #f0f3f8;
+
+  /* ============================================================
+     Accent (primary brand blue)
+     ============================================================ */
+  --color-accent: #3a5ba0;
+  --color-accent-soft: #eef2fb;
+  --color-accent-border: #dde5f4;
+
+  /* ============================================================
+     Status — success / approved / strong voice
+     ============================================================ */
+  --color-success: #2e9e5b;
+  --color-success-text: #1e7a47;
+  --color-success-soft: #e7f4ec;
+  --color-success-border: #bfe3cd;
+
+  /* ============================================================
+     Status — warn / review / weak voice
+     ============================================================ */
+  --color-warn: #c9952b;
+  --color-warn-text: #a06d12;
+  --color-warn-soft: #fbf1de;
+
+  /* ============================================================
+     Status — neutral / scheduled / ready
+     ============================================================ */
+  --color-neutral-soft: #f1f4f9;
+  --color-neutral-text: #7a8496;
+
+  /* ============================================================
+     Platform brand colors
+     ============================================================ */
+  --color-platform-x: #15171a;
+  --color-platform-linkedin: #0a66c2;
+  --color-platform-instagram: #d62976;
+  --color-platform-tiktok: #111315;
+
+  /* ============================================================
+     Client artwork accents (sample data)
+     ============================================================ */
+  --color-client-founders: #3a5ba0;
+  --color-client-trail: #2e9e5b;
+  --color-client-money: #7a4fb0;
+
+  /* ============================================================
+     Marketing surface tokens (Phase 3.1 landing)
+     ============================================================ */
+  --color-marketing-ink: #1a2a4a;
+  --color-marketing-deep: #13203b;
+  --color-marketing-mint: #7fe3b0;
+  --color-marketing-mint-bg: #eaf7f0;
+  --color-marketing-mint-text: #1f8a5b;
+  --color-marketing-muted: #9aa3b2;
+  --color-marketing-muted-deep: #6b7ba3;
+  --color-marketing-soft: #a9b6d4;
+  --color-marketing-border: #eceef3;
+  --color-marketing-border-2: #e4e8f0;
+  --color-marketing-border-grid: #e8ebf1;
+  --color-marketing-surface-2: #fbfcfe;
+  --color-marketing-panel: #13203b;
+  --color-marketing-panel-row: #1e3056;
+
+  /* ============================================================
+     Typography — families wired via next/font (see layout.tsx)
+     ============================================================ */
+  --font-display: var(--font-sora), system-ui, sans-serif;
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-mono: var(--font-mono), "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* ============================================================
+     Radii
+     ============================================================ */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 14px;
+  --radius-3xl: 16px;
+  --radius-pill: 999px;
+
+  /* ============================================================
+     Shadows
+     ============================================================ */
+  --shadow-card: 0 1px 2px rgba(26, 42, 74, 0.06);
+  --shadow-card-hover: 0 8px 24px rgba(26, 42, 74, 0.1);
+  --shadow-popup: 0 14px 40px rgba(26, 42, 74, 0.16);
+  --shadow-button-success: 0 6px 18px rgba(30, 122, 71, 0.35);
+}
+
+/* ============================================================
+   Layout dimensions (non-color tokens used in app shell)
+   ============================================================ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --sidebar-width: 236px;
+  --topbar-height: 60px;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+html,
+body {
+  height: 100%;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================================
+   Shared animations
+   ============================================================ */
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes shimmer {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@keyframes pop {
+  0% {
+    transform: translateY(4px) scale(0.96);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+/* ============================================================
+   Landing-page animations
+   ============================================================ */
+
+@keyframes eq {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes floaty {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-16px);
+  }
 }
