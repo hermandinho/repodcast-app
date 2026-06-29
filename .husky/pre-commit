@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+# Run lint-staged (Prettier + ESLint on staged files) then a global typecheck.
+# typecheck has to be project-wide because TS errors can be cross-file.
+npx lint-staged && npm run typecheck

@@ -1,0 +1,11 @@
+.next
+node_modules
+build
+out
+coverage
+.vercel
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+prisma/migrations
+.next/dev/logs
