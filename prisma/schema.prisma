@@ -1,0 +1,652 @@
+// Repodcast — Prisma schema
+//
+// Conventions:
+// - cuid() IDs (Prisma 5+ default style)
+// - createdAt/updatedAt on every long-lived model
+// - @@index on every foreign key; @@unique where multi-tenant scoping demands it
+// - Cascade deletes for "owned" children; SetNull for historical references
+//   we want to preserve (usage logs, voice samples, approver pointers)
+// - Connection URLs live in `prisma.config.ts` (Prisma 7 requires this; the
+//   schema datasource block no longer accepts `url`/`directUrl`).
+// - DATABASE_URL is the pooled connection used at runtime (PgBouncer).
+// - DIRECT_URL is the unpooled connection used by `prisma migrate` only.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// Enums
+// ============================================================
+
+enum Plan {
+  STUDIO
+  AGENCY
+  NETWORK
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  EDITOR
+  REVIEWER
+}
+
+enum Platform {
+  TWITTER
+  LINKEDIN
+  INSTAGRAM
+  TIKTOK
+  SHOW_NOTES
+  BLOG
+  NEWSLETTER
+}
+
+enum EpisodeStatus {
+  DRAFT
+  PROCESSING
+  READY
+  ARCHIVED
+}
+
+enum OutputStatus {
+  GENERATING
+  READY
+  IN_REVIEW
+  APPROVED
+  SCHEDULED
+  PUBLISHED
+  FAILED
+}
+
+enum TranscriptSource {
+  PASTE
+  UPLOAD
+  RSS
+  YOUTUBE
+}
+
+enum InvoiceStatus {
+  DRAFT
+  OPEN
+  PAID
+  VOID
+  UNCOLLECTIBLE
+}
+
+/// Phase 2.13 — billing cadence on a per-client basis. Drives the renewals
+/// cron + the statement generator's default period window.
+enum BillingCycle {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+  PROJECT
+}
+
+/// Phase 2.13 — lifecycle state of an agency's client relationship.
+enum ClientStatus {
+  ACTIVE
+  PAUSED
+  CHURNED
+}
+
+enum MemberTransitionKind {
+  INVITED
+  INVITE_ACCEPTED
+  INVITE_REVOKED
+  ROLE_CHANGED
+  REMOVED
+  OWNER_TRANSFERRED
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+// ============================================================
+// Tenant & access
+// ============================================================
+
+model Agency {
+  id                   String   @id @default(cuid())
+  name                 String
+  plan                 Plan     @default(STUDIO)
+  clerkOrgId           String?  @unique
+  stripeCustomerId     String?  @unique
+  stripeSubscriptionId String?  @unique
+  /// Phase 2.13.6 — opt-out flag for the renewals cron. Defaults on; the
+  /// agency-settings page exposes a toggle.
+  renewalRemindersEnabled Boolean @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  members              Member[]
+  clients              Client[]
+  invoices             Invoice[]
+  usageLogs            UsageLog[]
+  outputTransitions    OutputTransition[]
+  invites              MemberInvite[]
+  memberTransitions    MemberTransition[]
+  billingRemindersSent BillingReminderSent[]
+}
+
+model Member {
+  id          String     @id @default(cuid())
+  agencyId    String
+  /// Clerk user id (`user_…`). Globally unique per Clerk user but a user may
+  /// belong to several agencies — uniqueness is enforced at (agencyId, clerkUserId).
+  clerkUserId String
+  role        MemberRole @default(EDITOR)
+  email       String
+  name        String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  agency             Agency             @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  approvedOutputs    GeneratedOutput[]  @relation("OutputApprover")
+  authoredTransitions OutputTransition[] @relation("TransitionAuthor")
+  authoredInvites    MemberInvite[]     @relation("InviteAuthor")
+  /// MemberTransition rows where this member did the action (changed a role, removed someone, etc.).
+  actorOfMemberTransitions  MemberTransition[] @relation("MemberTransitionActor")
+  /// MemberTransition rows that targeted this member (e.g. their role changed, they were removed).
+  targetOfMemberTransitions MemberTransition[] @relation("MemberTransitionTarget")
+  /// Phase 2.13 — client statements this member generated.
+  authoredStatements        ClientStatement[]  @relation("StatementAuthor")
+  /// Phase 2.13 — client-portal links this member minted.
+  authoredPortalLinks       ClientPortalLink[] @relation("PortalLinkAuthor")
+
+  @@unique([agencyId, clerkUserId])
+  @@index([agencyId])
+  @@index([clerkUserId])
+}
+
+/// Homegrown invitation flow (Phase 1.0 follow-up). Replaces the Clerk
+/// Organization invite path so we no longer depend on Clerk Orgs for
+/// teammate access. Tokens are opaque cuids — they're sent verbatim in the
+/// invite email and matched verbatim on the /invite/[token] accept page.
+model MemberInvite {
+  id                String       @id @default(cuid())
+  agencyId          String
+  email             String
+  role              MemberRole   @default(EDITOR)
+  /// Opaque token used in the invite link. Unique across all agencies.
+  token             String       @unique @default(cuid())
+  status            InviteStatus @default(PENDING)
+  invitedByMemberId String?
+  /// Hard expiry — accept-page treats invites past this as `EXPIRED`.
+  expiresAt         DateTime
+  acceptedAt        DateTime?
+  /// Clerk user id of whoever accepted, for audit. Null until accept.
+  acceptedByClerkUserId String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  agency          Agency  @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  invitedByMember Member? @relation("InviteAuthor", fields: [invitedByMemberId], references: [id], onDelete: SetNull)
+  transitions     MemberTransition[]
+
+  @@index([agencyId, status])
+  @@index([email])
+  @@index([invitedByMemberId])
+}
+
+// ============================================================
+// Clients (agency customers) + Shows (podcasts) + voice config
+// ============================================================
+//
+// Hierarchy: Agency → Client → Show → Episode → GeneratedOutput.
+// A Client is the agency's *customer* (a company or person). A Show is a
+// podcast that the Client produces — a Client can have many Shows. Voice
+// samples, instructions, artwork, and host name all live on the Show
+// because each podcast has its own voice profile.
+
+model Client {
+  id           String   @id @default(cuid())
+  agencyId     String
+  /// Customer name (company or person who hires the agency).
+  name         String
+  description  String?
+  contactName  String?
+  contactEmail String?
+  /// Customer-side logo. Per-show artwork lives on `Show.artworkUrl`.
+  artworkUrl   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  agency Agency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  shows  Show[]
+  /// Phase 2.13 — at most one billing profile per client; nullable on the
+  /// Client side because v1 doesn't require agencies to fill one in.
+  billingProfile       ClientBillingProfile?
+  statements           ClientStatement[]
+  portalLinks          ClientPortalLink[]
+  billingRemindersSent BillingReminderSent[]
+
+  @@index([agencyId])
+}
+
+model Show {
+  id                 String   @id @default(cuid())
+  clientId           String
+  /// Podcast name.
+  name               String
+  /// Primary host. The voice engine is tuned to this host's writing.
+  host               String
+  description        String?
+  artworkUrl         String?
+  rssUrl             String?
+  /// AI-generated narrative of the show's voice. Refreshed when sample count
+  /// crosses a strength threshold (Phase 2.1).
+  voiceDescription   String?
+  /// Global custom-instruction rules the prompt builder always injects.
+  globalInstructions String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  client               Client                    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  episodes             Episode[]
+  voiceSamples         VoiceSample[]
+  platformInstructions ShowPlatformInstruction[]
+
+  @@index([clientId])
+}
+
+model ShowPlatformInstruction {
+  id        String   @id @default(cuid())
+  showId    String
+  platform  Platform
+  rule      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  show Show @relation(fields: [showId], references: [id], onDelete: Cascade)
+
+  @@unique([showId, platform])
+  @@index([showId])
+}
+
+// ============================================================
+// Episodes + generated outputs
+// ============================================================
+
+model Episode {
+  id          String           @id @default(cuid())
+  showId      String
+  title       String
+  transcript  String
+  source      TranscriptSource
+  audioUrl    String?
+  externalUrl String?
+  status      EpisodeStatus    @default(DRAFT)
+  recordedAt  DateTime?
+  durationSec Int?
+  /// Cached `KeyMoment[]` (server/ai/key-moments.ts) extracted from the
+  /// transcript during the generate pipeline. Surfaced on the episode page
+  /// as clip suggestions so the user doesn't have to re-call Claude or
+  /// scrub the transcript by hand. Null until generate-episode has run.
+  keyMoments  Json?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  show         Show              @relation(fields: [showId], references: [id], onDelete: Cascade)
+  outputs      GeneratedOutput[]
+  usageLogs    UsageLog[]
+  voiceSamples VoiceSample[]
+
+  @@index([showId])
+  @@index([status])
+}
+
+model GeneratedOutput {
+  id                 String       @id @default(cuid())
+  episodeId          String
+  platform           Platform
+  content            String
+  status             OutputStatus @default(GENERATING)
+  /// 1-indexed version within an (episode, platform) slot. Regenerating
+  /// creates a new row with version+1 and stamps `supersededAt` on the prior
+  /// row, so we keep the full history without losing tenant scoping.
+  version            Int          @default(1)
+  quality            Int?
+  /// Cumulative Levenshtein distance of every in-place content edit on this
+  /// version. `0` = the user approved exactly what the model wrote.
+  /// Drives the dashboard's hero "Posted with no edits" KPI and is a more
+  /// honest signal than the prior `version == 1` proxy, which mis-classified
+  /// edited-then-approved v1 rows as untouched.
+  editDistance       Int          @default(0)
+  /// Free-text instruction that triggered this version's generation.
+  lastInstruction    String?
+  approvedAt         DateTime?
+  approvedByMemberId String?
+  /// When a newer version replaced this row. `null` on the current version.
+  supersededAt       DateTime?
+  /// Self-pointer to the prior version (null on v1). Held by the new row.
+  previousVersionId  String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  episode          Episode            @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  approvedByMember Member?            @relation("OutputApprover", fields: [approvedByMemberId], references: [id], onDelete: SetNull)
+  previousVersion  GeneratedOutput?   @relation("OutputVersionHistory", fields: [previousVersionId], references: [id], onDelete: SetNull)
+  nextVersions     GeneratedOutput[]  @relation("OutputVersionHistory")
+  voiceSamples     VoiceSample[]
+  transitions      OutputTransition[]
+
+  @@index([episodeId])
+  @@index([episodeId, platform, supersededAt])
+  @@index([platform])
+  @@index([status])
+  @@index([approvedByMemberId])
+  @@index([previousVersionId])
+}
+
+/// Append-only log of status changes on `GeneratedOutput`. Powers the
+/// dashboard activity feed and any future audit view. `agencyId` is
+/// denormalized so the most common query (latest N transitions for an
+/// agency, time-ordered) is a single-table read.
+model OutputTransition {
+  id         String       @id @default(cuid())
+  agencyId   String
+  outputId   String
+  /// Null on system-driven pipeline transitions (Inngest functions).
+  byMemberId String?
+  /// Null when the output is first created (e.g. GENERATING is the initial state).
+  fromStatus OutputStatus?
+  toStatus   OutputStatus
+  /// Optional free-text note (rejection reason, regenerate instruction, etc.).
+  note       String?
+  createdAt  DateTime     @default(now())
+
+  agency Agency          @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  output GeneratedOutput @relation(fields: [outputId], references: [id], onDelete: Cascade)
+  member Member?         @relation("TransitionAuthor", fields: [byMemberId], references: [id], onDelete: SetNull)
+
+  @@index([agencyId, createdAt])
+  @@index([outputId, createdAt])
+  @@index([byMemberId])
+}
+
+/// Append-only audit trail for team / membership changes — mirrors
+/// `OutputTransition` but scoped to people instead of generated outputs.
+/// Powers the Team activity feed and any future per-member audit view.
+/// `agencyId` is denormalized for the same reason as OutputTransition:
+/// "latest N transitions for an agency, time-ordered" is a single-table read.
+model MemberTransition {
+  id             String               @id @default(cuid())
+  agencyId       String
+  kind           MemberTransitionKind
+  /// The member who performed the action. Null for self-actions or system
+  /// records (e.g. invite accepted by a brand-new user).
+  byMemberId     String?
+  /// The member subject of the change. Null for INVITED / INVITE_REVOKED
+  /// (those point at an `inviteId` + `email` instead — the Member row
+  /// doesn't exist yet at INVITED, and the invite holds the email).
+  targetMemberId String?
+  /// The invite affected (for INVITED / INVITE_ACCEPTED / INVITE_REVOKED).
+  inviteId       String?
+  /// Email associated with the invite — copied at record time so the feed
+  /// still reads correctly after an invite is hard-deleted or expired.
+  email          String?
+  /// Role transition for ROLE_CHANGED / OWNER_TRANSFERRED.
+  fromRole       MemberRole?
+  toRole         MemberRole?
+  /// Optional free-text note (rejection reason, escape hatch for future).
+  note           String?
+  createdAt      DateTime             @default(now())
+
+  agency Agency        @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  actor  Member?       @relation("MemberTransitionActor", fields: [byMemberId], references: [id], onDelete: SetNull)
+  target Member?       @relation("MemberTransitionTarget", fields: [targetMemberId], references: [id], onDelete: SetNull)
+  invite MemberInvite? @relation(fields: [inviteId], references: [id], onDelete: SetNull)
+
+  @@index([agencyId, createdAt])
+  @@index([targetMemberId])
+  @@index([byMemberId])
+  @@index([inviteId])
+}
+
+// ============================================================
+// Voice training data
+// ============================================================
+
+model VoiceSample {
+  id                String   @id @default(cuid())
+  showId            String
+  platform          Platform
+  content           String
+  /// The output that was approved, if this sample came from one.
+  generatedOutputId String?
+  /// The episode the approved output belonged to, for traceability.
+  episodeId         String?
+  createdAt         DateTime @default(now())
+
+  show            Show             @relation(fields: [showId], references: [id], onDelete: Cascade)
+  generatedOutput GeneratedOutput? @relation(fields: [generatedOutputId], references: [id], onDelete: SetNull)
+  episode         Episode?         @relation(fields: [episodeId], references: [id], onDelete: SetNull)
+
+  @@index([showId, platform])
+  @@index([generatedOutputId])
+  @@index([episodeId])
+}
+
+// ============================================================
+// Usage + billing
+// ============================================================
+
+model UsageLog {
+  id           String   @id @default(cuid())
+  agencyId     String
+  episodeId    String?
+  /// Model identifier (e.g. "claude-sonnet-4-6"). Free-form to survive provider changes.
+  model        String
+  inputTokens  Int
+  outputTokens Int
+  /// Total cost in USD cents.
+  costCents    Int
+  createdAt    DateTime @default(now())
+
+  agency  Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  episode Episode? @relation(fields: [episodeId], references: [id], onDelete: SetNull)
+
+  @@index([agencyId, createdAt])
+  @@index([episodeId])
+}
+
+model Invoice {
+  id               String        @id @default(cuid())
+  agencyId         String
+  stripeInvoiceId  String        @unique
+  amountCents      Int
+  currency         String        @default("usd")
+  status           InvoiceStatus
+  hostedInvoiceUrl String?
+  pdfUrl           String?
+  periodStart      DateTime
+  periodEnd        DateTime
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  agency Agency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+
+  @@index([agencyId, createdAt])
+}
+
+// ============================================================
+// Phase 2.13 — Client management & billing support
+// ============================================================
+//
+// SCOPE BOUNDARY: Repodcast never collects, holds, or processes payments
+// between an agency and its clients. These tables exist so the agency can
+// invoice in its own accounting tool — they store metadata + the
+// generated proof-of-work, never card data or transferred funds.
+
+/// 1:1 with `Client` — billing metadata the agency captures for its own
+/// records. Surfaced under the "Deliverables & Billing" tab on the client
+/// page and consumed by the statement generator + renewals cron.
+///
+/// `retainerCents` and `ratePerEpisodeCents` are mutually exclusive at the
+/// application layer (the form is a radio); both nullable so a brand-new
+/// client can exist without one set.
+model ClientBillingProfile {
+  id                    String       @id @default(cuid())
+  clientId              String       @unique
+  billingContactName    String?
+  billingContactEmail   String?
+  retainerCents         Int?
+  ratePerEpisodeCents   Int?
+  billingCycle          BillingCycle @default(MONTHLY)
+  /// ISO-4217 currency code (e.g. "USD"). Free-form to keep migrations
+  /// cheap if we add support for non-listed currencies.
+  currency              String       @default("USD")
+  contractStartDate     DateTime?
+  contractRenewalDate   DateTime?
+  status                ClientStatus @default(ACTIVE)
+  /// External URL the agency lists for its own payment page (Stripe
+  /// payment-link, custom checkout, etc.). Surfaced as the only money-shaped
+  /// CTA in the client portal — Repodcast does **not** process the payment.
+  paymentLinkUrl        String?
+  internalNotes         String?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  /// Hot path: "list all clients in status X for this agency" — the
+  /// renewals cron pivots on `contractRenewalDate` + `status` together.
+  @@index([status])
+  @@index([contractRenewalDate])
+}
+
+/// Persisted snapshot of a generated period statement. Rendered once, then
+/// served from R2 thereafter (so the agency + their client get the exact
+/// same PDF the agency signed off on, even if the underlying outputs were
+/// later edited or removed).
+model ClientStatement {
+  id                  String   @id @default(cuid())
+  clientId            String
+  /// Inclusive lower bound of the reporting window.
+  periodStart         DateTime
+  /// Inclusive upper bound of the reporting window.
+  periodEnd           DateTime
+  /// Snapshot totals as of `generatedAt`. Each is the count or sum that
+  /// fell inside [periodStart, periodEnd]; the PDF/CSV rendered from this
+  /// row carries the same numbers forever.
+  episodeCount        Int
+  outputCount         Int
+  approvedCount       Int
+  /// 0–100. Stored as Int (percentage rounded) — the UI doesn't surface
+  /// sub-percent precision and a decimal column would complicate the JSON
+  /// payload the deliverables webhook ships.
+  approvalRatePct     Int
+  /// Cost-to-serve in USD cents — sum of `UsageLog.costCents` joined via
+  /// Episode → Show → Client across the window.
+  costCents           Int
+  generatedAt         DateTime @default(now())
+  generatedByMemberId String?
+  /// R2 object key for the rendered PDF; null until the renderer finishes.
+  pdfStorageKey       String?
+  /// R2 object key for the CSV export; null until the export endpoint runs.
+  csvStorageKey       String?
+  /// Set when the deliverables webhook successfully delivered this row.
+  webhookDeliveredAt  DateTime?
+  /// Id returned by the agency's webhook handler (e.g. the QuickBooks /
+  /// Xero invoice id). Surfaced in the UI as "Delivered to <tool>".
+  webhookExternalRef  String?
+
+  client            Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  generatedByMember Member? @relation("StatementAuthor", fields: [generatedByMemberId], references: [id], onDelete: SetNull)
+
+  @@index([clientId, periodStart(sort: Desc)])
+  @@index([clientId, generatedAt(sort: Desc)])
+  @@index([generatedByMemberId])
+}
+
+/// Tokenized read-only access to the client portal. Pattern mirrors the
+/// homegrown `MemberInvite` flow — opaque cuid token sent to the client out
+/// of band; the `/portal/[token]` route lookups go through `getByToken`
+/// (public, no `TenantContext`).
+model ClientPortalLink {
+  id                 String    @id @default(cuid())
+  clientId           String
+  token              String    @unique @default(cuid())
+  expiresAt          DateTime
+  createdByMemberId  String?
+  revokedAt          DateTime?
+  lastAccessedAt     DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  client          Client                  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdByMember Member?                 @relation("PortalLinkAuthor", fields: [createdByMemberId], references: [id], onDelete: SetNull)
+  accessLogs      ClientPortalAccessLog[]
+
+  @@index([clientId, expiresAt])
+  @@index([createdByMemberId])
+}
+
+/// Append-only audit log of portal views. One row per `GET /portal/[token]`
+/// that resolves to a live link. `ipHash` is sha-256 of the request IP so
+/// we can spot bursts without storing raw IPs; `userAgent` is the bare
+/// header string. Both nullable since a real client view in a hardened
+/// browser may strip either.
+model ClientPortalAccessLog {
+  id            String   @id @default(cuid())
+  portalLinkId  String
+  viewedAt      DateTime @default(now())
+  ipHash        String?
+  userAgent     String?
+
+  portalLink ClientPortalLink @relation(fields: [portalLinkId], references: [id], onDelete: Cascade)
+
+  @@index([portalLinkId, viewedAt(sort: Desc)])
+}
+
+/// Dedupe ledger for the renewals cron (Phase 2.13.6). The cron fires at the
+/// 30-day and 7-day pre-renewal markers; this table makes both fire-exactly-
+/// once across daily runs. A row's presence means the email was sent —
+/// missing row + window-open = next run sends.
+model BillingReminderSent {
+  id        String   @id @default(cuid())
+  agencyId  String
+  clientId  String
+  /// The pre-renewal marker that fired: "30d" or "7d".
+  marker    String
+  sentAt    DateTime @default(now())
+
+  agency Agency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade, map: "BillingReminderSent_client_fkey")
+
+  @@unique([clientId, marker])
+  @@index([agencyId, sentAt])
+}
+
+/// Idempotency ledger for inbound webhooks. Each row marks one provider
+/// event as "already processed". The webhook handler `create`s a row before
+/// dispatching; a duplicate insert collapses on the unique constraint and
+/// the handler short-circuits to 204 (already processed). On dispatch
+/// failure we delete the row so the provider's retry re-processes.
+///
+/// `source` is the provider key — `stripe`, `clerk`, `resend` — so we can
+/// dedupe webhooks from every provider through the same table without
+/// worrying about cross-provider event-id collisions.
+///
+/// Rows accumulate forever; a daily prune of `processedAt < now - 90 days`
+/// can land as a cron when we see the row count grow (Stripe events older
+/// than ~30 days are never retried, so 90 days is a comfortable window).
+model WebhookDelivery {
+  id          String   @id @default(cuid())
+  source      String
+  eventId     String
+  eventType   String
+  processedAt DateTime @default(now())
+
+  @@unique([source, eventId])
+  @@index([source, processedAt])
+}
