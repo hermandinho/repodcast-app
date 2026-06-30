@@ -18,6 +18,9 @@ const isPublicRoute = createRouteMatcher([
   "/api/inngest(.*)",
   // Uptime probes (Vercel + external monitors) must work without auth.
   "/api/health",
+  // Phase 2.5 — client portal: the token itself is the credential, no
+  // Clerk login required. Route handler validates expiry + revocation.
+  "/portal/(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

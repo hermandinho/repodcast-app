@@ -101,6 +101,16 @@ const mocks = vi.hoisted(() => ({
       count: vi.fn(),
       create: vi.fn(),
     },
+    clientPortalLink: {
+      findUnique: vi.fn(),
+      findMany: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      updateMany: vi.fn(),
+    },
+    clientPortalAccessLog: {
+      create: vi.fn(),
+    },
     usageLog: {
       aggregate: vi.fn(),
       findMany: vi.fn(),
@@ -124,6 +134,7 @@ import * as clientBillingRepo from "@/server/db/client-billing";
 import * as deliverablesRepo from "@/server/db/deliverables";
 import * as clientStatementsRepo from "@/server/db/client-statements";
 import * as clientCostRepo from "@/server/db/client-cost";
+import * as clientPortalRepo from "@/server/db/client-portal";
 
 const A1 = "agency_a1";
 const A2 = "agency_a2";
@@ -186,6 +197,90 @@ describe("agencies repo — tenant filter + role gate", () => {
       NotFoundError,
     );
     expect(mocks.prisma.agency.findUniqueOrThrow).not.toHaveBeenCalled();
+  });
+
+  // --------------------------------------------------------------
+  // Phase 2.5 — agency branding (logo + accent color)
+  // --------------------------------------------------------------
+  it("updateAgencyBranding scopes the write to ctx.agencyId + writes both fields", async () => {
+    mocks.prisma.agency.updateMany.mockResolvedValue({ count: 1 });
+    mocks.prisma.agency.findUniqueOrThrow.mockResolvedValue({
+      id: A1,
+      brandLogoUrl: "https://cdn.example.com/agency_a1/logo.png",
+      brandAccentColor: "#3a5ba0",
+    });
+
+    await agenciesRepo.updateAgencyBranding(owner(A1), {
+      brandLogoUrl: "https://cdn.example.com/agency_a1/logo.png",
+      brandAccentColor: "#3a5ba0",
+    });
+
+    expect(mocks.prisma.agency.updateMany).toHaveBeenCalledWith({
+      where: { id: A1 },
+      data: {
+        brandLogoUrl: "https://cdn.example.com/agency_a1/logo.png",
+        brandAccentColor: "#3a5ba0",
+      },
+    });
+  });
+
+  it("updateAgencyBranding rejects EDITORs and REVIEWERs (branding is OWNER/ADMIN only)", async () => {
+    await expect(
+      agenciesRepo.updateAgencyBranding(editor(A1), {
+        brandLogoUrl: null,
+        brandAccentColor: null,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(
+      agenciesRepo.updateAgencyBranding(reviewer(A1), {
+        brandLogoUrl: null,
+        brandAccentColor: null,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    expect(mocks.prisma.agency.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("updateAgencyBranding surfaces NotFoundError when the write touches zero rows", async () => {
+    mocks.prisma.agency.updateMany.mockResolvedValue({ count: 0 });
+    await expect(
+      agenciesRepo.updateAgencyBranding(owner(A2), {
+        brandLogoUrl: null,
+        brandAccentColor: null,
+      }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    expect(mocks.prisma.agency.findUniqueOrThrow).not.toHaveBeenCalled();
+  });
+
+  it("updateAgencyBrandingInput normalises: empty → null, hex → lowercase, invalid hex rejected", () => {
+    // Empty string collapses to null on the wire so a "clear" gesture lands as a real unset.
+    const emptyToNull = agenciesRepo.updateAgencyBrandingInput.parse({
+      brandLogoUrl: "",
+      brandAccentColor: "",
+    });
+    expect(emptyToNull).toEqual({ brandLogoUrl: null, brandAccentColor: null });
+
+    // Uppercase hex is lowercased so persisted values are canonical regardless of input.
+    const lowered = agenciesRepo.updateAgencyBrandingInput.parse({
+      brandLogoUrl: "https://cdn.example.com/logo.png",
+      brandAccentColor: "#3A5BA0",
+    });
+    expect(lowered.brandAccentColor).toBe("#3a5ba0");
+
+    // Bad hex (5 digits) trips the regex — the Zod parse throws.
+    expect(() =>
+      agenciesRepo.updateAgencyBrandingInput.parse({
+        brandLogoUrl: null,
+        brandAccentColor: "#3A5B0",
+      }),
+    ).toThrow();
+
+    // Bad logo URL (not a URL) trips the .url() check.
+    expect(() =>
+      agenciesRepo.updateAgencyBrandingInput.parse({
+        brandLogoUrl: "not-a-url",
+        brandAccentColor: null,
+      }),
+    ).toThrow();
   });
 });
 
@@ -1592,5 +1687,155 @@ describe("voice-samples repo — tenant filter", () => {
     expect(totals.TWITTER).toBe(3);
     expect(totals.LINKEDIN).toBe(5);
     expect(totals.INSTAGRAM).toBe(0);
+  });
+});
+
+// ============================================================
+// client-portal repo (Phase 2.5)
+// ============================================================
+
+describe("client-portal repo — agency writes are tenant-scoped + token-lookup gates", () => {
+  it("createPortalLink rejects EDITOR/REVIEWER (write is OWNER/ADMIN only)", async () => {
+    await expect(
+      clientPortalRepo.createPortalLink(editor(A1), { clientId: "c1", expiresInDays: 30 }, "m1"),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(
+      clientPortalRepo.createPortalLink(reviewer(A1), { clientId: "c1", expiresInDays: 30 }, "m1"),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    expect(mocks.prisma.client.findFirst).not.toHaveBeenCalled();
+    expect(mocks.prisma.clientPortalLink.create).not.toHaveBeenCalled();
+  });
+
+  it("createPortalLink rejects a cross-tenant clientId before any write", async () => {
+    // Tenant gate: client lookup scoped to ctx.agencyId fails the pre-check.
+    mocks.prisma.client.findFirst.mockResolvedValue(null);
+    await expect(
+      clientPortalRepo.createPortalLink(
+        owner(A2),
+        { clientId: "c_a1_owned", expiresInDays: 30 },
+        "m1",
+      ),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    expect(mocks.prisma.client.findFirst).toHaveBeenCalledWith({
+      where: { id: "c_a1_owned", agencyId: A2 },
+      select: { id: true },
+    });
+    expect(mocks.prisma.clientPortalLink.create).not.toHaveBeenCalled();
+  });
+
+  it("createPortalLink writes a row with expiresAt = now + expiresInDays", async () => {
+    mocks.prisma.client.findFirst.mockResolvedValue({ id: "c1" });
+    mocks.prisma.clientPortalLink.create.mockResolvedValue({ id: "l1", token: "t1" });
+
+    const before = Date.now();
+    await clientPortalRepo.createPortalLink(
+      owner(A1),
+      { clientId: "c1", expiresInDays: 7 },
+      "m_owner",
+    );
+
+    expect(mocks.prisma.clientPortalLink.create).toHaveBeenCalledTimes(1);
+    const args = mocks.prisma.clientPortalLink.create.mock.calls[0]![0]!;
+    expect(args.data.clientId).toBe("c1");
+    expect(args.data.createdByMemberId).toBe("m_owner");
+    const expiresAt = args.data.expiresAt as Date;
+    expect(expiresAt).toBeInstanceOf(Date);
+    const deltaMs = expiresAt.getTime() - before;
+    // 7 days ± a few seconds of clock slop.
+    expect(deltaMs).toBeGreaterThanOrEqual(7 * 24 * 60 * 60 * 1000 - 2000);
+    expect(deltaMs).toBeLessThanOrEqual(7 * 24 * 60 * 60 * 1000 + 2000);
+  });
+
+  it("revokePortalLink scopes the updateMany by client.agencyId + revokedAt:null", async () => {
+    mocks.prisma.clientPortalLink.updateMany.mockResolvedValue({ count: 1 });
+    await clientPortalRepo.revokePortalLink(owner(A1), "l1");
+    expect(mocks.prisma.clientPortalLink.updateMany).toHaveBeenCalledWith({
+      where: { id: "l1", revokedAt: null, client: { agencyId: A1 } },
+      data: { revokedAt: expect.any(Date) },
+    });
+  });
+
+  it("revokePortalLink surfaces NotFoundError when no row matches (cross-tenant or already revoked)", async () => {
+    mocks.prisma.clientPortalLink.updateMany.mockResolvedValue({ count: 0 });
+    await expect(clientPortalRepo.revokePortalLink(owner(A2), "l1")).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
+  });
+
+  it("listPortalLinks filters by clientId + client.agencyId, newest first", async () => {
+    mocks.prisma.client.findFirst.mockResolvedValue({ id: "c1" });
+    mocks.prisma.clientPortalLink.findMany.mockResolvedValue([]);
+    await clientPortalRepo.listPortalLinks(owner(A1), "c1");
+    expect(mocks.prisma.clientPortalLink.findMany).toHaveBeenCalledWith({
+      where: { clientId: "c1", client: { agencyId: A1 } },
+      orderBy: { createdAt: "desc" },
+      include: {
+        createdByMember: { select: { id: true, name: true, email: true } },
+      },
+    });
+  });
+
+  // --------------------------------------------------------------
+  // Public token lookup — no TenantContext. The token IS the credential.
+  // --------------------------------------------------------------
+
+  it("getPortalLinkByToken returns null when no link matches", async () => {
+    mocks.prisma.clientPortalLink.findUnique.mockResolvedValue(null);
+    const result = await clientPortalRepo.getPortalLinkByToken("missing");
+    expect(result).toBeNull();
+  });
+
+  it("getPortalLinkByToken returns null when the link is revoked (no signal vs missing)", async () => {
+    mocks.prisma.clientPortalLink.findUnique.mockResolvedValue({
+      id: "l1",
+      token: "t1",
+      revokedAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
+      client: {
+        id: "c1",
+        name: "Acme",
+        agency: { id: A1, name: "A", brandLogoUrl: null, brandAccentColor: null },
+      },
+    });
+    const result = await clientPortalRepo.getPortalLinkByToken("t1");
+    expect(result).toBeNull();
+  });
+
+  it("getPortalLinkByToken returns null when the link is expired", async () => {
+    mocks.prisma.clientPortalLink.findUnique.mockResolvedValue({
+      id: "l1",
+      token: "t1",
+      revokedAt: null,
+      expiresAt: new Date(Date.now() - 60_000),
+      client: {
+        id: "c1",
+        name: "Acme",
+        agency: { id: A1, name: "A", brandLogoUrl: null, brandAccentColor: null },
+      },
+    });
+    const result = await clientPortalRepo.getPortalLinkByToken("t1");
+    expect(result).toBeNull();
+  });
+
+  it("getPortalLinkByToken returns the link + agency branding when valid", async () => {
+    const link = {
+      id: "l1",
+      token: "t1",
+      revokedAt: null,
+      expiresAt: new Date(Date.now() + 86_400_000),
+      client: {
+        id: "c1",
+        name: "Acme",
+        agency: {
+          id: A1,
+          name: "A",
+          brandLogoUrl: "https://cdn.example.com/a.png",
+          brandAccentColor: "#3a5ba0",
+        },
+      },
+    };
+    mocks.prisma.clientPortalLink.findUnique.mockResolvedValue(link);
+    const result = await clientPortalRepo.getPortalLinkByToken("t1");
+    expect(result).toBe(link);
   });
 });

@@ -131,6 +131,13 @@ model Agency {
   /// can add currencies without a migration — `lib/currencies.ts` is the
   /// UI-side allowlist.
   preferredCurrency    String   @default("USD")
+  /// Phase 2.5 — white-label assets used by the client-facing surfaces
+  /// (portal, branded exports). Logo is an R2 public URL (same scheme as
+  /// `Client.artworkUrl`); accent color is a 7-char hex string. Both
+  /// nullable; client-facing renders fall back to Repodcast defaults when
+  /// unset.
+  brandLogoUrl         String?
+  brandAccentColor     String?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 

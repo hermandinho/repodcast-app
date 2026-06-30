@@ -39,6 +39,41 @@ export const updatePreferredCurrencyInput = z.object({
 });
 export type UpdatePreferredCurrencyInput = z.infer<typeof updatePreferredCurrencyInput>;
 
+/**
+ * Phase 2.5 — white-label settings (logo + accent color). Both fields
+ * are independently nullable so the agency can opt in to either piece.
+ * Empty strings collapse to `null` so a "clear" gesture from the form
+ * lands as a real unset rather than an empty string in the DB.
+ *
+ * Accent color is constrained to 7-char hex (`#RRGGBB`) at the input
+ * layer; the DB column accepts any string so we can extend later.
+ *
+ * Empties are normalised *before* the URL / regex validators run via
+ * `z.preprocess` — otherwise an empty form field would trip `.url()`
+ * even though we treat empties as a clear gesture.
+ */
+const emptyToNull = (v: unknown) => (typeof v === "string" && v.trim().length === 0 ? null : v);
+
+export const updateAgencyBrandingInput = z.object({
+  brandLogoUrl: z.preprocess(
+    emptyToNull,
+    z
+      .string()
+      .url()
+      .nullish()
+      .transform((v) => v ?? null),
+  ),
+  brandAccentColor: z.preprocess(
+    emptyToNull,
+    z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/u, "Use a 6-digit hex color like #3A5BA0")
+      .nullish()
+      .transform((v) => (v ? v.toLowerCase() : null)),
+  ),
+});
+export type UpdateAgencyBrandingInput = z.infer<typeof updateAgencyBrandingInput>;
+
 const WRITE_ROLES = [MemberRole.OWNER, MemberRole.ADMIN] as const;
 
 export type CreateAgencyForUserInput = CreateAgencyInput & {
@@ -165,6 +200,28 @@ export async function updatePreferredCurrency(
   const { count } = await prisma.agency.updateMany({
     where: { id: ctx.agencyId },
     data: { preferredCurrency: patch.currency },
+  });
+  if (count === 0) throw new NotFoundError(`Agency ${ctx.agencyId} not found`);
+  return prisma.agency.findUniqueOrThrow({ where: { id: ctx.agencyId } });
+}
+
+/**
+ * Phase 2.5 — agency white-label branding setter. OWNER/ADMIN only;
+ * `updateMany` keeps the write tenant-scoped atomically. Empty values
+ * are coerced to NULL by the Zod input so a "clear" gesture lands as a
+ * real unset (UI falls back to Repodcast defaults on null).
+ */
+export async function updateAgencyBranding(
+  ctx: TenantContext,
+  patch: UpdateAgencyBrandingInput,
+): Promise<Agency> {
+  requireRole(ctx, WRITE_ROLES);
+  const { count } = await prisma.agency.updateMany({
+    where: { id: ctx.agencyId },
+    data: {
+      brandLogoUrl: patch.brandLogoUrl,
+      brandAccentColor: patch.brandAccentColor,
+    },
   });
   if (count === 0) throw new NotFoundError(`Agency ${ctx.agencyId} not found`);
   return prisma.agency.findUniqueOrThrow({ where: { id: ctx.agencyId } });

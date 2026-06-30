@@ -1,13 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BillingCycle, ClientStatus, MemberRole, OutputStatus, Platform } from "@prisma/client";
+import { headers } from "next/headers";
 import { ClientBillingForm } from "@/components/clients/client-billing-form";
 import type { ClientBillingFormInitial } from "@/components/clients/client-billing-form";
 import { CostToServeCard } from "@/components/clients/cost-to-serve-card";
 import { DeliverableLedgerFilters } from "@/components/clients/deliverable-ledger-filters";
+import { PortalLinksCard, type PortalLinkRow } from "@/components/clients/portal-links-card";
 import { PlatformBadge } from "@/components/ui/platform-badge";
 import { platforms } from "@/lib/sample-data/platforms";
 import { getClientBillingProfile } from "@/server/db/client-billing";
+import { listPortalLinks } from "@/server/db/client-portal";
 import { costForClient } from "@/server/db/client-cost";
 import { listDeliverablesForClient, type DeliverableRow } from "@/server/db/deliverables";
 import { getClientForUI, isLiveDb } from "@/server/data/source";
@@ -124,6 +127,31 @@ export default async function ClientBillingPage({
   const costThisMonth =
     isLiveDb() && isAdminOrOwner ? await costForClient(tenant, client.key) : null;
 
+  // Portal links for this client — visible to every role; mint/revoke
+  // gated on OWNER/ADMIN inside the card itself.
+  const portalLinks: PortalLinkRow[] = isLiveDb()
+    ? (await listPortalLinks(tenant, client.key)).map((l) => ({
+        id: l.id,
+        token: l.token,
+        expiresAtIso: l.expiresAt.toISOString(),
+        revokedAtIso: l.revokedAt?.toISOString() ?? null,
+        lastAccessedAtIso: l.lastAccessedAt?.toISOString() ?? null,
+        createdByName: l.createdByMember?.name?.trim() || l.createdByMember?.email || null,
+      }))
+    : [];
+
+  // Compose the share URL from the inbound request host so we don't have
+  // to wire an env var; `NEXT_PUBLIC_APP_URL` wins when set so production
+  // links use the canonical domain even when served behind a tunnel.
+  const reqHeaders = await headers();
+  const portalBaseUrl =
+    process.env.NEXT_PUBLIC_APP_URL ??
+    (() => {
+      const proto = reqHeaders.get("x-forwarded-proto") ?? "https";
+      const host = reqHeaders.get("host") ?? "localhost:3000";
+      return `${proto}://${host}`;
+    })();
+
   const initial: ClientBillingFormInitial = {
     billingContactName: profile?.billingContactName ?? "",
     billingContactEmail: profile?.billingContactEmail ?? "",
@@ -199,6 +227,14 @@ export default async function ClientBillingPage({
           currency={profile?.currency ?? "USD"}
         />
       )}
+
+      {/* Phase 2.5 — client portal links. Read-only for non-OWNER/ADMIN. */}
+      <PortalLinksCard
+        clientId={client.key}
+        initialLinks={portalLinks}
+        baseUrl={portalBaseUrl}
+        canManage={isAdminOrOwner}
+      />
 
       {/* Deliverable ledger */}
       <section className="border-border bg-surface rounded-3xl border p-5">
