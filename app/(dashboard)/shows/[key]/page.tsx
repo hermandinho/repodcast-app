@@ -4,7 +4,7 @@ import { PlatformBadge } from "@/components/ui/platform-badge";
 import { StatusPill } from "@/components/ui/status-pill";
 import { VoiceStrengthBars } from "@/components/ui/voice-strength-bars";
 import { ShowDetailActions } from "@/components/shows/show-detail-actions";
-import { getShowForUI, getShowEditInitialForUI } from "@/server/data/source";
+import { getClientForUI, getShowForUI, getShowEditInitialForUI } from "@/server/data/source";
 import { resolveTenantContext } from "@/server/data/tenant";
 import { platforms } from "@/lib/sample-data/platforms";
 import { voiceLabel, voiceTextColor } from "@/lib/sample-data/voice-strength";
@@ -18,29 +18,38 @@ export default async function ShowDetailPage({ params }: { params: Promise<{ key
   ]);
   if (!show) notFound();
 
+  // Resolve the parent client for the breadcrumb. Optional — when the
+  // lookup misses (cross-tenant, deleted, sample-mode quirk) the
+  // breadcrumb degrades to just "Shows / {show.name}".
+  const parentClient = await getClientForUI(tenant, show.clientKey);
+
   const label = voiceLabel(show.samples);
   const color = voiceTextColor(show.samples);
 
   return (
     <div className="px-[30px] py-[28px] pb-[60px]">
-      <Link
-        href="/shows"
-        className="text-muted hover:text-ink mb-4 inline-flex items-center gap-[6px] font-sans text-[12.5px] font-medium transition-colors"
+      <nav
+        aria-label="Breadcrumb"
+        className="text-muted-2 mb-4 flex flex-wrap items-center gap-[6px] font-sans text-[12.5px]"
       >
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 13 13"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M8 3L4 6.5l4 3.5" />
-        </svg>
-        All shows
-      </Link>
+        <Link href="/clients" className="hover:text-ink transition-colors">
+          Clients
+        </Link>
+        <span className="text-[#C3CBD8]">/</span>
+        {parentClient ? (
+          <Link href={`/clients/${parentClient.key}`} className="hover:text-ink transition-colors">
+            {parentClient.name}
+          </Link>
+        ) : (
+          <span>—</span>
+        )}
+        <span className="text-[#C3CBD8]">/</span>
+        <Link href="/shows" className="hover:text-ink transition-colors">
+          Shows
+        </Link>
+        <span className="text-[#C3CBD8]">/</span>
+        <span className="text-muted truncate">{show.name}</span>
+      </nav>
 
       <div className="border-border bg-surface mb-[18px] flex flex-wrap items-center gap-5 rounded-3xl border p-5">
         {show.artworkUrl ? (
@@ -155,20 +164,37 @@ export default async function ShowDetailPage({ params }: { params: Promise<{ key
             </span>
           </div>
           <div>
-            {show.episodes.map((e, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-3 border-t border-[#F0F3F8] px-1 py-[13px] transition-colors hover:bg-[#FAFBFD]"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="text-ink truncate text-[13px] font-medium">{e.title}</div>
-                  <div className="text-muted-2 mt-[2px] text-[11.5px]">
-                    {e.date} · {e.outputs}
+            {show.episodes.map((e, i) => {
+              const row = (
+                <>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-ink truncate text-[13px] font-medium">{e.title}</div>
+                    <div className="text-muted-2 mt-[2px] text-[11.5px]">
+                      {e.date} · {e.outputs}
+                    </div>
                   </div>
+                  <StatusPill status={e.status} />
+                </>
+              );
+              // Live-mode rows carry `id`; sample-mode fixtures don't, so
+              // those fall back to a non-link summary instead of dead URLs.
+              return e.id ? (
+                <Link
+                  key={e.id}
+                  href={`/episodes/${e.id}`}
+                  className="hover:bg-canvas flex items-center gap-3 border-t border-[#F0F3F8] px-1 py-[13px] transition-colors"
+                >
+                  {row}
+                </Link>
+              ) : (
+                <div
+                  key={i}
+                  className="flex items-center gap-3 border-t border-[#F0F3F8] px-1 py-[13px]"
+                >
+                  {row}
                 </div>
-                <StatusPill status={e.status} />
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       </div>

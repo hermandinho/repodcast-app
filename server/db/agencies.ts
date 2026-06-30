@@ -4,6 +4,7 @@ import { MemberRole, Plan, type Agency } from "@prisma/client";
 import { z } from "zod";
 import { NotFoundError } from "@/server/auth/errors";
 import { requireRole, type TenantContext } from "@/server/auth/tenant";
+import { SUPPORTED_CURRENCIES } from "@/lib/currencies";
 import { sendWelcomeEmail } from "@/server/email/send";
 import { prisma } from "./client";
 
@@ -27,6 +28,16 @@ export const updateRenewalRemindersInput = z.object({
   enabled: z.boolean(),
 });
 export type UpdateRenewalRemindersInput = z.infer<typeof updateRenewalRemindersInput>;
+
+/**
+ * Phase 2.9-followup — preferred display + checkout currency. Bounded to
+ * SUPPORTED_CURRENCIES at the action layer (the DB column is free-form so
+ * we can add currencies without a migration).
+ */
+export const updatePreferredCurrencyInput = z.object({
+  currency: z.enum(SUPPORTED_CURRENCIES),
+});
+export type UpdatePreferredCurrencyInput = z.infer<typeof updatePreferredCurrencyInput>;
 
 const WRITE_ROLES = [MemberRole.OWNER, MemberRole.ADMIN] as const;
 
@@ -136,6 +147,24 @@ export async function updateRenewalReminders(
   const { count } = await prisma.agency.updateMany({
     where: { id: ctx.agencyId },
     data: { renewalRemindersEnabled: patch.enabled },
+  });
+  if (count === 0) throw new NotFoundError(`Agency ${ctx.agencyId} not found`);
+  return prisma.agency.findUniqueOrThrow({ where: { id: ctx.agencyId } });
+}
+
+/**
+ * Self-service preferred-currency setter. Pairs with the currency picker on
+ * /settings/billing. Same OWNER/ADMIN gate; `updateMany` keeps the write
+ * tenant-scoped atomically.
+ */
+export async function updatePreferredCurrency(
+  ctx: TenantContext,
+  patch: UpdatePreferredCurrencyInput,
+): Promise<Agency> {
+  requireRole(ctx, WRITE_ROLES);
+  const { count } = await prisma.agency.updateMany({
+    where: { id: ctx.agencyId },
+    data: { preferredCurrency: patch.currency },
   });
   if (count === 0) throw new NotFoundError(`Agency ${ctx.agencyId} not found`);
   return prisma.agency.findUniqueOrThrow({ where: { id: ctx.agencyId } });

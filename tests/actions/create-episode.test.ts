@@ -147,6 +147,11 @@ describe("createEpisodeAction — live mode end-to-end", () => {
       title: "Smoke episode",
       transcript: LONG_TRANSCRIPT,
       source: TranscriptSource.PASTE,
+      // Phase 2.7 — UPLOAD source threads an R2 object key through; PASTE
+      // input doesn't carry one, so the action defaults it to null.
+      audioUrl: null,
+      // Phase 2.8 — RSS pins the publisher GUID here; non-RSS paths null it.
+      externalUrl: null,
     });
 
     // Generation request goes out with the platforms the user selected.
@@ -184,6 +189,197 @@ describe("createEpisodeAction — live mode end-to-end", () => {
     mocks.createEpisode.mockRejectedValueOnce(new Error("DB down"));
 
     await expect(createEpisodeAction(validInput)).rejects.toThrow("DB down");
+    expect(mocks.inngestSend).not.toHaveBeenCalled();
+  });
+
+  // ----------------------------------------------------------------
+  // Phase 2.7 — UPLOAD source path. The action threads the R2 object key
+  // onto the Episode + dispatches transcribe (not generate) so the
+  // transcribe pipeline can fill the transcript and chain into generate.
+  // ----------------------------------------------------------------
+  it("routes UPLOAD source through transcribe-requested with the audio key + pre-minted id", async () => {
+    mocks.isLiveDb.mockReturnValue(true);
+    const preMintedId = "audio-episode-uuid-1234";
+
+    const result = await createEpisodeAction({
+      showId: SHOW_ID,
+      title: "Audio episode",
+      source: TranscriptSource.UPLOAD,
+      transcript: "",
+      audioObjectKey: `audio/agency_smoke/${SHOW_ID}/${preMintedId}.mp3`,
+      episodeId: preMintedId,
+      platforms: [Platform.TWITTER, Platform.LINKEDIN],
+    });
+
+    expect(result).toEqual({ ok: true, episodeId: EPISODE_ID });
+
+    const [, payload] = mocks.createEpisode.mock.calls[0]!;
+    expect(payload).toEqual({
+      // Pre-minted id is threaded into the repo so Episode.id matches
+      // the id embedded in the R2 object key.
+      id: preMintedId,
+      showId: SHOW_ID,
+      title: "Audio episode",
+      transcript: "",
+      source: TranscriptSource.UPLOAD,
+      audioUrl: `audio/agency_smoke/${SHOW_ID}/${preMintedId}.mp3`,
+      externalUrl: null,
+    });
+
+    expect(mocks.inngestSend).toHaveBeenCalledOnce();
+    expect(mocks.inngestSend).toHaveBeenCalledWith({
+      name: "episode/transcribe.requested",
+      data: { episodeId: EPISODE_ID, platforms: [Platform.TWITTER, Platform.LINKEDIN] },
+    });
+  });
+
+  it("rejects UPLOAD source without an audioObjectKey", async () => {
+    mocks.isLiveDb.mockReturnValue(true);
+
+    await expect(
+      createEpisodeAction({
+        showId: SHOW_ID,
+        title: "Audio episode",
+        source: TranscriptSource.UPLOAD,
+        transcript: "",
+        episodeId: "irrelevant",
+        platforms: [Platform.TWITTER],
+      }),
+    ).rejects.toThrow(ValidationError);
+
+    expect(mocks.createEpisode).not.toHaveBeenCalled();
+    expect(mocks.inngestSend).not.toHaveBeenCalled();
+  });
+
+  it("rejects UPLOAD source without a pre-minted episodeId", async () => {
+    mocks.isLiveDb.mockReturnValue(true);
+
+    await expect(
+      createEpisodeAction({
+        showId: SHOW_ID,
+        title: "Audio episode",
+        source: TranscriptSource.UPLOAD,
+        transcript: "",
+        audioObjectKey: `audio/agency_smoke/${SHOW_ID}/missing-id.mp3`,
+        platforms: [Platform.TWITTER],
+      }),
+    ).rejects.toThrow(ValidationError);
+
+    expect(mocks.createEpisode).not.toHaveBeenCalled();
+    expect(mocks.inngestSend).not.toHaveBeenCalled();
+  });
+
+  // ----------------------------------------------------------------
+  // Phase 2.8 — RSS source path. The action threads the publisher GUID
+  // onto Episode.externalUrl, pins the feed URL on the event payload so
+  // a later show.rssUrl edit doesn't shift the lookup, and dispatches
+  // `episode/rss.import.requested` instead of generate.
+  // ----------------------------------------------------------------
+  it("routes RSS source through rss-import-requested with the guid + canonical feed URL", async () => {
+    mocks.isLiveDb.mockReturnValue(true);
+
+    const result = await createEpisodeAction({
+      showId: SHOW_ID,
+      title: "RSS episode",
+      source: TranscriptSource.RSS,
+      transcript: "",
+      rssGuid: "ff-001-hire-four",
+      rssFeedUrl: "https://feeds.example.com/ff.xml",
+      rssTitle: "Why Your First 10 Hires Define Everything",
+      platforms: [Platform.TWITTER, Platform.LINKEDIN],
+    });
+
+    expect(result).toEqual({ ok: true, episodeId: EPISODE_ID });
+
+    const [, payload] = mocks.createEpisode.mock.calls[0]!;
+    expect(payload).toEqual({
+      showId: SHOW_ID,
+      title: "RSS episode",
+      transcript: "",
+      source: TranscriptSource.RSS,
+      audioUrl: null,
+      // Publisher GUID — stable lookup key for the import pipeline + de-dupe basis.
+      externalUrl: "ff-001-hire-four",
+    });
+
+    expect(mocks.inngestSend).toHaveBeenCalledOnce();
+    expect(mocks.inngestSend).toHaveBeenCalledWith({
+      name: "episode/rss.import.requested",
+      data: {
+        episodeId: EPISODE_ID,
+        guid: "ff-001-hire-four",
+        feedUrl: "https://feeds.example.com/ff.xml",
+        platforms: [Platform.TWITTER, Platform.LINKEDIN],
+      },
+    });
+  });
+
+  it("falls back to the publisher-supplied title when the user leaves the title blank", async () => {
+    mocks.isLiveDb.mockReturnValue(true);
+
+    await createEpisodeAction({
+      showId: SHOW_ID,
+      source: TranscriptSource.RSS,
+      transcript: "",
+      rssGuid: "g1",
+      rssFeedUrl: "https://feeds.example.com/ff.xml",
+      rssTitle: "Publisher-supplied title",
+      platforms: [Platform.TWITTER],
+    });
+
+    const [, payload] = mocks.createEpisode.mock.calls[0]!;
+    expect(payload.title).toBe("Publisher-supplied title");
+  });
+
+  it("rejects RSS source without a guid", async () => {
+    mocks.isLiveDb.mockReturnValue(true);
+
+    await expect(
+      createEpisodeAction({
+        showId: SHOW_ID,
+        source: TranscriptSource.RSS,
+        transcript: "",
+        rssFeedUrl: "https://feeds.example.com/ff.xml",
+        platforms: [Platform.TWITTER],
+      }),
+    ).rejects.toThrow(ValidationError);
+
+    expect(mocks.createEpisode).not.toHaveBeenCalled();
+    expect(mocks.inngestSend).not.toHaveBeenCalled();
+  });
+
+  it("rejects RSS source without a feed URL", async () => {
+    mocks.isLiveDb.mockReturnValue(true);
+
+    await expect(
+      createEpisodeAction({
+        showId: SHOW_ID,
+        source: TranscriptSource.RSS,
+        transcript: "",
+        rssGuid: "g1",
+        platforms: [Platform.TWITTER],
+      }),
+    ).rejects.toThrow(ValidationError);
+
+    expect(mocks.createEpisode).not.toHaveBeenCalled();
+    expect(mocks.inngestSend).not.toHaveBeenCalled();
+  });
+
+  it("rejects RSS source when the feed URL is malformed", async () => {
+    mocks.isLiveDb.mockReturnValue(true);
+
+    await expect(
+      createEpisodeAction({
+        showId: SHOW_ID,
+        source: TranscriptSource.RSS,
+        transcript: "",
+        rssGuid: "g1",
+        rssFeedUrl: "not-a-url",
+        platforms: [Platform.TWITTER],
+      }),
+    ).rejects.toThrow(ValidationError);
+
+    expect(mocks.createEpisode).not.toHaveBeenCalled();
     expect(mocks.inngestSend).not.toHaveBeenCalled();
   });
 });

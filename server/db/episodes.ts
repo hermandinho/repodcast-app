@@ -32,16 +32,61 @@ export const listEpisodesFilterInput = z.object({
 });
 export type ListEpisodesFilterInput = z.infer<typeof listEpisodesFilterInput>;
 
-export const createEpisodeInput = z.object({
-  showId: z.string().min(1),
-  title: z.string().min(1).max(240),
-  transcript: z.string().min(500, "Transcript must be at least 500 characters"),
-  source: z.nativeEnum(TranscriptSource),
-  audioUrl: z.string().url().nullish(),
-  externalUrl: z.string().url().nullish(),
-  recordedAt: z.date().nullish(),
-  durationSec: z.number().int().positive().nullish(),
-});
+export const createEpisodeInput = z
+  .object({
+    /**
+     * Optional caller-supplied id. Used by the audio-upload flow so the
+     * R2 object key (which embeds the episodeId) and the Episode row
+     * share an id without a rename. Defaults to Prisma's `cuid()` when
+     * omitted.
+     */
+    id: z.string().min(1).optional(),
+    showId: z.string().min(1),
+    title: z.string().min(1).max(240),
+    /**
+     * Empty string is allowed for non-PASTE sources — the transcribe
+     * pipeline fills it in. The ≥ 500-char floor is enforced only for
+     * PASTE in the `.superRefine` below so the wizard's audio/RSS/
+     * YouTube branches can submit without a transcript and have it
+     * land asynchronously.
+     */
+    transcript: z.string().default(""),
+    source: z.nativeEnum(TranscriptSource),
+    /**
+     * UPLOAD: R2 object key returned by `signAudioUploadAction`.
+     * RSS / YOUTUBE: external download URL. Validation is `.min(1)`
+     * (not `.url()`) because R2 keys are not URLs.
+     */
+    audioUrl: z.string().min(1).nullish(),
+    /**
+     * Free-form external identifier — Podcast Index GUID for RSS imports
+     * (often a UUID, sometimes a URL, sometimes a publisher-local id) or
+     * a YouTube video id. Validation is `.min(1)` (not `.url()`) because
+     * publisher GUIDs are not URLs.
+     */
+    externalUrl: z.string().min(1).nullish(),
+    recordedAt: z.date().nullish(),
+    durationSec: z.number().int().positive().nullish(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.source === TranscriptSource.PASTE && data.transcript.length < 500) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.too_small,
+        minimum: 500,
+        origin: "string",
+        inclusive: true,
+        path: ["transcript"],
+        message: "Transcript must be at least 500 characters",
+      });
+    }
+    if (data.source === TranscriptSource.UPLOAD && !data.audioUrl) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["audioUrl"],
+        message: "Audio file is required for UPLOAD source",
+      });
+    }
+  });
 export type CreateEpisodeInput = z.infer<typeof createEpisodeInput>;
 
 // ============================================================
@@ -185,6 +230,63 @@ export async function getEpisode(ctx: TenantContext, episodeId: string): Promise
 // Mutations
 // ============================================================
 
+/**
+ * Phase 2.7 — manual transcript correction. EDITOR+. Used when the
+ * automatic Deepgram pass produced a poor transcript and the user wants
+ * to paste their own, or to tweak it before generation runs.
+ *
+ * Tenant filter goes through the same nested join as createEpisode's
+ * pre-check. A cross-tenant id surfaces as NotFoundError.
+ */
+export const updateEpisodeTranscriptInput = z.object({
+  transcript: z.string().min(1, "Transcript can't be empty"),
+});
+export type UpdateEpisodeTranscriptInput = z.infer<typeof updateEpisodeTranscriptInput>;
+
+/**
+ * Episode-title rename — used by the inline-editable header on the
+ * episode page so users can replace the wizard's "Untitled episode"
+ * default. EDITOR+. Tenant-filtered atomically via `updateMany`.
+ */
+export const updateEpisodeTitleInput = z.object({
+  title: z.string().trim().min(1, "Title can't be empty").max(240),
+});
+export type UpdateEpisodeTitleInput = z.infer<typeof updateEpisodeTitleInput>;
+
+export async function updateEpisodeTitle(
+  ctx: TenantContext,
+  episodeId: string,
+  patch: UpdateEpisodeTitleInput,
+): Promise<Episode> {
+  requireRole(ctx, WRITE_ROLES);
+  const { count } = await prisma.episode.updateMany({
+    where: {
+      id: episodeId,
+      show: { client: { agencyId: ctx.agencyId } },
+    },
+    data: { title: patch.title },
+  });
+  if (count === 0) throw new NotFoundError(`Episode ${episodeId} not found`);
+  return prisma.episode.findUniqueOrThrow({ where: { id: episodeId } });
+}
+
+export async function updateEpisodeTranscript(
+  ctx: TenantContext,
+  episodeId: string,
+  patch: UpdateEpisodeTranscriptInput,
+): Promise<Episode> {
+  requireRole(ctx, WRITE_ROLES);
+  const { count } = await prisma.episode.updateMany({
+    where: {
+      id: episodeId,
+      show: { client: { agencyId: ctx.agencyId } },
+    },
+    data: { transcript: patch.transcript },
+  });
+  if (count === 0) throw new NotFoundError(`Episode ${episodeId} not found`);
+  return prisma.episode.findUniqueOrThrow({ where: { id: episodeId } });
+}
+
 export async function createEpisode(
   ctx: TenantContext,
   input: CreateEpisodeInput,
@@ -208,6 +310,9 @@ export async function createEpisode(
 
   return prisma.episode.create({
     data: {
+      // Caller-supplied id is honoured when present (audio-upload flow);
+      // omitting it lets Prisma's `@default(cuid())` fire as normal.
+      ...(input.id ? { id: input.id } : {}),
       showId: input.showId,
       title: input.title,
       transcript: input.transcript,

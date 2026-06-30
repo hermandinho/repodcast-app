@@ -1,8 +1,10 @@
 import { inngest } from "./client";
 import { checkRenewals } from "./functions/check-renewals";
 import { generateEpisode } from "./functions/generate-episode";
+import { importRssEpisode } from "./functions/import-rss-episode";
 import { refreshVoiceDescription } from "./functions/refresh-voice-description";
 import { regenerateOutput } from "./functions/regenerate-output";
+import { transcribeEpisode } from "./functions/transcribe-episode";
 
 /**
  * Smoke-test function. Kept as a heartbeat for the Inngest dev UI; we'll
@@ -26,5 +28,7 @@ export const functions = [
   generateEpisode,
   regenerateOutput,
   refreshVoiceDescription,
+  transcribeEpisode,
+  importRssEpisode,
   checkRenewals,
 ];

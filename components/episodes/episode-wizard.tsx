@@ -2,14 +2,17 @@
 
 import { useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Platform } from "@prisma/client";
+import { Platform, TranscriptSource } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import { VoiceStrengthBars } from "@/components/ui/voice-strength-bars";
 import { PlanLimitBanner, type PlanLimitCapacity } from "@/components/billing/plan-limit-banner";
+import { AudioUpload, type AudioUploadValue } from "@/components/episodes/audio-upload";
+import { RssFeedPicker, type RssSelection } from "@/components/episodes/rss-feed-picker";
 import { sampleShows, type SampleShow } from "@/lib/sample-data/shows";
 import { platforms, type PlatformKey } from "@/lib/sample-data/platforms";
 import { voiceBg, voiceLabel, voiceTextColor } from "@/lib/sample-data/voice-strength";
+import { formatAudioSize } from "@/lib/audio";
 import { createEpisodeAction } from "@/app/(dashboard)/episodes/new/actions";
 
 type Method = "paste" | "upload" | "rss" | "youtube";
@@ -183,33 +186,70 @@ const PLATFORM_KEY_TO_ENUM: Record<PlatformKey, Platform> = {
   news: Platform.NEWSLETTER,
 };
 
+/** Lightweight shape for the client-filter chip row on step 1. */
+export type WizardClientOption = {
+  id: string;
+  name: string;
+};
+
 export function EpisodeWizard({
-  clients = sampleShows,
-  initialClientKey,
+  shows = sampleShows,
+  clients = [],
+  initialShowKey,
+  initialClientId,
   episodeCapacity = null,
 }: {
-  /** Real clients from the data-source layer, or sampleShows fallback. */
-  clients?: SampleShow[];
-  /** Pre-select a client (from `?clientId=…` on /episodes/new). */
-  initialClientKey?: string;
+  /** All shows the agency owns, in display order. */
+  shows?: SampleShow[];
+  /** All clients the agency owns — drives the step-1 filter chip row. */
+  clients?: WizardClientOption[];
+  /** Pre-select a show (from `?showId=…` on /episodes/new). */
+  initialShowKey?: string;
+  /**
+   * Pre-select a client filter (from `?clientId=…`). When set without
+   * `initialShowKey`, the first show owned by that client becomes the
+   * default selection.
+   */
+  initialClientId?: string;
   /** Current episodes-per-month usage. Null in sample-data mode. */
   episodeCapacity?: PlanLimitCapacity | null;
 }) {
   const router = useRouter();
+
+  // Resolve the initial client filter and show selection in order of
+  // precedence: explicit `initialShowKey` → its parent's clientKey →
+  // explicit `initialClientId` → first client overall. The "no filter"
+  // (all clients) is the implicit default when nothing matches.
+  const seedShow = initialShowKey ? shows.find((s) => s.key === initialShowKey) : null;
+  const seedClientId = seedShow?.clientKey ?? initialClientId ?? null;
+
   const [step, setStep] = useState(1);
-  const [clientKey, setClientKey] = useState(initialClientKey ?? clients[0]?.key ?? "ff");
+  const [clientFilter, setClientFilter] = useState<string | null>(seedClientId);
+  const [showId, setShowId] = useState(() => {
+    if (seedShow) return seedShow.key;
+    if (seedClientId) {
+      const firstInClient = shows.find((s) => s.clientKey === seedClientId);
+      if (firstInClient) return firstInClient.key;
+    }
+    return shows[0]?.key ?? "ff";
+  });
+  const [title, setTitle] = useState("");
   const [method, setMethod] = useState<Method>("paste");
   const [transcript, setTranscript] = useState("");
-  const [rssUrl, setRssUrl] = useState("");
+  const [audio, setAudio] = useState<AudioUploadValue | null>(null);
+  const [rssSelection, setRssSelection] = useState<RssSelection | null>(null);
   const [ytUrl, setYtUrl] = useState("");
   const [enabled, setEnabled] = useState<Record<PlatformKey, boolean>>(ALL_ON);
   const [submitting, startSubmit] = useTransition();
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const client = useMemo(
-    () => clients.find((c) => c.key === clientKey) ?? clients[0],
-    [clientKey, clients],
+  // Shows visible to the show-picker — narrowed when a client filter is on.
+  const visibleShows = useMemo(
+    () => (clientFilter ? shows.filter((s) => s.clientKey === clientFilter) : shows),
+    [clientFilter, shows],
   );
+
+  const client = useMemo(() => shows.find((s) => s.key === showId) ?? shows[0], [showId, shows]);
 
   const wordCount = useMemo(
     () => transcript.trim().split(/\s+/).filter(Boolean).length,
@@ -220,15 +260,101 @@ export function EpisodeWizard({
   const selectedPlatforms = platforms.filter((p) => enabled[p.key]);
   const selectedCount = selectedPlatforms.length;
 
-  const goto = (n: number) => setStep(Math.min(4, Math.max(1, n)));
+  // ------------------------------------------------------------------
+  // Per-step validity gates. Step 4 is the terminal "Generate" screen —
+  // its own readiness check lives inside <StepGenerate> and gates the
+  // submit CTA, not forward navigation. Steps 1–3 must satisfy the
+  // criteria below before the Continue button (or a forward stepper
+  // jump) is allowed to land on the next step.
+  //   1 Show       — a show is selected (always true once shows load).
+  //   2 Source     — method-dependent: paste ≥ 500 words, upload has an
+  //                  uploaded audio object, rss has a picked episode,
+  //                  youtube isn't wired (3.2) so it never satisfies.
+  //   3 Platforms  — at least one platform toggled on.
+  // ------------------------------------------------------------------
+  const stepValid: [boolean, boolean, boolean, boolean] = useMemo(() => {
+    const step1 = Boolean(showId) && shows.some((s) => s.key === showId);
+    const step2 =
+      method === "paste"
+        ? wordCount >= 500
+        : method === "upload"
+          ? audio !== null
+          : method === "rss"
+            ? rssSelection !== null
+            : false;
+    const step3 = selectedCount > 0;
+    return [step1, step2, step3, true];
+  }, [showId, shows, method, wordCount, audio, rssSelection, selectedCount]);
+
+  /** Short, per-step hint to surface under a disabled Continue. */
+  const stepHint = (n: number): string | null => {
+    if (n === 1 && !stepValid[0]) return "Pick a show to continue.";
+    if (n === 2 && !stepValid[1]) {
+      if (method === "paste")
+        return `Paste a transcript of 500+ words to continue (${wordCount} so far).`;
+      if (method === "upload") return "Upload an audio file to continue.";
+      if (method === "rss") return "Pick an episode from the connected feed to continue.";
+      if (method === "youtube") return "YouTube import isn't wired up yet — pick another source.";
+    }
+    if (n === 3 && !stepValid[2]) return "Pick at least one platform to continue.";
+    return null;
+  };
+
+  /**
+   * Forward jumps are only allowed when every step between the current
+   * one and the target is valid. Backward jumps are always allowed so
+   * the user can revisit + fix earlier steps. Defensive clamp at 1..4.
+   */
+  const goto = (n: number) => {
+    const clamped = Math.min(4, Math.max(1, n));
+    if (clamped <= step) {
+      setStep(clamped);
+      return;
+    }
+    for (let i = step; i < clamped; i++) {
+      if (!stepValid[i - 1]) {
+        // Land on the first invalid step instead of silently no-op'ing —
+        // the user clicked something, they should see *why* it stopped.
+        setStep(i);
+        return;
+      }
+    }
+    setStep(clamped);
+  };
 
   const onGenerate = () => {
     setSubmitError(null);
     startSubmit(async () => {
       try {
+        // Source-aware payload. PASTE carries the transcript; UPLOAD
+        // carries the R2 object key returned by signAudioUploadAction;
+        // RSS carries the publisher GUID + canonical feed URL. YOUTUBE
+        // is still wizard-stubbed until 3.2.
+        const trimmedTitle = title.trim();
+        const source =
+          method === "upload"
+            ? TranscriptSource.UPLOAD
+            : method === "rss"
+              ? TranscriptSource.RSS
+              : TranscriptSource.PASTE;
         const result = await createEpisodeAction({
-          clientId: clientKey,
-          transcript,
+          showId,
+          // Optional — server defaults to "Untitled episode" when blank
+          // so users can leave it for later and rename from the episode
+          // page header. For RSS, fall back to the publisher-supplied
+          // title when the user hasn't overridden it.
+          title: trimmedTitle.length > 0 ? trimmedTitle : method === "rss" ? undefined : undefined,
+          source,
+          transcript: source === TranscriptSource.PASTE ? transcript : "",
+          audioObjectKey:
+            source === TranscriptSource.UPLOAD ? (audio?.objectKey ?? undefined) : undefined,
+          // Pre-minted by signAudioUploadAction so Episode.id matches the
+          // id embedded in the R2 object key.
+          episodeId:
+            source === TranscriptSource.UPLOAD ? (audio?.episodeId ?? undefined) : undefined,
+          rssGuid: source === TranscriptSource.RSS ? rssSelection?.guid : undefined,
+          rssFeedUrl: source === TranscriptSource.RSS ? rssSelection?.feedUrl : undefined,
+          rssTitle: source === TranscriptSource.RSS ? rssSelection?.title : undefined,
           platforms: selectedPlatforms.map((p) => PLATFORM_KEY_TO_ENUM[p.key]),
         });
         if (!result.ok) {
@@ -253,24 +379,57 @@ export function EpisodeWizard({
         </p>
       </div>
 
-      <Stepper step={step} onJump={goto} />
+      <Stepper step={step} stepValid={stepValid} onJump={goto} />
 
       <PlanLimitBanner capacity={episodeCapacity} className="mb-4" />
 
       <div className="border-border bg-surface shadow-card rounded-3xl border p-[26px]">
         {step === 1 && (
-          <StepClient clients={clients} currentKey={clientKey} onSelect={setClientKey} />
+          <StepShow
+            shows={visibleShows}
+            allShowsCount={shows.length}
+            clients={clients}
+            clientFilter={clientFilter}
+            onClientFilter={(nextClient) => {
+              setClientFilter(nextClient);
+              // When the user narrows by client and the currently-selected
+              // show falls outside the new scope, auto-jump to the first
+              // show in the filtered list so the selection stays valid.
+              const stillVisible =
+                nextClient == null ||
+                shows.some((s) => s.key === showId && s.clientKey === nextClient);
+              if (!stillVisible) {
+                const next = shows.find((s) => s.clientKey === nextClient)?.key ?? shows[0]?.key;
+                if (next) {
+                  setShowId(next);
+                  if (audio) setAudio(null);
+                }
+              }
+            }}
+            currentKey={showId}
+            onSelect={(nextKey) => {
+              setShowId(nextKey);
+              // Audio object key embeds the showId — switching shows after
+              // an upload would leave the file mis-attributed. Drop it so
+              // the user re-uploads under the right path.
+              if (nextKey !== showId && audio) setAudio(null);
+            }}
+          />
         )}
         {step === 2 && (
           <StepSource
+            showId={showId}
+            showRssUrl={client?.rssUrl ?? null}
             method={method}
             onMethod={setMethod}
             transcript={transcript}
             onTranscript={setTranscript}
             wordCount={wordCount}
             readMins={readMins}
-            rssUrl={rssUrl}
-            onRssUrl={setRssUrl}
+            audio={audio}
+            onAudio={setAudio}
+            rssSelection={rssSelection}
+            onRssSelection={setRssSelection}
             ytUrl={ytUrl}
             onYtUrl={setYtUrl}
             onUseSample={() => setTranscript(SAMPLE_TRANSCRIPT)}
@@ -290,6 +449,10 @@ export function EpisodeWizard({
             client={client!}
             method={method}
             wordCount={wordCount}
+            audio={audio}
+            rssSelection={rssSelection}
+            title={title}
+            onTitle={setTitle}
             selectedPlatforms={selectedPlatforms}
             selectedCount={selectedCount}
             onGenerate={onGenerate}
@@ -299,7 +462,13 @@ export function EpisodeWizard({
         )}
       </div>
 
-      <FooterNav step={step} onBack={() => goto(step - 1)} onNext={() => goto(step + 1)} />
+      <FooterNav
+        step={step}
+        nextDisabled={!stepValid[step - 1]}
+        nextHint={stepHint(step)}
+        onBack={() => goto(step - 1)}
+        onNext={() => goto(step + 1)}
+      />
     </div>
   );
 }
@@ -308,20 +477,37 @@ export function EpisodeWizard({
    Stepper
    ============================================================ */
 
-function Stepper({ step, onJump }: { step: number; onJump: (n: number) => void }) {
-  const labels = ["Client", "Source", "Platforms", "Generate"];
+function Stepper({
+  step,
+  stepValid,
+  onJump,
+}: {
+  step: number;
+  /** Per-step validity (1-indexed via [n-1]). Forward jumps over an invalid step are blocked. */
+  stepValid: readonly [boolean, boolean, boolean, boolean];
+  onJump: (n: number) => void;
+}) {
+  const labels = ["Show", "Source", "Platforms", "Review & generate"];
   return (
     <div className="mb-[26px] flex items-center">
       {labels.map((label, i) => {
         const n = i + 1;
         const done = n < step;
         const current = n === step;
+        // A forward jump from `step` to `n` is reachable iff every step
+        // in `[step, n)` is valid. Backward jumps + the current step are
+        // always reachable.
+        const reachable = n <= step || stepValid.slice(step - 1, n - 1).every(Boolean);
         return (
           <div key={n} className="flex flex-1 items-center last:flex-none">
             <button
               type="button"
               onClick={() => onJump(n)}
-              className="flex shrink-0 cursor-pointer items-center gap-[10px]"
+              disabled={!reachable}
+              aria-disabled={!reachable}
+              title={!reachable ? "Finish the earlier step first." : undefined}
+              className="flex shrink-0 items-center gap-[10px] disabled:cursor-not-allowed"
+              style={{ cursor: reachable ? "pointer" : "not-allowed" }}
             >
               <span
                 className="flex h-[30px] w-[30px] items-center justify-center rounded-full font-sans text-[13px] font-semibold"
@@ -331,6 +517,7 @@ function Stepper({ step, onJump }: { step: number; onJump: (n: number) => void }
                   border: `1.5px solid ${
                     done ? "#BFE3CD" : current ? "var(--color-accent)" : "#D8DEEA"
                   }`,
+                  opacity: reachable ? 1 : 0.55,
                 }}
               >
                 {done ? "✓" : n}
@@ -339,6 +526,7 @@ function Stepper({ step, onJump }: { step: number; onJump: (n: number) => void }
                 className="font-sans text-[13px] font-semibold whitespace-nowrap"
                 style={{
                   color: current ? "#1A2A4A" : done ? "#1E7A47" : "#A0A9B8",
+                  opacity: reachable ? 1 : 0.55,
                 }}
               >
                 {label}
@@ -358,77 +546,171 @@ function Stepper({ step, onJump }: { step: number; onJump: (n: number) => void }
 }
 
 /* ============================================================
-   Step 1 — Client
+   Step 1 — Show (with optional client filter)
    ============================================================ */
 
-function StepClient({
+function StepShow({
+  shows,
+  allShowsCount,
   clients,
+  clientFilter,
+  onClientFilter,
   currentKey,
   onSelect,
 }: {
-  clients: SampleShow[];
+  /** Already filtered by `clientFilter` upstream. */
+  shows: SampleShow[];
+  /** Total shows across all clients — drives the "All clients · N" badge. */
+  allShowsCount: number;
+  clients: WizardClientOption[];
+  clientFilter: string | null;
+  onClientFilter: (clientId: string | null) => void;
   currentKey: string;
   onSelect: (k: string) => void;
 }) {
+  // Only render the client filter when there's more than one client to
+  // choose from. Solo-client agencies (most STUDIO plans) don't need it.
+  const showFilter = clients.length > 1;
+
   return (
     <>
       <h2 className="font-display text-ink text-[17px] font-semibold">
-        Which client show is this for?
+        Which show is this episode for?
       </h2>
       <p className="text-muted-2 mt-1 mb-5 text-[13px]">
-        Outputs will be generated in this client&apos;s voice.
+        Outputs will be generated in this show&apos;s voice.
       </p>
 
-      <div className="flex flex-col gap-3">
-        {clients.map((c) => {
-          const selected = c.key === currentKey;
-          const color = voiceTextColor(c.samples);
-          return (
-            <button
-              key={c.key}
-              type="button"
-              onClick={() => onSelect(c.key)}
-              className="flex w-full items-center gap-[14px] rounded-[13px] p-[15px] text-left transition-colors hover:border-[#C7D2E6]"
-              style={{
-                border: `1.5px solid ${selected ? "var(--color-accent)" : "#E6EBF3"}`,
-                background: selected ? "#F7F9FE" : "#fff",
-              }}
-            >
-              <span
-                className="font-display flex h-[42px] w-[42px] flex-shrink-0 items-center justify-center rounded-[11px] text-[15px] font-bold text-white"
-                style={{ background: c.avatarBg }}
-              >
-                {c.initial}
-              </span>
+      {showFilter && (
+        <div className="mb-5">
+          <div className="text-muted-2 mb-[8px] font-sans text-[11px] font-semibold tracking-[0.06em] uppercase">
+            Filter by client
+          </div>
+          <div
+            className="flex flex-wrap gap-[6px]"
+            role="radiogroup"
+            aria-label="Filter shows by client"
+          >
+            <ClientFilterChip
+              label="All clients"
+              count={allShowsCount}
+              active={clientFilter === null}
+              onClick={() => onClientFilter(null)}
+            />
+            {clients.map((c) => (
+              <ClientFilterChip
+                key={c.id}
+                label={c.name}
+                active={clientFilter === c.id}
+                onClick={() => onClientFilter(c.id)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
-              <span className="min-w-0 flex-1">
-                <span className="font-display text-ink block text-[14.5px] font-semibold">
-                  {c.name}
-                </span>
-                <span className="text-muted mt-[2px] block text-[12.5px]">{c.host}</span>
-              </span>
-
-              <span className="flex flex-shrink-0 items-center gap-[9px]">
-                <VoiceStrengthBars samples={c.samples} size="sm" />
-                <span className="w-[74px] font-sans text-[12px] font-semibold" style={{ color }}>
-                  {voiceLabel(c.samples)} · {c.samples}
-                </span>
-              </span>
-
-              <span
-                className="flex h-[22px] w-[22px] flex-shrink-0 items-center justify-center rounded-full"
+      {shows.length === 0 ? (
+        <div className="border-border bg-canvas rounded-2xl border border-dashed px-6 py-10 text-center">
+          <h3 className="font-display text-ink text-[14.5px] font-semibold">
+            This client has no shows yet
+          </h3>
+          <p className="text-muted-2 mx-auto mt-1 max-w-[360px] text-[12.5px]">
+            Add a show to this client first, then come back to create an episode. Or pick a
+            different client above.
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {shows.map((c) => {
+            const selected = c.key === currentKey;
+            const color = voiceTextColor(c.samples);
+            return (
+              <button
+                key={c.key}
+                type="button"
+                onClick={() => onSelect(c.key)}
+                className="flex w-full items-center gap-[14px] rounded-[13px] p-[15px] text-left transition-colors hover:border-[#C7D2E6]"
                 style={{
-                  border: `1.5px solid ${selected ? "var(--color-accent)" : "#CBD4E2"}`,
-                  background: selected ? "var(--color-accent)" : "#fff",
+                  border: `1.5px solid ${selected ? "var(--color-accent)" : "#E6EBF3"}`,
+                  background: selected ? "#F7F9FE" : "#fff",
                 }}
               >
-                {selected && <CheckIcon />}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+                <span
+                  className="font-display flex h-[42px] w-[42px] flex-shrink-0 items-center justify-center rounded-[11px] text-[15px] font-bold text-white"
+                  style={{ background: c.avatarBg }}
+                >
+                  {c.initial}
+                </span>
+
+                <span className="min-w-0 flex-1">
+                  <span className="font-display text-ink block text-[14.5px] font-semibold">
+                    {c.name}
+                  </span>
+                  <span className="text-muted mt-[2px] block text-[12.5px]">{c.host}</span>
+                </span>
+
+                <span className="flex flex-shrink-0 items-center gap-[9px]">
+                  <VoiceStrengthBars samples={c.samples} size="sm" />
+                  <span className="w-[74px] font-sans text-[12px] font-semibold" style={{ color }}>
+                    {voiceLabel(c.samples)} · {c.samples}
+                  </span>
+                </span>
+
+                <span
+                  className="flex h-[22px] w-[22px] flex-shrink-0 items-center justify-center rounded-full"
+                  style={{
+                    border: `1.5px solid ${selected ? "var(--color-accent)" : "#CBD4E2"}`,
+                    background: selected ? "var(--color-accent)" : "#fff",
+                  }}
+                >
+                  {selected && <CheckIcon />}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </>
+  );
+}
+
+function ClientFilterChip({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count?: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      role="radio"
+      aria-checked={active}
+      className="inline-flex items-center gap-[6px] rounded-full px-[11px] py-[5px] font-sans text-[12.5px] font-medium transition-colors"
+      style={{
+        border: `1.5px solid ${active ? "var(--color-accent)" : "#E1E6EF"}`,
+        background: active ? "var(--color-accent-soft)" : "#fff",
+        color: active ? "var(--color-accent)" : "#5A6473",
+      }}
+    >
+      <span className="max-w-[200px] truncate">{label}</span>
+      {typeof count === "number" && (
+        <span
+          className="rounded-pill px-[7px] py-[1px] font-sans text-[10.5px] font-semibold"
+          style={{
+            background: active ? "var(--color-accent)" : "#EEF1F6",
+            color: active ? "#fff" : "#7A8496",
+          }}
+        >
+          {count}
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -437,28 +719,37 @@ function StepClient({
    ============================================================ */
 
 function StepSource({
+  showId,
+  showRssUrl,
   method,
   onMethod,
   transcript,
   onTranscript,
   wordCount,
   readMins,
-  rssUrl,
-  onRssUrl,
+  audio,
+  onAudio,
+  rssSelection,
+  onRssSelection,
   ytUrl,
   onYtUrl,
   onUseSample,
   usingSample,
   onClearSample,
 }: {
+  showId: string;
+  /** Persisted `Show.rssUrl` for the current show, null when none connected. */
+  showRssUrl: string | null;
   method: Method;
   onMethod: (m: Method) => void;
   transcript: string;
   onTranscript: (s: string) => void;
   wordCount: number;
   readMins: number;
-  rssUrl: string;
-  onRssUrl: (s: string) => void;
+  audio: AudioUploadValue | null;
+  onAudio: (next: AudioUploadValue | null) => void;
+  rssSelection: RssSelection | null;
+  onRssSelection: (next: RssSelection | null) => void;
   ytUrl: string;
   onYtUrl: (s: string) => void;
   /** Drops the demo transcript into the textarea. */
@@ -548,47 +839,31 @@ function StepSource({
       )}
 
       {method === "upload" && (
-        <div
-          className="rounded-xl bg-[#FBFCFE] p-[38px] text-center"
-          style={{ border: "1.5px dashed #C9D4E8" }}
-        >
-          <div className="mx-auto mb-[14px] flex h-[46px] w-[46px] items-center justify-center rounded-xl bg-[#E7F4EC]">
-            <svg
-              width="22"
-              height="22"
-              viewBox="0 0 22 22"
-              fill="none"
-              stroke="#1E7A47"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M11 14V4M7 7.5L11 3.5l4 4M4 14v3a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 18 17v-3" />
-            </svg>
-          </div>
-          <div className="text-ink mb-[5px] font-sans text-[14px] font-semibold">
-            Drop an audio file or browse
-          </div>
-          <div className="text-muted-2 text-[12.5px]">MP3, WAV or M4A · up to 500 MB</div>
-        </div>
+        <>
+          <AudioUpload showId={showId} value={audio} onChange={onAudio} />
+          <p className="text-muted-2 mt-[10px] text-[12px]">
+            We&apos;ll transcribe with Deepgram once you generate. Files are stored privately under{" "}
+            <code className="font-mono">
+              audio/{"{agency}"}/{"{show}"}/{"{episode}"}
+            </code>{" "}
+            — only signed links are minted on demand.
+          </p>
+        </>
       )}
 
       {method === "rss" && (
-        <>
-          <label className="text-ink mb-[9px] block font-sans text-[13px] font-semibold">
-            RSS feed URL
-          </label>
-          <input
-            value={rssUrl}
-            onChange={(e) => onRssUrl(e.target.value)}
-            placeholder="https://feeds.example.com/your-show.xml"
-            className="w-full rounded-[10px] px-[14px] py-3 font-sans text-[13.5px] text-[#2A3550] outline-none"
-            style={{ border: "1px solid #C9D4E8", background: "#FBFCFE" }}
-          />
-          <p className="text-muted-2 mt-[9px] text-[12px]">
-            We&apos;ll pull the latest episode automatically — or pick one after connecting.
-          </p>
-        </>
+        // `key={showId}` remounts the picker when the user picks a
+        // different show in step 1, so its internal state (urlInput,
+        // feedUrl, episode list) re-derives from the new `initialFeedUrl`
+        // without a prop-sync useEffect — see the picker's mount-only
+        // useEffect for the rationale.
+        <RssFeedPicker
+          key={showId}
+          showId={showId}
+          initialFeedUrl={showRssUrl}
+          selected={rssSelection}
+          onSelect={onRssSelection}
+        />
       )}
 
       {method === "youtube" && (
@@ -755,6 +1030,10 @@ function StepGenerate({
   client,
   method,
   wordCount,
+  audio,
+  rssSelection,
+  title,
+  onTitle,
   selectedPlatforms,
   selectedCount,
   onGenerate,
@@ -764,6 +1043,10 @@ function StepGenerate({
   client: SampleShow;
   method: Method;
   wordCount: number;
+  audio: AudioUploadValue | null;
+  rssSelection: RssSelection | null;
+  title: string;
+  onTitle: (next: string) => void;
   selectedPlatforms: typeof platforms;
   selectedCount: number;
   onGenerate: () => void;
@@ -773,21 +1056,39 @@ function StepGenerate({
   const m = methods.find((x) => x.key === method)!;
   const sourceMeta = {
     paste: `${wordCount} words`,
-    upload: "audio · transcribing",
-    rss: "latest episode",
+    upload: audio ? `${audio.filename} · ${formatAudioSize(audio.size)}` : "no audio uploaded yet",
+    rss: rssSelection?.title ?? "no episode picked yet",
     youtube: "captions + audio",
   }[method];
 
   return (
     <>
-      <h2 className="font-display text-ink text-[17px] font-semibold">Ready to generate</h2>
+      <h2 className="font-display text-ink text-[17px] font-semibold">Review &amp; generate</h2>
       <p className="text-muted-2 mt-1 mb-5 text-[13px]">
-        Review the setup, then generate. You&apos;ll approve each output next.
+        Name the episode, double-check the setup, then generate. You&apos;ll approve each output
+        next.
+      </p>
+
+      {/* Episode title — optional; defaults to "Untitled episode" server-side */}
+      <label className="text-ink mb-[8px] block font-sans text-[13px] font-semibold">
+        Episode title
+      </label>
+      <input
+        value={title}
+        onChange={(e) => onTitle(e.target.value)}
+        placeholder="e.g. Why your first 10 hires define everything"
+        maxLength={240}
+        className="mb-1 w-full rounded-[10px] px-[14px] py-[10px] font-sans text-[14px] text-[#2A3550] outline-none placeholder:text-[#A6AEBD]"
+        style={{ border: "1px solid #C9D4E8", background: "#FBFCFE" }}
+      />
+      <p className="text-muted-2 mb-[18px] text-[12px]">
+        Leave blank to save as &ldquo;Untitled episode&rdquo; — you can rename it from the episode
+        page.
       </p>
 
       <div className="border-border mb-[22px] flex flex-col gap-[1px] overflow-hidden rounded-[13px] border bg-[#EEF1F6]">
         <div className="flex items-center gap-[13px] bg-white p-[15px]">
-          <span className="text-muted-2 w-[84px] font-sans text-[12px] font-medium">Client</span>
+          <span className="text-muted-2 w-[84px] font-sans text-[12px] font-medium">Show</span>
           <span
             className="font-display flex h-[30px] w-[30px] items-center justify-center rounded-md text-[11px] font-bold text-white"
             style={{ background: client.avatarBg }}
@@ -845,14 +1146,30 @@ function StepGenerate({
         </div>
       </div>
 
-      {/* The paste path needs a >= 500-word transcript to clear the server
-          validator. Gate the button here so the failure surfaces before the
-          submit round-trip instead of as a generic error toast. Non-paste
-          sources don't go through this validator yet (audio/RSS/YouTube
-          land in Phase 2). */}
+      {/* Gate per source so the failure surfaces before the submit round-
+          trip rather than as a generic error toast. Paste needs ≥ 500
+          words, upload needs an uploaded audio object, RSS needs a
+          picked episode. YouTube is still wizard-stubbed (3.2). */}
       {(() => {
         const transcriptTooShort = method === "paste" && wordCount < 500;
-        const disabled = selectedCount === 0 || submitting || transcriptTooShort;
+        const audioMissing = method === "upload" && !audio;
+        const rssMissing = method === "rss" && !rssSelection;
+        const sourceNotReady = method === "youtube";
+        const disabled =
+          selectedCount === 0 ||
+          submitting ||
+          transcriptTooShort ||
+          audioMissing ||
+          rssMissing ||
+          sourceNotReady;
+        const startingLabel =
+          method === "upload" ? "Uploading…" : method === "rss" ? "Importing…" : "Starting…";
+        const ctaLabel =
+          method === "upload"
+            ? `Transcribe + generate ${selectedCount} outputs`
+            : method === "rss"
+              ? `Import + generate ${selectedCount} outputs in ${client.host}'s voice`
+              : `Generate ${selectedCount} outputs in ${client.host}'s voice`;
         return (
           <>
             <button
@@ -874,9 +1191,7 @@ function StepGenerate({
               >
                 <path d="M9 1.5L3 9.5h4l-1 6 6-8H8z" />
               </svg>
-              {submitting
-                ? `Starting…`
-                : `Generate ${selectedCount} outputs in ${client.host}'s voice`}
+              {submitting ? startingLabel : ctaLabel}
             </button>
             {submitError && (
               <div className="mt-3 text-center text-[12px] text-[#A06D12]">{submitError}</div>
@@ -886,11 +1201,34 @@ function StepGenerate({
                 Add at least 500 words to the transcript on step 2 before generating.
               </div>
             )}
-            {!submitError && !transcriptTooShort && (
-              <div className="text-subtle mt-3 text-center text-[12px]">
-                Typically ready in under a minute
+            {!submitError && audioMissing && (
+              <div className="mt-3 text-center text-[12px] text-[#A06D12]">
+                Upload an audio file on step 2 before generating.
               </div>
             )}
+            {!submitError && rssMissing && (
+              <div className="mt-3 text-center text-[12px] text-[#A06D12]">
+                Pick an episode from the connected feed on step 2 before generating.
+              </div>
+            )}
+            {!submitError && sourceNotReady && (
+              <div className="mt-3 text-center text-[12px] text-[#A06D12]">
+                YouTube import isn&apos;t wired up yet — pick Paste, Upload audio, or RSS.
+              </div>
+            )}
+            {!submitError &&
+              !transcriptTooShort &&
+              !audioMissing &&
+              !rssMissing &&
+              !sourceNotReady && (
+                <div className="text-subtle mt-3 text-center text-[12px]">
+                  {method === "upload"
+                    ? "Transcription usually takes 30–90 seconds, then generation kicks in."
+                    : method === "rss"
+                      ? "We'll pull the publisher's transcript or download the audio — usually a minute or two before generation begins."
+                      : "Typically ready in under a minute"}
+                </div>
+              )}
           </>
         );
       })()}
@@ -904,16 +1242,22 @@ function StepGenerate({
 
 function FooterNav({
   step,
+  nextDisabled,
+  nextHint,
   onBack,
   onNext,
 }: {
   step: number;
+  /** Disables the Continue button when the current step's data isn't complete. */
+  nextDisabled: boolean;
+  /** Short reason surfaced under the button when `nextDisabled`. */
+  nextHint: string | null;
   onBack: () => void;
   onNext: () => void;
 }) {
   const backDisabled = step === 1;
   return (
-    <div className="mt-5 flex items-center justify-between">
+    <div className="mt-5 flex items-start justify-between">
       <Button
         variant="secondary"
         onClick={onBack}
@@ -936,28 +1280,36 @@ function FooterNav({
         Back
       </Button>
 
-      <div className="text-subtle text-[12.5px]">Step {step} of 4</div>
+      <div className="text-subtle pt-[10px] text-[12.5px]">Step {step} of 4</div>
 
       {step < 4 ? (
-        <Button
-          onClick={onNext}
-          trailingIcon={
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 14 14"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M5.5 3l4 4-4 4" />
-            </svg>
-          }
-        >
-          Continue
-        </Button>
+        <div className="flex flex-col items-end gap-1">
+          <Button
+            onClick={onNext}
+            disabled={nextDisabled}
+            trailingIcon={
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 14 14"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M5.5 3l4 4-4 4" />
+              </svg>
+            }
+          >
+            Continue
+          </Button>
+          {nextDisabled && nextHint && (
+            <span className="max-w-[260px] text-right text-[11.5px] text-[#A06D12]">
+              {nextHint}
+            </span>
+          )}
+        </div>
       ) : (
         <div className="w-[120px]" />
       )}

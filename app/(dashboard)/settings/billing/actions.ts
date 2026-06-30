@@ -1,16 +1,33 @@
 "use server";
 
 import { headers } from "next/headers";
+import { revalidatePath } from "next/cache";
 import { Plan } from "@prisma/client";
 import { z } from "zod";
 import { requireAuthContext } from "@/server/auth/context";
 import { ValidationError } from "@/server/auth/errors";
 import { assertRole } from "@/server/auth/context";
+import { toTenantContext } from "@/server/auth/tenant";
+import {
+  asSupportedCurrency,
+  CURRENCY_META,
+  DEFAULT_CURRENCY,
+  SUPPORTED_CURRENCIES,
+} from "@/lib/currencies";
 import { prisma } from "@/server/db/client";
+import { updatePreferredCurrency, updatePreferredCurrencyInput } from "@/server/db/agencies";
 import { priceIdFor } from "@/server/billing/prices";
 import { requireStripeClient } from "@/server/billing/stripe";
 
-const checkoutInput = z.object({ plan: z.nativeEnum(Plan) });
+const checkoutInput = z.object({
+  plan: z.nativeEnum(Plan),
+  /**
+   * Optional override; defaults to `Agency.preferredCurrency`. The Stripe
+   * Price for each plan carries `currency_options` for every code in
+   * `SUPPORTED_CURRENCIES`, so Checkout switches by this param.
+   */
+  currency: z.enum(SUPPORTED_CURRENCIES).optional(),
+});
 
 export type ActionResult<T = void> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -40,6 +57,19 @@ export async function createCheckoutSessionAction(
   const auth = await requireAuthContext();
   assertRole(auth, ["OWNER", "ADMIN"]);
 
+  // Resolve the currency in this order:
+  //   1. Explicit param from the picker on /settings/billing.
+  //   2. The agency's stored preferredCurrency (falls back to USD).
+  // The Stripe Price object carries `currency_options` for every supported
+  // currency, so the same price id works for all of them — Checkout picks
+  // the one we pass via the `currency` param.
+  const agency = await prisma.agency.findUnique({
+    where: { id: auth.agency.id },
+    select: { preferredCurrency: true },
+  });
+  const resolvedCurrency =
+    parsed.data.currency ?? asSupportedCurrency(agency?.preferredCurrency) ?? DEFAULT_CURRENCY;
+
   const priceId = priceIdFor(plan);
   if (!priceId) {
     return {
@@ -54,13 +84,16 @@ export async function createCheckoutSessionAction(
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
     line_items: [{ price: priceId, quantity: 1 }],
+    // Checkout picks this currency from the Price's `currency_options`.
+    // Stripe requires lowercase ISO-4217 in API payloads.
+    currency: CURRENCY_META[resolvedCurrency].stripeCode,
     success_url: `${url}/settings/billing?success=true`,
     cancel_url: `${url}/settings/billing?canceled=true`,
     customer_email: auth.user.email || undefined,
     client_reference_id: auth.agency.id,
-    metadata: { agencyId: auth.agency.id, plan },
+    metadata: { agencyId: auth.agency.id, plan, currency: resolvedCurrency },
     subscription_data: {
-      metadata: { agencyId: auth.agency.id, plan },
+      metadata: { agencyId: auth.agency.id, plan, currency: resolvedCurrency },
     },
     allow_promotion_codes: true,
   });
@@ -69,6 +102,25 @@ export async function createCheckoutSessionAction(
     return { ok: false, error: "Stripe did not return a checkout URL." };
   }
   return { ok: true, data: { url: session.url } };
+}
+
+/**
+ * Update the agency's preferred currency. Powers the picker on
+ * /settings/billing — the next `createCheckoutSessionAction` (and every
+ * plan card render) reads from the new value. OWNER/ADMIN gated at the
+ * repo layer.
+ */
+export async function updatePreferredCurrencyAction(
+  raw: unknown,
+): Promise<ActionResult<{ currency: string }>> {
+  const parsed = updatePreferredCurrencyInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid currency", parsed.error.issues);
+  }
+  const auth = await requireAuthContext();
+  const updated = await updatePreferredCurrency(toTenantContext(auth), parsed.data);
+  revalidatePath("/settings/billing");
+  return { ok: true, data: { currency: updated.preferredCurrency } };
 }
 
 /**

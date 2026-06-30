@@ -2,6 +2,12 @@ import type { EpisodeStatus } from "./episode-status";
 import type { PlatformKey } from "./platforms";
 
 export type SampleEpisode = {
+  /**
+   * Real Episode.id when live (drives the row's link to /episodes/[id]).
+   * Optional because the original sample-data fixtures don't carry one;
+   * rows without an id render as a plain (un-linked) summary.
+   */
+  id?: string;
   title: string;
   date: string;
   status: EpisodeStatus;
@@ -23,6 +29,12 @@ export type SampleShow = {
   avatarBg: string;
   /** Empty string when unset — UI falls back to the initials avatar on `avatarBg`. */
   artworkUrl: string;
+  /**
+   * Persisted RSS feed URL (Phase 2.8). `null` when no feed is connected
+   * yet — the wizard's RSS picker treats that as "show the connect form".
+   * Sample-data shows leave this `null`.
+   */
+  rssUrl?: string | null;
   samples: number;
   episodeCount: number;
   lastActivity: string;

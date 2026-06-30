@@ -21,6 +21,7 @@
     "test:watch": "vitest",
     "ai:validate": "tsx scripts/validate-voice.ts",
     "r2:cors": "tsx scripts/configure-r2-cors.ts",
+    "stripe:plans": "tsx scripts/configure-stripe-plans.ts",
     "prepare": "husky"
   },
   "dependencies": {

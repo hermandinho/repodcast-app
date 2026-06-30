@@ -270,6 +270,7 @@ async function showToUI(
     initial: initialsOf(s.name),
     avatarBg: colorForName(s.name),
     artworkUrl: s.artworkUrl ?? "",
+    rssUrl: s.rssUrl,
     samples: totalSamples,
     episodeCount: episodes.length,
     lastActivity: timeAgo(lastActivity),
@@ -284,6 +285,9 @@ function episodeToUiSummary(e: Episode) {
     e.createdAt,
   );
   return {
+    // Live-mode rows carry the real Episode.id so `/shows/[key]` rows
+    // can link straight to `/episodes/[id]`.
+    id: e.id,
     title: e.title,
     date,
     status,
@@ -457,8 +461,17 @@ export async function getEpisodeForUI(
   const showUI = await showToUI(ctx, show);
 
   const episode: SampleEpisode = {
+    id: episodeRow.id,
     clientKey: showUI.key,
-    episodeNo: `Episode ${episodeRow.createdAt.getDate()}`,
+    // Used as the breadcrumb tail. Falls back to a date stamp when the
+    // user hasn't named the episode yet so the crumb stays meaningful;
+    // otherwise it mirrors the heading title (truncated client-side).
+    episodeNo:
+      episodeRow.title.trim().length > 0
+        ? episodeRow.title
+        : new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(
+            episodeRow.createdAt,
+          ),
     episode: episodeRow.title,
     episodeMeta: episodeRow.recordedAt ? `Recorded ${episodeRow.recordedAt.toDateString()}` : "",
     lastTrained: timeAgo(show.updatedAt),
@@ -467,6 +480,17 @@ export async function getEpisodeForUI(
     // through `unknown` (Prisma's JsonValue isn't structurally compatible
     // with KeyMoment[]) — the writer is the only path into this column.
     keyMoments: (episodeRow.keyMoments as unknown as SampleEpisode["keyMoments"]) ?? undefined,
+    pipeline: {
+      source: episodeRow.source as "PASTE" | "UPLOAD" | "RSS" | "YOUTUBE",
+      // UPLOAD episodes flow DRAFT → PROCESSING (transcribe) → PROCESSING
+      // (generate) → READY. The transcribing UX kicks in whenever the
+      // transcript hasn't landed — covers both DRAFT (event still in
+      // flight) and PROCESSING (Deepgram running).
+      awaitingTranscript: episodeRow.transcript.trim().length === 0,
+      status: episodeRow.status.toLowerCase() as
+        "draft" | "processing" | "ready" | "archived" | "failed",
+      failureReason: episodeRow.failureReason ?? null,
+    },
     outputs: outputs.map((o) => ({
       key: PLATFORM_TO_KEY[o.platform],
       id: o.id,

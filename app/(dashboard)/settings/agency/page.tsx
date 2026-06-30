@@ -2,7 +2,8 @@ import Link from "next/link";
 import { MemberRole, Plan } from "@prisma/client";
 import { AgencyNameForm } from "@/components/settings/agency-name-form";
 import { RenewalRemindersToggle } from "@/components/settings/renewal-reminders-toggle";
-import { PLAN_DISPLAY } from "@/lib/plans";
+import { PLAN_DISPLAY, priceFor } from "@/lib/plans";
+import { asSupportedCurrency, DEFAULT_CURRENCY, formatPlanPrice } from "@/lib/currencies";
 import { getAuthContext } from "@/server/auth/context";
 import { isLiveDb } from "@/server/data/source";
 import { resolveTenantContext } from "@/server/data/tenant";
@@ -30,6 +31,7 @@ export default async function AgencySettingsPage() {
             plan: true,
             createdAt: true,
             renewalRemindersEnabled: true,
+            preferredCurrency: true,
           },
         })
         .catch(() => null)
@@ -70,7 +72,12 @@ export default async function AgencySettingsPage() {
               <span className="font-display text-ink text-[20px] font-semibold">
                 {planMeta.name}
               </span>
-              <span className="text-muted font-sans text-[13px]">${planMeta.priceUsd}/mo</span>
+              <span className="text-muted font-sans text-[13px]">
+                {(() => {
+                  const c = asSupportedCurrency(agency?.preferredCurrency) ?? DEFAULT_CURRENCY;
+                  return `${formatPlanPrice(priceFor(plan, c), c)}/mo`;
+                })()}
+              </span>
             </div>
             <p className="text-muted mt-1 text-[13px]">{planMeta.tagline}</p>
           </div>

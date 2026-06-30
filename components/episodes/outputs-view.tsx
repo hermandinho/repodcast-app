@@ -7,7 +7,11 @@ import { MemberRole } from "@prisma/client";
 import { PlatformBadge } from "@/components/ui/platform-badge";
 import { VoiceStrengthBars } from "@/components/ui/voice-strength-bars";
 import { ClipMomentsPanel } from "@/components/episodes/clip-moments-panel";
+import { EditableTitle } from "@/components/episodes/editable-title";
+import { ImportFailedPanel } from "@/components/episodes/import-failed-panel";
+import { ImportingPanel } from "@/components/episodes/importing-panel";
 import { OutputCard, type OutputState } from "@/components/episodes/output-card";
+import { TranscribingPanel } from "@/components/episodes/transcribing-panel";
 import type { SampleShow } from "@/lib/sample-data/shows";
 import type { SampleEpisode } from "@/lib/sample-data/episode-outputs";
 import type { EpisodeStatus } from "@/lib/sample-data/episode-status";
@@ -154,7 +158,21 @@ export function OutputsView({
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const tickerActive = outputs.some((o) => o.status === "generating");
+  // True whenever the user just kicked off a regen/generation that the
+  // server hasn't acknowledged yet. `_startAt` is set by `regenerate()` +
+  // `onRegenAll()` and cleared by `mergeOutput` once the server confirms
+  // the new status. We use it to keep SSE open even after the optimistic
+  // ticker has visually settled — otherwise the connection closes while
+  // Claude is still working and the real content never reaches the page.
+  const awaitingServer = outputs.some((o) => o._startAt !== undefined);
   const generatingAll = generateAllRequested && tickerActive;
+
+  // Episode is in a pre-generation state (RSS / upload pipeline running
+  // before any outputs have been created). We still want the SSE channel
+  // open so a status flip to FAILED / READY (or the first GENERATING
+  // placeholder rows landing) reaches the page without a hard refresh.
+  const awaitingPipeline =
+    episode.pipeline?.status === "draft" || episode.pipeline?.status === "processing";
 
   // ----------------------------------------------------------------
   // SSE — server-pushed status/content updates during generation.
@@ -170,7 +188,14 @@ export function OutputsView({
   // ----------------------------------------------------------------
   useEffect(() => {
     if (!streamUrl) return;
-    if (!tickerActive) return;
+    // Open when something is actively generating OR the pipeline is mid-
+    // import (RSS / upload) with no outputs yet OR the user just kicked
+    // off a regen we haven't heard back from. The third case is the
+    // important one — the optimistic ticker hits 100 % in ~2 s, but
+    // Claude can take 5–15 s; without `awaitingServer` the channel would
+    // close before the real new content arrives, leaving the page stuck
+    // on the v1 placeholder content.
+    if (!tickerActive && !awaitingPipeline && !awaitingServer) return;
 
     let es: EventSource | null = null;
     let cancelled = false;
@@ -248,9 +273,19 @@ export function OutputsView({
       if (retryTimer) clearTimeout(retryTimer);
       es?.close();
     };
-  }, [streamUrl, tickerActive, router]);
+  }, [streamUrl, tickerActive, awaitingPipeline, awaitingServer, router]);
 
   // Drive progress animation while any output is generating.
+  //
+  // In **live mode** the server (SSE) is authoritative for status +
+  // content. The ticker only handles the visual fill — it advances toward
+  // ~92 % and then HOLDS there until the server confirms via SSE. The
+  // mergeOutput payload will then flip status, replace content, and clear
+  // `_startAt`, which dries up `tickerActive` and stops this effect.
+  //
+  // In **sample-data mode** there is no SSE, so the ticker has to flip
+  // status itself when it hits 100 % — otherwise the card would dangle
+  // at "generating" forever in the design preview.
   useEffect(() => {
     if (!tickerActive) {
       if (timerRef.current) {
@@ -260,14 +295,18 @@ export function OutputsView({
       return;
     }
     if (timerRef.current) return;
+    const isLive = streamUrl !== null;
+    const cap = isLive ? 92 : 100;
     timerRef.current = setInterval(() => {
       const now = Date.now();
       setOutputs((prev) =>
         prev.map((o) => {
           if (o.status !== "generating") return o;
           if (now < (o._startAt ?? 0)) return o;
-          const next = Math.min(100, o.progress + (6 + Math.random() * 10));
-          if (next >= 100) {
+          const next = Math.min(cap, o.progress + (6 + Math.random() * 10));
+          // Only auto-flip in sample-data mode. In live mode SSE owns the
+          // status transition — we just hold the bar at `cap`.
+          if (!isLive && next >= 100) {
             return { ...o, progress: 100, status: o._target ?? "ready" };
           }
           return { ...o, progress: next };
@@ -280,7 +319,7 @@ export function OutputsView({
         timerRef.current = null;
       }
     };
-  }, [tickerActive]);
+  }, [tickerActive, streamUrl]);
 
   const update = (key: string, patch: Partial<LiveOutput>) => {
     setOutputs((prev) => prev.map((o) => (o.key === key ? { ...o, ...patch } : o)));
@@ -453,8 +492,18 @@ export function OutputsView({
 
   const approvedCount = outputs.filter((o) => o.status === "approved").length;
   const totalCount = outputs.length;
-  const approvedPct = Math.round((approvedCount / totalCount) * 100);
-  const avgQuality = Math.round(outputs.reduce((sum, o) => sum + o.quality, 0) / totalCount);
+  // Guard against `0 / 0 → NaN`: when no outputs exist yet (RSS / upload
+  // mid-import) the page should show neutral placeholders, not "NaN%".
+  const approvedPct = totalCount > 0 ? Math.round((approvedCount / totalCount) * 100) : 0;
+  // Average quality across outputs that actually carry a score (some rows
+  // are still GENERATING with quality=0 before the pipeline writes one).
+  // Render as `null` when there's nothing to average so the UI can show
+  // a "—" instead of "NaN".
+  const scored = outputs.filter((o) => o.quality > 0);
+  const avgQuality =
+    scored.length > 0
+      ? Math.round(scored.reduce((sum, o) => sum + o.quality, 0) / scored.length)
+      : null;
 
   const railRows = useMemo(
     () =>
@@ -469,25 +518,29 @@ export function OutputsView({
     <div className="flex min-h-full">
       {/* CONTENT */}
       <div className="min-w-0 flex-1 px-7 pt-[26px] pb-[60px]">
-        {/* Breadcrumb */}
-        <nav className="text-muted-2 mb-[14px] text-[12.5px]">
-          <Link href="/clients" className="hover:text-ink">
-            Clients
+        {/* Breadcrumb — `client` here is actually a SHOW (the prop name
+            is legacy from the pre-hierarchy days). Links go to /shows/*.
+            The tail crumb is the episode title (truncated); we drop the
+            old "Episode {dayOfMonth}" affordance — it confused users into
+            thinking it was an episode number. */}
+        <nav aria-label="Breadcrumb" className="text-muted-2 mb-[14px] text-[12.5px]">
+          <Link href="/shows" className="hover:text-ink">
+            Shows
           </Link>
           <span className="mx-[7px] text-[#C3CBD8]">/</span>
-          <Link href={`/clients/${client.key}`} className="hover:text-ink">
+          <Link href={`/shows/${client.key}`} className="hover:text-ink">
             {client.name}
           </Link>
           <span className="mx-[7px] text-[#C3CBD8]">/</span>
-          <span className="text-muted">{episode.episodeNo}</span>
+          <span className="text-muted inline-block max-w-[360px] truncate align-bottom">
+            {episode.episode || episode.episodeNo}
+          </span>
         </nav>
 
         {/* Episode header */}
         <div className="mb-[22px] flex flex-wrap items-start gap-6">
           <div className="min-w-[300px] flex-1">
-            <h1 className="font-display text-ink text-[27px] leading-[1.18] font-semibold tracking-[-0.5px]">
-              {episode.episode}
-            </h1>
+            <EditableTitle episodeId={episode.id} initial={episode.episode} />
             <div className="text-muted mt-[7px] text-[13.5px]">
               {client.name} · {episode.episodeMeta}
             </div>
@@ -552,6 +605,27 @@ export function OutputsView({
             engine
           </div>
         </div>
+
+        {/* Phase 2.7 / 2.8 — pre-generation empty states so the page never
+            looks blank while the pipeline is doing its work. Priority:
+              1. FAILED  → render the error banner (always, even if some
+                 outputs landed before the failure tripped).
+              2. UPLOAD awaiting transcript → Deepgram is running.
+              3. RSS / YOUTUBE before outputs exist → import in flight. */}
+        {episode.pipeline?.status === "failed" ? (
+          <ImportFailedPanel
+            source={episode.pipeline.source}
+            reason={episode.pipeline.failureReason}
+            showId={client.key}
+            clientId={client.clientKey}
+          />
+        ) : episode.pipeline?.awaitingTranscript && episode.pipeline.source === "UPLOAD" ? (
+          <TranscribingPanel episodeId={episode.id} />
+        ) : episode.pipeline?.awaitingTranscript &&
+          (episode.pipeline.source === "RSS" || episode.pipeline.source === "YOUTUBE") &&
+          outputs.length === 0 ? (
+          <ImportingPanel source={episode.pipeline.source} />
+        ) : null}
 
         {/* Clip moments — null/empty rendering handled inside the panel */}
         <ClipMomentsPanel moments={episode.keyMoments} />
@@ -682,7 +756,10 @@ export function OutputsView({
         <div className="border-border bg-surface rounded-2xl border p-[18px]">
           <div className="font-display text-ink text-[14px] font-semibold">Output quality</div>
           <div className="text-muted-2 mt-1 mb-[14px] text-[12px]">
-            This episode · avg <span className="text-muted font-semibold">{avgQuality}</span>
+            This episode · avg{" "}
+            <span className="text-muted font-semibold">
+              {avgQuality === null ? "—" : avgQuality}
+            </span>
           </div>
           <div className="flex flex-col gap-3">
             {railRows.map((r) => {

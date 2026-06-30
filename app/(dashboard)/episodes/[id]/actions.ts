@@ -1,13 +1,20 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { Platform, TranscriptSource } from "@prisma/client";
 import { z } from "zod";
 import { requireAuthContext } from "@/server/auth/context";
-import { ValidationError } from "@/server/auth/errors";
+import { NotFoundError, ValidationError } from "@/server/auth/errors";
 import { toTenantContext } from "@/server/auth/tenant";
 import { crossedVoiceRefreshThreshold } from "@/server/ai/voice-strength";
 import { isLiveDb } from "@/server/data/source";
 import { prisma } from "@/server/db/client";
+import {
+  updateEpisodeTitle,
+  updateEpisodeTitleInput,
+  updateEpisodeTranscript,
+  updateEpisodeTranscriptInput,
+} from "@/server/db/episodes";
 import {
   approveOutput,
   listVersionsForOutput,
@@ -251,4 +258,138 @@ export async function listOutputVersionsAction(
     isCurrent: r.supersededAt === null,
   }));
   return noopOk({ versions });
+}
+
+// ============================================================
+// Phase 2.7 — transcribe controls
+// ============================================================
+
+const PLATFORM_VALUES = Object.values(Platform) as [Platform, ...Platform[]];
+
+const retranscribeInput = z.object({
+  episodeId: z.string().min(1),
+  /**
+   * Platforms to generate once the transcript lands. Defaults to the
+   * full set so the retry CTA "just works" — the user originally chose
+   * platforms on the wizard, but we don't carry that selection through
+   * to the episode page.
+   */
+  platforms: z.array(z.enum(PLATFORM_VALUES)).default(PLATFORM_VALUES),
+});
+
+/**
+ * Re-fire `episode/transcribe.requested` for an UPLOAD episode that
+ * either failed transcription or didn't kick off cleanly. EDITOR+ only.
+ *
+ * Tenant gate: we look up the episode through the agency join. A wrong
+ * id surfaces as a generic "not found" instead of leaking ownership.
+ */
+export async function retranscribeEpisodeAction(
+  raw: unknown,
+): Promise<ActionResult<{ episodeId: string }>> {
+  const parsed = retranscribeInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid retranscribe input", parsed.error.issues);
+  }
+  const { episodeId, platforms } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ episodeId });
+
+  const auth = await requireAuthContext();
+  const episode = await prisma.episode.findFirst({
+    where: {
+      id: episodeId,
+      show: { client: { agencyId: auth.agency.id } },
+    },
+    select: { id: true, source: true, audioUrl: true },
+  });
+  if (!episode) throw new NotFoundError(`Episode ${episodeId} not found`);
+  if (episode.source !== TranscriptSource.UPLOAD) {
+    return { ok: false, error: "Only UPLOAD episodes can be re-transcribed." };
+  }
+  if (!episode.audioUrl) {
+    return { ok: false, error: "No audio file on file — upload one before retrying." };
+  }
+
+  await inngest.send({
+    name: "episode/transcribe.requested",
+    data: { episodeId, platforms },
+  });
+
+  revalidatePath(`/episodes/${episodeId}`);
+  return noopOk({ episodeId });
+}
+
+const manualTranscriptInput = z
+  .object({ episodeId: z.string().min(1) })
+  .and(updateEpisodeTranscriptInput)
+  .and(z.object({ platforms: z.array(z.enum(PLATFORM_VALUES)).default(PLATFORM_VALUES) }));
+
+/**
+ * Manual transcript correction — pastes or hand-edits the transcript
+ * straight onto the Episode and kicks the generation pipeline. Used
+ * when Deepgram returned garbage or the user has their own transcript.
+ */
+export async function updateEpisodeTranscriptAction(
+  raw: unknown,
+): Promise<ActionResult<{ episodeId: string; chars: number }>> {
+  const parsed = manualTranscriptInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid transcript input", parsed.error.issues);
+  }
+  const { episodeId, transcript, platforms } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ episodeId, chars: transcript.length });
+
+  const auth = await requireAuthContext();
+  const tenant = toTenantContext(auth);
+
+  // Snapshot whether this episode was awaiting a transcript before the
+  // write — if so, we still need to kick generation. If it already had
+  // outputs, the user is just correcting in-place and we skip the kick
+  // to avoid duplicating generation runs.
+  const prior = await prisma.episode.findFirst({
+    where: { id: episodeId, show: { client: { agencyId: auth.agency.id } } },
+    select: { transcript: true },
+  });
+  if (!prior) throw new NotFoundError(`Episode ${episodeId} not found`);
+  const wasAwaiting = prior.transcript.trim().length === 0;
+
+  await updateEpisodeTranscript(tenant, episodeId, { transcript });
+
+  if (wasAwaiting) {
+    await inngest.send({
+      name: "episode/generate.requested",
+      data: { episodeId, platforms },
+    });
+  }
+
+  revalidatePath(`/episodes/${episodeId}`);
+  return noopOk({ episodeId, chars: transcript.length });
+}
+
+const renameInput = z.object({ episodeId: z.string().min(1) }).and(updateEpisodeTitleInput);
+
+/**
+ * Inline rename from the episode page header. EDITOR+. Revalidates the
+ * episode route + the /episodes index so the list reflects the new
+ * title immediately.
+ */
+export async function updateEpisodeTitleAction(
+  raw: unknown,
+): Promise<ActionResult<{ episodeId: string; title: string }>> {
+  const parsed = renameInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid title", parsed.error.issues);
+  }
+  const { episodeId, title } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ episodeId, title });
+
+  const auth = await requireAuthContext();
+  const updated = await updateEpisodeTitle(toTenantContext(auth), episodeId, { title });
+
+  revalidatePath(`/episodes/${episodeId}`);
+  revalidatePath("/episodes");
+  return noopOk({ episodeId, title: updated.title });
 }

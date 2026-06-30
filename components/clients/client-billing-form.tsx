@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { BillingCycle, ClientStatus } from "@prisma/client";
 import { Input, Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { SUPPORTED_CURRENCIES, CURRENCY_META } from "@/lib/currencies";
 import { updateClientBillingProfileAction } from "@/app/(dashboard)/clients/[key]/billing/actions";
 
 /**
@@ -28,8 +29,6 @@ export type ClientBillingFormInitial = {
   paymentLinkUrl: string;
   internalNotes: string;
 };
-
-const CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD"] as const;
 
 const CYCLE_LABELS: Record<BillingCycle, string> = {
   MONTHLY: "Monthly",
@@ -227,9 +226,9 @@ export function ClientBillingForm({
               className="w-full rounded-[10px] px-[14px] py-[10px] font-sans text-[13px] text-[#2A3550] outline-none"
               style={{ border: "1px solid #C9D4E8", background: "#FBFCFE" }}
             >
-              {CURRENCIES.map((c) => (
+              {SUPPORTED_CURRENCIES.map((c) => (
                 <option key={c} value={c}>
-                  {c}
+                  {c} — {CURRENCY_META[c].label}
                 </option>
               ))}
             </select>

@@ -15,6 +15,38 @@ export type Events = {
     };
   };
 
+  /**
+   * Phase 2.7 — audio uploads land here first. The transcribe pipeline
+   * fetches the R2 object via a signed URL, sends it to Deepgram, writes
+   * the resulting transcript onto the Episode, and then fires
+   * `episode/generate.requested` so the existing pipeline runs unchanged.
+   */
+  "episode/transcribe.requested": {
+    data: {
+      episodeId: string;
+      platforms: Platform[];
+    };
+  };
+
+  /**
+   * Phase 2.8 — RSS imports land here. The importer prefers a publisher-
+   * supplied transcript (Podcasting 2.0 `<podcast:transcript>` tag), and
+   * falls back to downloading the audio enclosure to R2 + handing off to
+   * `episode/transcribe.requested` when none is available. Either path
+   * ends with `episode/generate.requested` so the rest of the pipeline
+   * stays unchanged.
+   */
+  "episode/rss.import.requested": {
+    data: {
+      episodeId: string;
+      /** Publisher GUID — used to re-lookup the episode on retry. */
+      guid: string;
+      /** Show.rssUrl at dispatch time — pinned so a later edit doesn't shift the lookup. */
+      feedUrl: string;
+      platforms: Platform[];
+    };
+  };
+
   /** Fired by the pipeline once all platforms are persisted. SSE + email subscribe. */
   "episode/generated": {
     data: {

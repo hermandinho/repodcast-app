@@ -6,6 +6,7 @@ import { Plan } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { track } from "@/lib/analytics/track-client";
 import { PLAN_DISPLAY, PLAN_ORDER, planDisplayFor } from "@/lib/plans";
+import { DEFAULT_CURRENCY, formatPlanPrice } from "@/lib/currencies";
 import { createAgencyAction } from "@/app/onboarding/actions";
 import { inviteMemberAction } from "@/app/(dashboard)/settings/team/actions";
 import { createClientAction } from "@/app/(dashboard)/clients/actions";
@@ -391,7 +392,7 @@ function WorkspaceStep({
                   className="font-display text-[18px] leading-none font-bold"
                   style={{ color: selected ? "#3A5BA0" : "#1A2A4A" }}
                 >
-                  ${meta.priceUsd}
+                  {formatPlanPrice(meta.prices[DEFAULT_CURRENCY], DEFAULT_CURRENCY)}
                   <span className="ml-[2px] text-[11px] font-medium" style={{ color: "#8B95A6" }}>
                     /mo
                   </span>

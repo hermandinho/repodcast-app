@@ -25,6 +25,13 @@ export type SampleOutput = {
 };
 
 export type SampleEpisode = {
+  /**
+   * Real Episode.id when live; falls back to the show key in sample-data
+   * mode (the wizard's sample-mode short-circuit routes by show key, so
+   * the page resolves either form). Required by client islands that need
+   * to call server actions scoped to the episode.
+   */
+  id: string;
   /** Client key — also the episode's URL slug for the sample data. */
   clientKey: string;
   episodeNo: string;
@@ -40,6 +47,28 @@ export type SampleEpisode = {
    * generation runs.
    */
   keyMoments?: KeyMoment[];
+  /**
+   * Phase 2.7 — pipeline state surfaced to the page so the
+   * "Transcribing..." / "Importing..." / "Failed" panels can render
+   * while the underlying Episode is mid-pipeline. Always populated for
+   * live-mode episodes; left `undefined` in sample-data mode so the
+   * panels never show there.
+   */
+  pipeline?: {
+    /** Episode.source — drives which in-progress panel renders. */
+    source: "PASTE" | "UPLOAD" | "RSS" | "YOUTUBE";
+    /** True when we're waiting on the transcribe pipeline to fill it in. */
+    awaitingTranscript: boolean;
+    /**
+     * Coarse Episode.status surfaced as a discriminator for the empty-
+     * state UX. `failed` triggers the error banner with the reason
+     * below; `processing` triggers the spinner panel when there are no
+     * outputs yet.
+     */
+    status: "draft" | "processing" | "ready" | "archived" | "failed";
+    /** Populated when status === "failed" — short prose from the pipeline. */
+    failureReason: string | null;
+  };
 };
 
 const OUTPUT_META: Record<PlatformKey, string> = {
@@ -112,6 +141,7 @@ const TE_KEY_MOMENTS: KeyMoment[] = [
 
 export const sampleEpisodes: Record<string, SampleEpisode> = {
   ff: {
+    id: "ff",
     clientKey: "ff",
     episodeNo: "Episode 47",
     episode: "Why Your First 10 Hires Define Everything",
@@ -243,6 +273,7 @@ Maya`,
   },
 
   te: {
+    id: "te",
     clientKey: "te",
     episodeNo: "Episode 23",
     episode: "Surviving 90 Days Off-Grid in Patagonia",
@@ -335,6 +366,7 @@ Sam`,
   },
 
   mt: {
+    id: "mt",
     clientKey: "mt",
     episodeNo: "Episode 12",
     episode: "The Index Fund Myth Everyone Repeats",

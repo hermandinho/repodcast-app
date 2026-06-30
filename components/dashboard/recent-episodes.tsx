@@ -14,7 +14,7 @@ export function RecentEpisodes({
     <div className="border-border bg-surface rounded-2xl border px-5 pt-5 pb-2">
       <div className="mb-[14px] flex items-center justify-between">
         <div className="font-display text-ink text-[15px] font-semibold">Recent episodes</div>
-        <Link href="/clients" className="text-accent font-sans text-[12.5px] font-medium">
+        <Link href="/episodes" className="text-accent font-sans text-[12.5px] font-medium">
           View all
         </Link>
       </div>

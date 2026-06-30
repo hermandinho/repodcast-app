@@ -99,20 +99,27 @@ export function OutputCard({
   const [versions, setVersions] = useState<OutputVersionSummary[] | null>(null);
   const [versionsPending, startLoadVersions] = useTransition();
 
-  // Reset version viewer whenever the slot's current id changes (a fresh
-  // regen completes) so we don't dangle on a stale older version. The
-  // Next 16 set-state-in-effect rule flags both resets, but they're
-  // synchronising local UI state to an external identity change (the
-  // regen swap), which is the rule's documented exception.
+  const hasHistory = state.versionCount > 1;
+
+  // Auto-fetch the version list whenever the slot has history (>= 2 versions).
+  // Refires on `state.id` change (regen completed, new current row) and on
+  // `state.versionCount` change (a fresh regen added a row to the chain).
+  //
+  // Why eager: the previous "fetch on first nav click" pattern made the
+  // arrow buttons no-op on their first press — by the time the user clicked
+  // again the list had loaded, which looked like a broken switcher. Loading
+  // proactively when there's any history at all keeps the nav responsive.
+  //
+  // Also resets `viewing` to null on id change so a fresh regen lands the
+  // user on the new current row, never on a dangling older selection.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setViewing(null);
-     
-    setVersions(null);
-  }, [state.id]);
-
-  const ensureVersions = () => {
-    if (versions || versionsPending) return;
+    if (!hasHistory) {
+       
+      setVersions(null);
+      return;
+    }
     startLoadVersions(async () => {
       try {
         const result = await listOutputVersionsAction({ outputId: state.id });
@@ -121,10 +128,9 @@ export function OutputCard({
         console.error("listOutputVersionsAction failed", err);
       }
     });
-  };
+  }, [state.id, state.versionCount, hasHistory]);
 
   const onPrevVersion = () => {
-    ensureVersions();
     if (!versions || versions.length < 2) return;
     const currentVersion = viewing?.version ?? state.version;
     const older = versions.find((v) => v.version === currentVersion - 1);
@@ -139,13 +145,21 @@ export function OutputCard({
       return;
     }
     const newer = versions.find((v) => v.version === currentVersion + 1);
+    // Snap back to the live current row when stepping onto it, so further
+    // SSE updates (status flips, edits) flow through to the card.
     setViewing(newer && !newer.isCurrent ? newer : null);
   };
 
   const displayedContent = viewing?.content ?? state.content;
   const displayedVersion = viewing?.version ?? state.version;
-  const hasHistory = state.versionCount > 1;
   const viewingOlder = viewing !== null;
+  // Disable Prev only when truly at v1, OR when no v(N-1) exists in the
+  // loaded list yet (covers the brief in-flight window before fetch lands).
+  const prevDisabled =
+    displayedVersion <= 1 ||
+    versionsPending ||
+    (versions !== null && !versions.some((v) => v.version === displayedVersion - 1));
+  const nextDisabled = displayedVersion >= state.version;
 
   return (
     <div
@@ -346,7 +360,7 @@ export function OutputCard({
               <button
                 type="button"
                 onClick={onPrevVersion}
-                disabled={displayedVersion <= 1}
+                disabled={prevDisabled}
                 aria-label="Previous version"
                 className="text-muted hover:text-ink flex h-[22px] w-[22px] items-center justify-center rounded-md transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -374,7 +388,7 @@ export function OutputCard({
               <button
                 type="button"
                 onClick={onNextVersion}
-                disabled={displayedVersion >= state.version}
+                disabled={nextDisabled}
                 aria-label="Next version"
                 className="text-muted hover:text-ink flex h-[22px] w-[22px] items-center justify-center rounded-md transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
               >

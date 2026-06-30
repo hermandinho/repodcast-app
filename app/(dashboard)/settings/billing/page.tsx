@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { MemberRole, Plan } from "@prisma/client";
-import { PLAN_DISPLAY, PLAN_ORDER, planLimitsFor } from "@/lib/plans";
+import { PLAN_DISPLAY, PLAN_ORDER, planLimitsFor, priceFor } from "@/lib/plans";
+import { asSupportedCurrency, DEFAULT_CURRENCY, formatPlanPrice } from "@/lib/currencies";
 import { planCapacity } from "@/server/billing/limits";
 import { costByClient, type ClientCostRollupRow } from "@/server/db/client-cost";
 import { isLiveDb } from "@/server/data/source";
@@ -17,13 +18,18 @@ export default async function BillingPage() {
     ? await prisma.agency
         .findUnique({
           where: { id: tenant.agencyId },
-          select: { plan: true, stripeSubscriptionId: true },
+          select: {
+            plan: true,
+            stripeSubscriptionId: true,
+            preferredCurrency: true,
+          },
         })
         .catch(() => null)
     : null;
 
   const plan: Plan = agency?.plan ?? Plan.STUDIO;
   const hasSubscription = agency?.stripeSubscriptionId != null;
+  const currency = asSupportedCurrency(agency?.preferredCurrency) ?? DEFAULT_CURRENCY;
 
   // Capacity + invoices: real numbers when DB live, zero baseline otherwise.
   const live = isLiveDb();
@@ -74,11 +80,17 @@ export default async function BillingPage() {
               <span className="font-display text-ink text-[24px] font-semibold">
                 {current.name}
               </span>
-              <span className="text-muted font-sans text-[13.5px]">${current.priceUsd}/mo</span>
+              <span className="text-muted font-sans text-[13.5px]">
+                {formatPlanPrice(priceFor(plan, currency), currency)}/mo
+              </span>
             </div>
             <p className="text-muted mt-1 text-[13px]">{current.tagline}</p>
           </div>
-          <BillingActions currentPlan={plan} hasSubscription={hasSubscription} />
+          <BillingActions
+            currentPlan={plan}
+            hasSubscription={hasSubscription}
+            currency={currency}
+          />
         </div>
       </div>
 
@@ -118,7 +130,9 @@ export default async function BillingPage() {
               >
                 <div className="flex items-baseline justify-between">
                   <div className="font-display text-ink text-[16px] font-semibold">{d.name}</div>
-                  <div className="text-muted font-sans text-[13px]">${d.priceUsd}/mo</div>
+                  <div className="text-muted font-sans text-[13px]">
+                    {formatPlanPrice(priceFor(p, currency), currency)}/mo
+                  </div>
                 </div>
                 <p className="text-muted mt-1 text-[12.5px]">{d.tagline}</p>
                 <ul className="text-ink mt-[14px] flex flex-1 flex-col gap-[6px] text-[12.5px]">

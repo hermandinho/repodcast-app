@@ -1,14 +1,30 @@
 import Link from "next/link";
 import { getAuthContext } from "@/server/auth/context";
-import { listShowsForUI } from "@/server/data/source";
+import { listClientsForUI, listShowsForUI } from "@/server/data/source";
 import { resolveTenantContext } from "@/server/data/tenant";
-import { ClientSwitcher } from "./client-switcher";
+import { ClientSwitcher, type ClientWithCounts } from "./client-switcher";
 
 export async function Topbar() {
   const [auth, tenant] = await Promise.all([getAuthContext(), resolveTenantContext()]);
-  // The "ClientSwitcher" is semantically a show switcher in the new
-  // hierarchy — kept the component name to avoid touching every URL.
-  const clients = await listShowsForUI(tenant);
+
+  // Header dropdown is a CLIENT picker. We also need the show list so the
+  // active selection survives on `/shows/[key]` and `/voice/[showKey]`
+  // (each show's `clientKey` maps the URL back to its owning client).
+  const [clientsRaw, shows] = await Promise.all([listClientsForUI(tenant), listShowsForUI(tenant)]);
+
+  const clients: ClientWithCounts[] = clientsRaw.map((c) => {
+    const owned = shows.filter((s) => s.clientKey === c.key);
+    return {
+      ...c,
+      showCount: owned.length,
+      episodeCount: owned.reduce((sum, s) => sum + s.episodeCount, 0),
+    };
+  });
+
+  const showsByKey: Record<string, string> = Object.fromEntries(
+    shows.map((s) => [s.key, s.clientKey]),
+  );
+
   const agencyName = auth?.agency.name ?? "Northbeam Studio";
   const agencyInitial = (agencyName[0] ?? "·").toUpperCase();
 
@@ -26,7 +42,7 @@ export async function Topbar() {
 
       <div className="bg-border h-6 w-px" />
 
-      <ClientSwitcher clients={clients} />
+      <ClientSwitcher clients={clients} showsByKey={showsByKey} />
 
       <div className="ml-auto flex items-center gap-[10px]">
         <Link

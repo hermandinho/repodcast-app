@@ -51,6 +51,7 @@ enum EpisodeStatus {
   PROCESSING
   READY
   ARCHIVED
+  FAILED
 }
 
 enum OutputStatus {
@@ -124,6 +125,12 @@ model Agency {
   /// Phase 2.13.6 — opt-out flag for the renewals cron. Defaults on; the
   /// agency-settings page exposes a toggle.
   renewalRemindersEnabled Boolean @default(true)
+  /// Preferred display + billing currency for Repodcast's own SaaS plans.
+  /// 3-letter ISO-4217. Used as the default in `createCheckoutSessionAction`;
+  /// the billing page exposes a picker. Free-form String (not enum) so we
+  /// can add currencies without a migration — `lib/currencies.ts` is the
+  /// UI-side allowlist.
+  preferredCurrency    String   @default("USD")
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
@@ -285,6 +292,11 @@ model Episode {
   audioUrl    String?
   externalUrl String?
   status      EpisodeStatus    @default(DRAFT)
+  /// Free-text reason populated when a pipeline non-retriable error trips
+  /// (RSS import 404, transcribe 4xx, etc.). Pairs with `status = FAILED`
+  /// so the episode page can render a "what went wrong" banner with a
+  /// retry / pick-a-different-source affordance.
+  failureReason String?
   recordedAt  DateTime?
   durationSec Int?
   /// Cached `KeyMoment[]` (server/ai/key-moments.ts) extracted from the
