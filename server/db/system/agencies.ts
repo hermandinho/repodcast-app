@@ -1,6 +1,6 @@
 import "server-only";
 
-import { type Plan, type Prisma } from "@prisma/client";
+import { type MemberRole, type Plan, type Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/server/db/client";
 import { NotFoundError } from "@/server/auth/errors";
@@ -444,4 +444,51 @@ export async function listAgencyAuditEntries(
     createdAt: r.createdAt,
     actor: { email: r.bySystemAdmin.email, name: r.bySystemAdmin.name },
   }));
+}
+
+/**
+ * Members of a single agency, ordered by role rank (OWNER → ADMIN → EDITOR
+ * → REVIEWER) then most-recent activity. Used by the agency drilldown's
+ * Overview tab to host the impersonation button per row.
+ */
+export type AgencyMemberForRoot = {
+  id: string;
+  email: string;
+  name: string | null;
+  role: MemberRole;
+  createdAt: Date;
+  /** Closest proxy for "last active" — the Member row's `updatedAt`. */
+  updatedAt: Date;
+};
+
+export async function listAgencyMembers(
+  ctx: SystemAdminContext,
+  agencyId: string,
+): Promise<AgencyMemberForRoot[]> {
+  assertSystemRole(ctx, SYSTEM_READ_ROLES);
+
+  const rows = await prisma.member.findMany({
+    where: { agencyId },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  const ROLE_RANK: Record<MemberRole, number> = {
+    OWNER: 0,
+    ADMIN: 1,
+    EDITOR: 2,
+    REVIEWER: 3,
+  };
+
+  return [...rows].sort((a, b) => {
+    const r = ROLE_RANK[a.role] - ROLE_RANK[b.role];
+    if (r !== 0) return r;
+    return b.updatedAt.getTime() - a.updatedAt.getTime();
+  });
 }

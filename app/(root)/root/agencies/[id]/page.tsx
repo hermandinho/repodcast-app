@@ -1,9 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AgencyMembersPanel } from "@/components/root/agency-members-panel";
 import { AgencyTabNav } from "@/components/root/agency-tab-nav";
 import { NotFoundError } from "@/server/auth/errors";
 import { requireSystemAdminContext } from "@/server/auth/system";
-import { getAgencyForRoot, listAgencyAuditEntries } from "@/server/db/system/agencies";
+import {
+  getAgencyForRoot,
+  listAgencyAuditEntries,
+  listAgencyMembers,
+} from "@/server/db/system/agencies";
 
 export const dynamic = "force-dynamic";
 
@@ -31,10 +36,15 @@ function formatRelative(date: Date | null | undefined): string {
 
 export default async function RootAgencyDrilldownPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{
+    impersonate_error?: string;
+    impersonation_ended?: string;
+  }>;
 }) {
-  const { id } = await params;
+  const [{ id }, sp] = await Promise.all([params, searchParams]);
   const ctx = await requireSystemAdminContext();
 
   let agency;
@@ -45,7 +55,10 @@ export default async function RootAgencyDrilldownPage({
     throw err;
   }
 
-  const auditEntries = await listAgencyAuditEntries(ctx, id, 10);
+  const [auditEntries, members] = await Promise.all([
+    listAgencyAuditEntries(ctx, id, 10),
+    listAgencyMembers(ctx, id),
+  ]);
 
   const stripeUrl = agency.stripeCustomerId
     ? `https://dashboard.stripe.com/customers/${agency.stripeCustomerId}`
@@ -109,6 +122,17 @@ export default async function RootAgencyDrilldownPage({
 
       <AgencyTabNav agencyId={agency.id} />
 
+      {sp.impersonate_error ? (
+        <div className="rounded-lg border border-red-700/60 bg-red-950/40 px-4 py-3 text-sm text-red-200">
+          Couldn&apos;t open impersonation: <code>{sp.impersonate_error}</code>.
+        </div>
+      ) : null}
+      {sp.impersonation_ended ? (
+        <div className="rounded-lg border border-emerald-700/60 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-200">
+          Impersonation ended.
+        </div>
+      ) : null}
+
       <section className="flex flex-col gap-4">
         <h2 className="font-display text-lg font-semibold text-white">Month to date</h2>
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -146,6 +170,8 @@ export default async function RootAgencyDrilldownPage({
           />
         </div>
       </section>
+
+      <AgencyMembersPanel agencyId={agency.id} members={members} viewerRole={ctx.admin.role} />
 
       <section className="flex flex-col gap-4">
         <div className="flex items-baseline justify-between">
