@@ -7,14 +7,15 @@
  *
  * For each Plan (STUDIO / AGENCY / NETWORK) the script:
  *   1. Finds-or-creates a Stripe Product keyed by `metadata.repodcast_plan`.
- *   2. Finds-or-creates a recurring monthly Price keyed by
- *      `metadata.repodcast_plan` + `metadata.repodcast_role=primary`.
- *   3. Ensures the Price's `currency_options` contains an entry for every
- *      currency in `SUPPORTED_CURRENCIES`, with the unit amount from
- *      `PLAN_PRICES_BY_CURRENCY`. A mismatch causes the Price to be
- *      archived + replaced (Stripe Prices are immutable on currency math).
- *   4. Prints the three resulting Price IDs ready to paste into
- *      `.env.local` as `NEXT_PUBLIC_STRIPE_*_PRICE_ID`.
+ *   2. Finds-or-creates **two** recurring Prices keyed by the (plan, cadence)
+ *      tuple — `metadata.repodcast_cadence = MONTHLY | ANNUAL`. Each Price's
+ *      `currency_options` contains an entry for every code in
+ *      `SUPPORTED_CURRENCIES` with the unit amount from
+ *      `PLAN_PRICES_BY_CURRENCY`. A mismatch causes that specific Price to
+ *      be archived + replaced (Stripe Prices are immutable on currency
+ *      math).
+ *   3. Prints the six resulting Price IDs ready to paste into `.env.local`
+ *      as `NEXT_PUBLIC_STRIPE_<PLAN>_<CADENCE>_PRICE_ID`.
  *
  * Re-running is safe: an existing matching Price is re-used, only mismatches
  * trigger a replace. The script never deletes Products; archived Prices stay
@@ -23,7 +24,7 @@
  * Requires `STRIPE_SECRET_KEY` in `.env.local`.
  */
 
-import { Plan } from "@prisma/client";
+import { BillingCadence, Plan } from "@prisma/client";
 import Stripe from "stripe";
 import {
   CURRENCY_META,
@@ -40,9 +41,13 @@ const STRIPE_API_VERSION = "2026-06-24.dahlia" as const;
 const PRODUCT_KEY = "repodcast_plan";
 const PRICE_ROLE_KEY = "repodcast_role";
 const PRICE_ROLE_VALUE = "primary";
+const PRICE_CADENCE_KEY = "repodcast_cadence";
+
+const CADENCES: readonly BillingCadence[] = ["MONTHLY", "ANNUAL"];
 
 type SyncResult = {
   plan: Plan;
+  cadence: BillingCadence;
   productId: string;
   priceId: string;
   /** True when this run had to create-or-replace the Price (vs. reuse it). */
@@ -61,44 +66,49 @@ async function main(): Promise<void> {
 
   const results: SyncResult[] = [];
   for (const plan of PLAN_ORDER) {
-    const result = await syncPlan(stripe, plan);
-    results.push(result);
-    const marker = result.changed ? "✓ updated" : "= unchanged";
-    console.log(`  ${marker.padEnd(13)} ${plan.padEnd(8)} → ${result.priceId}`);
+    // One Product per plan; two Prices per product (monthly + annual).
+    const display = PLAN_DISPLAY[plan];
+    const product = await findOrCreateProduct(stripe, plan, display.name, display.tagline);
+    for (const cadence of CADENCES) {
+      const result = await syncPlanPrice(stripe, plan, cadence, product);
+      results.push(result);
+      const marker = result.changed ? "✓ updated" : "= unchanged";
+      console.log(
+        `  ${marker.padEnd(13)} ${plan.padEnd(8)} ${cadence.padEnd(8)} → ${result.priceId}`,
+      );
+    }
   }
 
-  console.log("\nPaste these into .env.local (NEXT_PUBLIC_STRIPE_*_PRICE_ID):\n");
+  console.log("\nPaste these into .env.local (NEXT_PUBLIC_STRIPE_<PLAN>_<CADENCE>_PRICE_ID):\n");
   for (const r of results) {
-    console.log(`NEXT_PUBLIC_STRIPE_${r.plan}_PRICE_ID="${r.priceId}"`);
+    console.log(`NEXT_PUBLIC_STRIPE_${r.plan}_${r.cadence}_PRICE_ID="${r.priceId}"`);
   }
   console.log("");
 }
 
-async function syncPlan(stripe: Stripe, plan: Plan): Promise<SyncResult> {
-  const display = PLAN_DISPLAY[plan];
-  const prices = PLAN_PRICES_BY_CURRENCY[plan];
+async function syncPlanPrice(
+  stripe: Stripe,
+  plan: Plan,
+  cadence: BillingCadence,
+  product: Stripe.Product,
+): Promise<SyncResult> {
+  const prices =
+    cadence === "ANNUAL"
+      ? PLAN_PRICES_BY_CURRENCY[plan].annual
+      : PLAN_PRICES_BY_CURRENCY[plan].monthly;
 
-  // ---- 1. Product (find by metadata key, else create) ----
-  const product = await findOrCreateProduct(stripe, plan, display.name, display.tagline);
+  const desired = buildPriceCreatePayload(plan, cadence, prices);
 
-  // ---- 2. Build the desired Price body ----
-  const desired = buildPriceCreatePayload(plan, prices);
-
-  // ---- 3. Find an existing matching Price ----
-  const existing = await findCurrentPrice(stripe, product.id, plan);
-  if (existing && pricesEquivalent(existing, desired)) {
-    return { plan, productId: product.id, priceId: existing.id, changed: false };
+  const existing = await findCurrentPrice(stripe, product.id, plan, cadence);
+  if (existing && pricesEquivalent(existing, desired, cadence)) {
+    return { plan, cadence, productId: product.id, priceId: existing.id, changed: false };
   }
 
-  // ---- 4. Create the new Price, archive the old one if present ----
-  const created = await stripe.prices.create({
-    ...desired,
-    product: product.id,
-  });
+  const created = await stripe.prices.create({ ...desired, product: product.id });
   if (existing) {
     await stripe.prices.update(existing.id, { active: false });
   }
-  return { plan, productId: product.id, priceId: created.id, changed: true };
+  return { plan, cadence, productId: product.id, priceId: created.id, changed: true };
 }
 
 async function findOrCreateProduct(
@@ -146,6 +156,7 @@ async function findCurrentPrice(
   stripe: Stripe,
   productId: string,
   plan: Plan,
+  cadence: BillingCadence,
 ): Promise<Stripe.Price | null> {
   const list = await stripe.prices.list({
     product: productId,
@@ -156,7 +167,9 @@ async function findCurrentPrice(
   return (
     list.data.find(
       (p) =>
-        p.metadata?.[PRODUCT_KEY] === plan && p.metadata?.[PRICE_ROLE_KEY] === PRICE_ROLE_VALUE,
+        p.metadata?.[PRODUCT_KEY] === plan &&
+        p.metadata?.[PRICE_ROLE_KEY] === PRICE_ROLE_VALUE &&
+        p.metadata?.[PRICE_CADENCE_KEY] === cadence,
     ) ?? null
   );
 }
@@ -167,6 +180,7 @@ type CreateCurrencyOptionsMap = {
 
 function buildPriceCreatePayload(
   plan: Plan,
+  cadence: BillingCadence,
   prices: Record<SupportedCurrency, number>,
 ): Stripe.PriceCreateParams {
   const baseCurrency: SupportedCurrency = DEFAULT_CURRENCY;
@@ -177,14 +191,17 @@ function buildPriceCreatePayload(
       unit_amount: prices[c] * 100,
     };
   }
+  const interval: Stripe.PriceCreateParams.Recurring.Interval =
+    cadence === "ANNUAL" ? "year" : "month";
   return {
     currency: CURRENCY_META[baseCurrency].stripeCode,
     unit_amount: prices[baseCurrency] * 100,
-    recurring: { interval: "month" },
-    nickname: `Repodcast ${plan} (multi-currency)`,
+    recurring: { interval },
+    nickname: `Repodcast ${plan} ${cadence} (multi-currency)`,
     metadata: {
       [PRODUCT_KEY]: plan,
       [PRICE_ROLE_KEY]: PRICE_ROLE_VALUE,
+      [PRICE_CADENCE_KEY]: cadence,
     },
     currency_options: currencyOptions,
   };
@@ -196,10 +213,14 @@ function buildPriceCreatePayload(
  * Recurring interval + metadata role are checked too. A mismatch triggers a
  * replace (Stripe Prices are immutable for currency math).
  */
-function pricesEquivalent(existing: Stripe.Price, desired: Stripe.PriceCreateParams): boolean {
+function pricesEquivalent(
+  existing: Stripe.Price,
+  desired: Stripe.PriceCreateParams,
+  cadence: BillingCadence,
+): boolean {
   if (existing.currency !== desired.currency) return false;
   if (existing.unit_amount !== desired.unit_amount) return false;
-  if (existing.recurring?.interval !== "month") return false;
+  if (existing.recurring?.interval !== (cadence === "ANNUAL" ? "year" : "month")) return false;
   if (existing.type !== "recurring") return false;
 
   const desiredOpts = (desired.currency_options ?? {}) as CreateCurrencyOptionsMap;

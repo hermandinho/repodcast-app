@@ -95,6 +95,15 @@ enum ClientStatus {
   CHURNED
 }
 
+/// Phase 3.x — cadence of the Repodcast SaaS subscription the agency carries
+/// with us. Distinct from `BillingCycle` above (which is the *agency's* per-
+/// client billing cadence). Defaults `MONTHLY`; flips to `ANNUAL` when the
+/// Stripe webhook sees a sub keyed to one of the annual Price IDs.
+enum BillingCadence {
+  MONTHLY
+  ANNUAL
+}
+
 enum MemberTransitionKind {
   INVITED
   INVITE_ACCEPTED
@@ -156,6 +165,11 @@ model Agency {
   /// The /onboarding layout redirects to /dashboard only when this is `DONE`.
   /// Default `DONE` so existing rows aren't dragged back into the wizard.
   onboardingStep       OnboardingStep @default(DONE)
+  /// Phase 3.x — cadence of the active Stripe sub. Webhook writes this from
+  /// the chosen Price ID (monthly Price → `MONTHLY`, annual Price → `ANNUAL`).
+  /// Used by the /pricing + /onboarding/plan flow to round-trip the picker
+  /// state, and by `/settings/billing` to label the current sub.
+  billingCadence       BillingCadence @default(MONTHLY)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 

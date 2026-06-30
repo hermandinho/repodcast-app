@@ -12,7 +12,7 @@ type RootNavItem = {
 
 const navItems: readonly RootNavItem[] = [
   { href: "/root", label: "Overview", ready: true },
-  { href: "/root/agencies", label: "Agencies" },
+  { href: "/root/agencies", label: "Agencies", ready: true },
   { href: "/root/users", label: "Users" },
   { href: "/root/finance", label: "Finance", ready: true },
   { href: "/root/operations", label: "Operations", ready: true },

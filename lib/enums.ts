@@ -1,4 +1,5 @@
 import type {
+  BillingCadence as PrismaBillingCadence,
   BillingCycle as PrismaBillingCycle,
   ClientStatus as PrismaClientStatus,
   MemberRole as PrismaMemberRole,
@@ -67,6 +68,12 @@ export const BillingCycle = {
   PROJECT: "PROJECT",
 } as const satisfies Record<PrismaBillingCycle, PrismaBillingCycle>;
 export type BillingCycle = PrismaBillingCycle;
+
+export const BillingCadence = {
+  MONTHLY: "MONTHLY",
+  ANNUAL: "ANNUAL",
+} as const satisfies Record<PrismaBillingCadence, PrismaBillingCadence>;
+export type BillingCadence = PrismaBillingCadence;
 
 export const ClientStatus = {
   ACTIVE: "ACTIVE",

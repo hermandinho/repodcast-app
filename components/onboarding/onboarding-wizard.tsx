@@ -431,7 +431,7 @@ function WorkspaceStep({
                   className="font-display text-[18px] leading-none font-bold"
                   style={{ color: selected ? "#3A5BA0" : "#1A2A4A" }}
                 >
-                  {formatPlanPrice(meta.prices[DEFAULT_CURRENCY], DEFAULT_CURRENCY)}
+                  {formatPlanPrice(meta.prices.monthly[DEFAULT_CURRENCY], DEFAULT_CURRENCY)}
                   <span className="ml-[2px] text-[11px] font-medium" style={{ color: "#8B95A6" }}>
                     /mo
                   </span>

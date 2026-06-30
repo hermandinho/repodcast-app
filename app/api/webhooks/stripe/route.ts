@@ -1,6 +1,6 @@
-import { InvoiceStatus, type Plan } from "@prisma/client";
+import { type BillingCadence, InvoiceStatus, type Plan } from "@prisma/client";
 import { headers } from "next/headers";
-import { planForPriceId } from "@/server/billing/prices";
+import { planAndCadenceForPriceId } from "@/server/billing/prices";
 import { Stripe, requireStripeClient } from "@/server/billing/stripe";
 import { prisma } from "@/server/db/client";
 import { markWebhookProcessed, unmarkWebhookProcessed } from "@/server/db/webhook-deliveries";
@@ -89,13 +89,17 @@ async function syncSubscription(sub: Stripe.Subscription): Promise<void> {
     return;
   }
 
-  // Derive the Plan from the subscription's primary line item.
+  // Derive the (Plan, BillingCadence) from the subscription's primary line
+  // item. The Price ID is the source of truth — `sub.metadata.plan` may
+  // disagree if Stripe-side admin tooling reassigned the sub.
   const priceId = sub.items.data[0]?.price.id;
-  const plan: Plan | null = priceId ? planForPriceId(priceId) : null;
-  if (!plan) {
+  const match = priceId ? planAndCadenceForPriceId(priceId) : null;
+  if (!match) {
     console.warn("[stripe-webhook] no Plan mapping for price", { priceId });
     return;
   }
+  const plan: Plan = match.plan;
+  const billingCadence: BillingCadence = match.cadence;
 
   const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
 
@@ -103,6 +107,7 @@ async function syncSubscription(sub: Stripe.Subscription): Promise<void> {
     where: { id: agencyId },
     data: {
       plan,
+      billingCadence,
       stripeCustomerId: customerId,
       stripeSubscriptionId: sub.id,
     },
@@ -113,11 +118,13 @@ async function handleSubscriptionDeleted(sub: Stripe.Subscription): Promise<void
   const agencyId = sub.metadata?.agencyId;
   if (!agencyId) return;
   // Drop to STUDIO on cancellation so users keep the lowest-tier limits;
-  // null out the subscription id.
+  // null out the subscription id. Cadence resets to MONTHLY since there's
+  // no live sub to reference.
   await prisma.agency.update({
     where: { id: agencyId },
     data: {
       plan: "STUDIO",
+      billingCadence: "MONTHLY",
       stripeSubscriptionId: null,
     },
   });
