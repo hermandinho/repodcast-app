@@ -583,6 +583,34 @@ export function OutputsView({
               <span className="text-[11px]">{generatingAll ? "◴" : "▶"}</span>
               {generatingAll ? "Generating…" : "Generate all"}
             </button>
+
+            {/* Phase 2.5 — branded HTML export. Live mode only (sample-data
+                mode would 503 the route); approved-only — gated on at
+                least one approval so the export isn't an empty receipt. */}
+            {streamUrl !== null && approvedCount > 0 && (
+              <a
+                href={`/api/episodes/${episode.id}/export`}
+                download
+                className="border-border text-ink hover:bg-canvas shadow-card flex items-center gap-2 rounded-[10px] border bg-white px-4 py-[11px] font-sans text-[13.5px] font-semibold transition-colors"
+                title="Download a branded HTML deliverables receipt to send to the client"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 14 14"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M7 1.5v8M3.5 6L7 9.5 10.5 6" />
+                  <path d="M2 12h10" />
+                </svg>
+                Download for client
+              </a>
+            )}
           </div>
         </div>
 
