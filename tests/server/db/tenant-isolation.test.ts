@@ -6,8 +6,26 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { InviteStatus, MemberRole, OutputStatus, Platform, TranscriptSource } from "@prisma/client";
+import {
+  EpisodeStatus,
+  InviteStatus,
+  MemberRole,
+  OutputStatus,
+  Plan,
+  Platform,
+  TranscriptSource,
+} from "@prisma/client";
 import { ForbiddenError, NotFoundError, ValidationError } from "@/server/auth/errors";
+
+// Stub the plan-capacity helpers — `bulkGenerateEpisodes` (and
+// `createEpisode` upstream) calls them on the happy path. We don't
+// want to chase their internal Prisma queries through the mock harness
+// for every test; the dedicated plan-limits.test.ts covers that logic
+// in isolation.
+vi.mock("@/server/billing/limits", () => ({
+  getAgencyPlan: vi.fn().mockResolvedValue(Plan.STUDIO),
+  assertPlanCapacity: vi.fn().mockResolvedValue(undefined),
+}));
 import type { TenantContext } from "@/server/auth/tenant";
 
 const mocks = vi.hoisted(() => ({
@@ -34,6 +52,7 @@ const mocks = vi.hoisted(() => ({
       findUniqueOrThrow: vi.fn(),
       count: vi.fn(),
       create: vi.fn(),
+      updateMany: vi.fn(),
       groupBy: vi.fn(),
     },
     generatedOutput: {
@@ -1837,5 +1856,131 @@ describe("client-portal repo — agency writes are tenant-scoped + token-lookup 
     mocks.prisma.clientPortalLink.findUnique.mockResolvedValue(link);
     const result = await clientPortalRepo.getPortalLinkByToken("t1");
     expect(result).toBe(link);
+  });
+});
+
+// ============================================================
+// Phase 2.6 — bulk generate
+// ============================================================
+
+describe("episodes repo — bulkGenerateEpisodes", () => {
+  it("filters to ctx.agencyId via show.client.agencyId in the findMany", async () => {
+    mocks.prisma.episode.findMany.mockResolvedValue([]);
+
+    await episodesRepo.bulkGenerateEpisodes(owner(A1), { episodeIds: ["ep1", "ep2"] });
+
+    expect(mocks.prisma.episode.findMany).toHaveBeenCalledWith({
+      where: {
+        id: { in: ["ep1", "ep2"] },
+        show: { client: { agencyId: A1 } },
+      },
+      select: expect.objectContaining({
+        id: true,
+        status: true,
+        outputs: expect.objectContaining({
+          where: { supersededAt: null },
+          select: { platform: true },
+          distinct: ["platform"],
+        }),
+      }),
+    });
+  });
+
+  it("rejects EDITOR? — no, EDITOR is in WRITE_ROLES; REVIEWER is rejected", async () => {
+    await expect(
+      episodesRepo.bulkGenerateEpisodes(reviewer(A1), { episodeIds: ["ep1"] }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    expect(mocks.prisma.episode.findMany).not.toHaveBeenCalled();
+  });
+
+  it("skips episodes that aren't DRAFT or FAILED and short-circuits when none are eligible", async () => {
+    mocks.prisma.episode.findMany.mockResolvedValue([
+      { id: "ep_ready", status: EpisodeStatus.READY, outputs: [] },
+      { id: "ep_proc", status: EpisodeStatus.PROCESSING, outputs: [] },
+      { id: "ep_archived", status: EpisodeStatus.ARCHIVED, outputs: [] },
+    ]);
+
+    const result = await episodesRepo.bulkGenerateEpisodes(owner(A1), {
+      episodeIds: ["ep_ready", "ep_proc", "ep_archived"],
+    });
+
+    expect(result.dispatches).toEqual([]);
+    // All three rows were ineligible — their ids surface so the UI can
+    // explain to the user that the click only partially landed.
+    expect(result.skippedNotEligible).toEqual(["ep_ready", "ep_proc", "ep_archived"]);
+    // No status flip when nothing was eligible.
+    expect(mocks.prisma.episode.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("flips eligible DRAFT/FAILED rows to PROCESSING + clears failureReason in one updateMany", async () => {
+    mocks.prisma.episode.findMany.mockResolvedValue([
+      { id: "ep_draft", status: EpisodeStatus.DRAFT, outputs: [] },
+      { id: "ep_failed", status: EpisodeStatus.FAILED, outputs: [{ platform: Platform.LINKEDIN }] },
+      { id: "ep_ready", status: EpisodeStatus.READY, outputs: [] },
+    ]);
+    mocks.prisma.episode.updateMany.mockResolvedValue({ count: 2 });
+
+    const result = await episodesRepo.bulkGenerateEpisodes(owner(A1), {
+      episodeIds: ["ep_draft", "ep_failed", "ep_ready"],
+    });
+
+    expect(mocks.prisma.episode.updateMany).toHaveBeenCalledTimes(1);
+    expect(mocks.prisma.episode.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: { in: ["ep_draft", "ep_failed"] },
+        show: { client: { agencyId: A1 } },
+      },
+      data: {
+        status: EpisodeStatus.PROCESSING,
+        failureReason: null,
+      },
+    });
+
+    expect(result.skippedNotEligible).toEqual(["ep_ready"]);
+    expect(result.dispatches).toEqual([
+      // No prior outputs — falls back to the full 7-platform default set.
+      {
+        episodeId: "ep_draft",
+        platforms: [
+          Platform.TWITTER,
+          Platform.LINKEDIN,
+          Platform.INSTAGRAM,
+          Platform.TIKTOK,
+          Platform.SHOW_NOTES,
+          Platform.BLOG,
+          Platform.NEWSLETTER,
+        ],
+      },
+      // Prior outputs exist (LinkedIn only) — derives from them so a
+      // retry honours the original platform selection.
+      { episodeId: "ep_failed", platforms: [Platform.LINKEDIN] },
+    ]);
+  });
+
+  it("ignores ids that resolve to other tenants (findMany filter strips them)", async () => {
+    // Caller asks for 3 ids; only one is in their tenant. findMany returns
+    // just that one, and the function never flips or dispatches for the
+    // other two — they're invisible by design.
+    mocks.prisma.episode.findMany.mockResolvedValue([
+      { id: "ep_owned", status: EpisodeStatus.FAILED, outputs: [] },
+    ]);
+    mocks.prisma.episode.updateMany.mockResolvedValue({ count: 1 });
+
+    const result = await episodesRepo.bulkGenerateEpisodes(owner(A1), {
+      episodeIds: ["ep_owned", "ep_other_tenant_a", "ep_other_tenant_b"],
+    });
+
+    expect(result.dispatches.map((d) => d.episodeId)).toEqual(["ep_owned"]);
+    expect(result.skippedNotEligible).toEqual([]);
+    // Status flip targets only the tenant-owned id.
+    const updateCall = mocks.prisma.episode.updateMany.mock.calls[0]![0]!;
+    expect(updateCall.where.id).toEqual({ in: ["ep_owned"] });
+  });
+
+  it("rejects empty input via the Zod schema before touching the DB", async () => {
+    await expect(
+      episodesRepo.bulkGenerateEpisodes(owner(A1), { episodeIds: [] }),
+    ).rejects.toThrow();
+    expect(mocks.prisma.episode.findMany).not.toHaveBeenCalled();
   });
 });

@@ -5,21 +5,25 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { MemberRole } from "@prisma/client";
 import type { EpisodeListItem, EpisodeListStatus } from "@/server/data/source";
-import { bulkApproveEpisodesAction } from "@/app/(dashboard)/episodes/actions";
+import {
+  bulkApproveEpisodesAction,
+  bulkGenerateEpisodesAction,
+} from "@/app/(dashboard)/episodes/actions";
 
 const STATUS_STYLES: Record<EpisodeListStatus, { label: string; bg: string; color: string }> = {
   DRAFT: { label: "Draft", bg: "#F1F4F9", color: "#7A8496" },
   PROCESSING: { label: "Processing", bg: "#EEF2FB", color: "#3A5BA0" },
   READY: { label: "Ready", bg: "#E7F4EC", color: "#1E7A47" },
   ARCHIVED: { label: "Archived", bg: "#F1F4F9", color: "#9AA3B2" },
+  FAILED: { label: "Failed", bg: "#FBEDEC", color: "#C0392B" },
 };
 
 const APPROVE_ROLES: MemberRole[] = [MemberRole.OWNER, MemberRole.ADMIN, MemberRole.REVIEWER];
+const GENERATE_ROLES: MemberRole[] = [MemberRole.OWNER, MemberRole.ADMIN, MemberRole.EDITOR];
 
-type BulkResultBanner = {
-  totalApproved: number;
-  episodeCount: number;
-};
+type BulkResultBanner =
+  | { kind: "approve"; totalApproved: number; episodeCount: number }
+  | { kind: "generate"; dispatchedCount: number; skippedCount: number };
 
 export function EpisodeListSelection({
   items,
@@ -35,17 +39,23 @@ export function EpisodeListSelection({
   const [result, setResult] = useState<BulkResultBanner | null>(null);
 
   const canApprove = APPROVE_ROLES.includes(viewerRole);
+  const canGenerate = GENERATE_ROLES.includes(viewerRole);
+  const selectable = canApprove || canGenerate;
   const selectedCount = selected.size;
 
-  // The bulk action only mutates READY/IN_REVIEW outputs — surfacing the
-  // count of episodes in those states (vs. selected) keeps the bar honest.
-  const eligibleSelectedCount = useMemo(() => {
-    let n = 0;
+  // The approve action only mutates READY/IN_REVIEW outputs — surfacing
+  // the count of episodes in those states (vs. selected) keeps the bar
+  // honest. Generate-eligibility tracks DRAFT/FAILED — those are the
+  // only statuses the batch helper accepts (server re-validates).
+  const { approveEligibleCount, generateEligibleCount } = useMemo(() => {
+    let approveN = 0;
+    let generateN = 0;
     for (const e of items) {
       if (!selected.has(e.id)) continue;
-      if (e.status === "READY" || e.status === "PROCESSING") n += 1;
+      if (e.status === "READY" || e.status === "PROCESSING") approveN += 1;
+      if (e.status === "DRAFT" || e.status === "FAILED") generateN += 1;
     }
-    return n;
+    return { approveEligibleCount: approveN, generateEligibleCount: generateN };
   }, [items, selected]);
 
   const toggleOne = (id: string) => {
@@ -86,6 +96,7 @@ export function EpisodeListSelection({
           return;
         }
         setResult({
+          kind: "approve",
           totalApproved: r.data.totalApproved,
           episodeCount: r.data.episodeCount,
         });
@@ -99,11 +110,38 @@ export function EpisodeListSelection({
     });
   };
 
+  const onGenerate = () => {
+    if (!canGenerate || selectedCount === 0) return;
+    const ids = Array.from(selected);
+    setError(null);
+    setResult(null);
+    startTransition(async () => {
+      try {
+        const r = await bulkGenerateEpisodesAction({ episodeIds: ids });
+        if (!r.ok) {
+          setError(r.error);
+          return;
+        }
+        setResult({
+          kind: "generate",
+          dispatchedCount: r.data.dispatchedCount,
+          skippedCount: r.data.skippedCount,
+        });
+        setSelected(new Set());
+        // Server flipped rows to PROCESSING + revalidated the layout;
+        // the refresh ensures the status pills re-render immediately.
+        router.refresh();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Generate failed.");
+      }
+    });
+  };
+
   return (
     <>
-      {(canApprove || items.length > 0) && (
+      {(selectable || items.length > 0) && (
         <div className="text-muted-2 mb-2 flex items-center gap-3 text-[12px]">
-          {canApprove && (
+          {selectable && (
             <label className="inline-flex cursor-pointer items-center gap-[7px] select-none">
               <input
                 type="checkbox"
@@ -119,7 +157,7 @@ export function EpisodeListSelection({
         </div>
       )}
 
-      {result && (
+      {result && result.kind === "approve" && (
         <div
           className="mb-3 rounded-xl border border-[#BFE3CD] bg-[#E7F4EC] px-3 py-[10px] font-sans text-[12.5px] text-[#1E7A47]"
           role="status"
@@ -131,6 +169,24 @@ export function EpisodeListSelection({
             : `Approved ${result.totalApproved} output${result.totalApproved === 1 ? "" : "s"} across ${
                 result.episodeCount
               } episode${result.episodeCount === 1 ? "" : "s"}.`}
+        </div>
+      )}
+      {result && result.kind === "generate" && (
+        <div
+          className="mb-3 rounded-xl border border-[#BFE3CD] bg-[#E7F4EC] px-3 py-[10px] font-sans text-[12.5px] text-[#1E7A47]"
+          role="status"
+        >
+          {result.dispatchedCount === 0
+            ? `Nothing to generate — the selected episode${
+                result.skippedCount === 1 ? " isn't" : "s aren't"
+              } in a draft or failed state.`
+            : `Started generation for ${result.dispatchedCount} episode${
+                result.dispatchedCount === 1 ? "" : "s"
+              }${
+                result.skippedCount > 0
+                  ? ` (${result.skippedCount} skipped — not in draft or failed state)`
+                  : ""
+              }. Each one's outputs will land as the pipeline finishes.`}
         </div>
       )}
       {error && (
@@ -146,25 +202,37 @@ export function EpisodeListSelection({
             episode={e}
             checked={selected.has(e.id)}
             onToggle={() => toggleOne(e.id)}
-            selectable={canApprove}
+            selectable={selectable}
           />
         ))}
       </ul>
 
-      {canApprove && selectedCount > 0 && (
+      {selectable && selectedCount > 0 && (
         <div
           className="border-border bg-surface shadow-card-hover sticky bottom-4 z-20 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-[10px]"
           role="region"
-          aria-label="Bulk approve actions"
+          aria-label="Bulk episode actions"
         >
           <div className="text-ink font-sans text-[13px] font-medium">
             <span className="text-accent font-semibold">{selectedCount}</span> episode
             {selectedCount === 1 ? "" : "s"} selected
-            {eligibleSelectedCount < selectedCount && (
+            {canApprove && approveEligibleCount > 0 && approveEligibleCount < selectedCount && (
               <span className="text-muted-2 ml-2 text-[12px]">
-                ({eligibleSelectedCount} with outputs to approve)
+                ({approveEligibleCount} ready to approve
+                {canGenerate && generateEligibleCount > 0
+                  ? `, ${generateEligibleCount} ready to generate`
+                  : ""}
+                )
               </span>
             )}
+            {(!canApprove || approveEligibleCount === 0) &&
+              canGenerate &&
+              generateEligibleCount > 0 &&
+              generateEligibleCount < selectedCount && (
+                <span className="text-muted-2 ml-2 text-[12px]">
+                  ({generateEligibleCount} ready to generate)
+                </span>
+              )}
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -174,18 +242,34 @@ export function EpisodeListSelection({
             >
               Clear
             </button>
-            <button
-              type="button"
-              onClick={onApprove}
-              disabled={pending}
-              className="bg-accent shadow-card flex items-center gap-[7px] rounded-md px-[14px] py-2 font-sans text-[12.5px] font-semibold text-white transition-[filter] hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {pending
-                ? "Approving…"
-                : `Approve all READY outputs in ${selectedCount} episode${
-                    selectedCount === 1 ? "" : "s"
-                  }`}
-            </button>
+            {canGenerate && generateEligibleCount > 0 && (
+              <button
+                type="button"
+                onClick={onGenerate}
+                disabled={pending}
+                className="border-accent-border bg-accent-soft text-accent shadow-card flex items-center gap-[7px] rounded-md border px-[14px] py-2 font-sans text-[12.5px] font-semibold transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {pending
+                  ? "Starting…"
+                  : `Generate outputs for ${generateEligibleCount} episode${
+                      generateEligibleCount === 1 ? "" : "s"
+                    }`}
+              </button>
+            )}
+            {canApprove && (
+              <button
+                type="button"
+                onClick={onApprove}
+                disabled={pending}
+                className="bg-accent shadow-card flex items-center gap-[7px] rounded-md px-[14px] py-2 font-sans text-[12.5px] font-semibold text-white transition-[filter] hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {pending
+                  ? "Approving…"
+                  : `Approve all READY outputs in ${selectedCount} episode${
+                      selectedCount === 1 ? "" : "s"
+                    }`}
+              </button>
+            )}
           </div>
         </div>
       )}

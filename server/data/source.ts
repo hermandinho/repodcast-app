@@ -303,7 +303,7 @@ function episodeToUiSummary(e: Episode) {
 // Episodes list (paginated /episodes index)
 // ============================================================
 
-export type EpisodeListStatus = "DRAFT" | "PROCESSING" | "READY" | "ARCHIVED";
+export type EpisodeListStatus = "DRAFT" | "PROCESSING" | "READY" | "ARCHIVED" | "FAILED";
 
 export type EpisodeListItem = {
   id: string;
@@ -324,7 +324,13 @@ export type EpisodeListFilterOptions = {
   statuses: EpisodeListStatus[];
 };
 
-const EPISODE_STATUSES: EpisodeListStatus[] = ["DRAFT", "PROCESSING", "READY", "ARCHIVED"];
+const EPISODE_STATUSES: EpisodeListStatus[] = [
+  "DRAFT",
+  "PROCESSING",
+  "READY",
+  "ARCHIVED",
+  "FAILED",
+];
 
 function formatShortDate(d: Date): string {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(d);

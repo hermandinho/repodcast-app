@@ -3,6 +3,7 @@ import "server-only";
 import {
   EpisodeStatus,
   MemberRole,
+  Platform,
   type Prisma,
   TranscriptSource,
   type Episode,
@@ -12,6 +13,18 @@ import { NotFoundError } from "@/server/auth/errors";
 import { requireRole, type TenantContext } from "@/server/auth/tenant";
 import { assertPlanCapacity, getAgencyPlan } from "@/server/billing/limits";
 import { prisma } from "./client";
+
+/** Default platform set used by batch-generate when an episode has no
+ *  prior outputs to derive from (FAILED before any output was created). */
+const ALL_PLATFORMS: Platform[] = [
+  Platform.TWITTER,
+  Platform.LINKEDIN,
+  Platform.INSTAGRAM,
+  Platform.TIKTOK,
+  Platform.SHOW_NOTES,
+  Platform.BLOG,
+  Platform.NEWSLETTER,
+];
 
 // ============================================================
 // Input schemas
@@ -285,6 +298,114 @@ export async function updateEpisodeTranscript(
   });
   if (count === 0) throw new NotFoundError(`Episode ${episodeId} not found`);
   return prisma.episode.findUniqueOrThrow({ where: { id: episodeId } });
+}
+
+/**
+ * Phase 2.6 — batch generation. Given a list of episode ids, this:
+ *   1. Filters to the ones that actually belong to the caller's agency
+ *      (cross-tenant ids silently drop — the UI never lets them be
+ *      selected, but a tampered request must not surface other tenants).
+ *   2. Filters further to episodes whose status indicates a retry is
+ *      meaningful (`DRAFT` or `FAILED`). READY / PROCESSING / ARCHIVED
+ *      are skipped — the UI greys those out but we re-check server-side.
+ *   3. For each remaining episode, derives the platform set from its
+ *      current-version outputs (so a retry honours the original platform
+ *      selection); falls back to the full 7-platform default when no
+ *      outputs exist yet (typical for a brand-new FAILED row).
+ *   4. Flips status → PROCESSING + clears any prior `failureReason` in
+ *      one updateMany so the UI flips immediately and we don't dangle
+ *      a stale FAILED banner.
+ *
+ * Returns the per-episode dispatch payload so the server action layer
+ * can fan out the `episode/generate.requested` Inngest events. We
+ * deliberately keep the Inngest dispatch in the action layer so this
+ * repo helper stays purely DB-shaped and trivially testable.
+ *
+ * Plan capacity is checked upfront against the *count of episodes to
+ * dispatch* — failing fast prevents a 50-episode batch from chewing
+ * through the monthly cap with no warning.
+ */
+export const bulkGenerateInput = z.object({
+  episodeIds: z.array(z.string().min(1)).min(1).max(50),
+});
+export type BulkGenerateInput = z.infer<typeof bulkGenerateInput>;
+
+export type BulkGenerateDispatch = {
+  episodeId: string;
+  platforms: Platform[];
+};
+
+export type BulkGenerateResult = {
+  dispatches: BulkGenerateDispatch[];
+  /** Ids that resolved to the caller's tenant but were skipped because
+   *  their status doesn't permit a regenerate. The UI surfaces this
+   *  count so the user knows their click only partially landed. */
+  skippedNotEligible: string[];
+};
+
+export async function bulkGenerateEpisodes(
+  ctx: TenantContext,
+  raw: BulkGenerateInput,
+): Promise<BulkGenerateResult> {
+  requireRole(ctx, WRITE_ROLES);
+  const { episodeIds } = bulkGenerateInput.parse(raw);
+
+  // Tenant-scoped lookup. `findMany` with `id in […]` + the agency join
+  // filter is one round-trip and ignores any id that isn't ours.
+  const rows = await prisma.episode.findMany({
+    where: {
+      id: { in: episodeIds },
+      show: { client: { agencyId: ctx.agencyId } },
+    },
+    select: {
+      id: true,
+      status: true,
+      outputs: {
+        where: { supersededAt: null },
+        select: { platform: true },
+        distinct: ["platform"],
+      },
+    },
+  });
+
+  const eligible: typeof rows = [];
+  const skippedNotEligible: string[] = [];
+  for (const row of rows) {
+    if (row.status === EpisodeStatus.DRAFT || row.status === EpisodeStatus.FAILED) {
+      eligible.push(row);
+    } else {
+      skippedNotEligible.push(row.id);
+    }
+  }
+
+  if (eligible.length === 0) {
+    return { dispatches: [], skippedNotEligible };
+  }
+
+  // Plan capacity for the count of NEW episode generations the batch
+  // implies. Re-generating a FAILED row is still a generation in cost
+  // terms (the prior attempt's UsageLogs were already billed), so we
+  // count every eligible episode against the cap.
+  const plan = await getAgencyPlan(ctx.agencyId);
+  await assertPlanCapacity(ctx.agencyId, plan, "episodes");
+
+  await prisma.episode.updateMany({
+    where: {
+      id: { in: eligible.map((e) => e.id) },
+      show: { client: { agencyId: ctx.agencyId } },
+    },
+    data: {
+      status: EpisodeStatus.PROCESSING,
+      failureReason: null,
+    },
+  });
+
+  const dispatches: BulkGenerateDispatch[] = eligible.map((row) => {
+    const platforms = row.outputs.length > 0 ? row.outputs.map((o) => o.platform) : ALL_PLATFORMS;
+    return { episodeId: row.id, platforms };
+  });
+
+  return { dispatches, skippedNotEligible };
 }
 
 export async function createEpisode(

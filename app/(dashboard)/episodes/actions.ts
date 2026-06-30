@@ -2,11 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { Platform } from "@prisma/client";
 import { requireAuthContext } from "@/server/auth/context";
 import { ValidationError } from "@/server/auth/errors";
 import { toTenantContext } from "@/server/auth/tenant";
+import { bulkGenerateEpisodes } from "@/server/db/episodes";
 import { bulkApproveOutputsForEpisodes } from "@/server/db/outputs";
 import { isLiveDb } from "@/server/data/source";
+import { inngest } from "@/inngest/client";
 
 export type BulkApproveResult =
   | {
@@ -68,6 +71,88 @@ export async function bulkApproveEpisodesAction(raw: unknown): Promise<BulkAppro
       totalApproved,
       byEpisode,
       episodeCount: parsed.data.episodeIds.length,
+    },
+  };
+}
+
+// ============================================================
+// Phase 2.6 — batch generate
+// ============================================================
+
+export type BulkGenerateResult =
+  | {
+      ok: true;
+      data: {
+        /** Episodes whose generation pipeline was actually dispatched. */
+        dispatchedCount: number;
+        /** Episodes that were selected but skipped because their status
+         *  doesn't permit a retry (READY/PROCESSING/ARCHIVED). */
+        skippedCount: number;
+      };
+    }
+  | { ok: false; error: string };
+
+const bulkGenerateInputSchema = z.object({
+  episodeIds: z.array(z.string().min(1)).min(1).max(50),
+});
+
+/**
+ * Fan out `episode/generate.requested` for every eligible episode in the
+ * selection. Eligibility (status ∈ {DRAFT, FAILED}) + tenant filter +
+ * status flip live in the repo helper; here we only wire the Inngest
+ * dispatch and the post-write revalidate.
+ *
+ * Dispatches happen with `Promise.allSettled` so a single Inngest blip
+ * doesn't lose the whole batch — the repo helper has already flipped
+ * the rows to PROCESSING, so a dropped dispatch just means that row
+ * dangles until the user retries (rare; Inngest is reliable).
+ */
+export async function bulkGenerateEpisodesAction(raw: unknown): Promise<BulkGenerateResult> {
+  const parsed = bulkGenerateInputSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid bulk-generate input", parsed.error.issues);
+  }
+
+  if (!isLiveDb()) {
+    return {
+      ok: true,
+      data: {
+        dispatchedCount: parsed.data.episodeIds.length,
+        skippedCount: 0,
+      },
+    };
+  }
+
+  const auth = await requireAuthContext();
+  const { dispatches, skippedNotEligible } = await bulkGenerateEpisodes(
+    toTenantContext(auth),
+    parsed.data,
+  );
+
+  if (dispatches.length > 0) {
+    await Promise.allSettled(
+      dispatches.map((d) =>
+        inngest.send({
+          name: "episode/generate.requested",
+          data: {
+            episodeId: d.episodeId,
+            platforms: d.platforms as Platform[],
+          },
+        }),
+      ),
+    );
+  }
+
+  // Status pills on the list flip from DRAFT/FAILED → PROCESSING; the
+  // dashboard's recent-episodes panel + sidebar counts read off the same
+  // tree. Revalidate the whole episodes layout to keep them in sync.
+  revalidatePath("/episodes", "layout");
+
+  return {
+    ok: true,
+    data: {
+      dispatchedCount: dispatches.length,
+      skippedCount: skippedNotEligible.length,
     },
   };
 }
