@@ -22,6 +22,7 @@
     "ai:validate": "tsx scripts/validate-voice.ts",
     "r2:cors": "tsx scripts/configure-r2-cors.ts",
     "stripe:plans": "tsx scripts/configure-stripe-plans.ts",
+    "admin:bootstrap-root": "tsx scripts/bootstrap-root.ts",
     "prepare": "husky"
   },
   "dependencies": {

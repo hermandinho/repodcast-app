@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { VoiceStrengthBars } from "@/components/ui/voice-strength-bars";
 import { Input } from "@/components/ui/input";
 import type { SampleShow } from "@/lib/sample-data/shows";
@@ -9,6 +10,13 @@ import { voiceLabel, voiceTextColor } from "@/lib/sample-data/voice-strength";
 
 type ClientLite = { key: string; name: string };
 type SortKey = "active" | "voice" | "name";
+
+const SORT_KEYS: readonly SortKey[] = ["active", "voice", "name"] as const;
+const DEFAULT_SORT: SortKey = "active";
+
+function parseSort(raw: string | null): SortKey {
+  return (SORT_KEYS as readonly string[]).includes(raw ?? "") ? (raw as SortKey) : DEFAULT_SORT;
+}
 
 const SELECT_CLASS =
   "font-sans text-[13px] text-[#2A3550] outline-none rounded-[10px] px-[12px] py-[9px] pr-8 appearance-none cursor-pointer focus:border-[#C7D2E6] disabled:cursor-not-allowed disabled:opacity-60";
@@ -19,14 +27,54 @@ const SELECT_STYLE = {
 };
 
 export function ShowsBrowser({ shows, clients }: { shows: SampleShow[]; clients: ClientLite[] }) {
-  const [query, setQuery] = useState("");
-  const [clientFilter, setClientFilter] = useState<string>("");
-  const [sort, setSort] = useState<SortKey>("active");
+  const router = useRouter();
+  const params = useSearchParams();
+  const [, startTransition] = useTransition();
+
+  // URL is the source of truth — the toolbar reads `params` on every render
+  // so back/forward navigation works and the URL can be shared. Search has a
+  // local debounced mirror so typing isn't laggy waiting on the URL push.
+  const urlQuery = params.get("q") ?? "";
+  const clientFilter = params.get("client") ?? "";
+  const sort = parseSort(params.get("sort"));
+
+  const [draft, setDraft] = useState(urlQuery);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Re-sync local input when the URL changes externally (back nav, Clear) —
+  // but never clobber the user mid-type.
+  useEffect(() => {
+    if (debounceTimer.current) return;
+    setDraft(urlQuery);
+  }, [urlQuery]);
+
+  const pushParams = (next: URLSearchParams) => {
+    const qs = next.toString();
+    startTransition(() => {
+      router.replace(qs ? `/shows?${qs}` : "/shows", { scroll: false });
+    });
+  };
+
+  const setParam = (key: string, value: string) => {
+    const next = new URLSearchParams(params.toString());
+    if (value) next.set(key, value);
+    else next.delete(key);
+    pushParams(next);
+  };
+
+  const onSearchChange = (value: string) => {
+    setDraft(value);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      debounceTimer.current = null;
+      setParam("q", value.trim());
+    }, 250);
+  };
 
   const clientByKey = useMemo(() => new Map(clients.map((c) => [c.key, c])), [clients]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = urlQuery.trim().toLowerCase();
     const out = shows.filter((s) => {
       if (clientFilter && s.clientKey !== clientFilter) return false;
       if (!q) return true;
@@ -41,12 +89,16 @@ export function ShowsBrowser({ shows, clients }: { shows: SampleShow[]; clients:
       return ec !== 0 ? ec : b.samples - a.samples;
     });
     return out;
-  }, [shows, query, clientFilter, sort]);
+  }, [shows, urlQuery, clientFilter, sort]);
 
-  const hasFilters = query.trim() !== "" || clientFilter !== "";
+  const hasFilters = urlQuery.trim() !== "" || clientFilter !== "";
   const clearFilters = () => {
-    setQuery("");
-    setClientFilter("");
+    setDraft("");
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+      debounceTimer.current = null;
+    }
+    startTransition(() => router.replace("/shows", { scroll: false }));
   };
 
   return (
@@ -70,8 +122,8 @@ export function ShowsBrowser({ shows, clients }: { shows: SampleShow[]; clients:
           </svg>
           <Input
             type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            value={draft}
+            onChange={(e) => onSearchChange(e.target.value)}
             placeholder="Search shows or hosts"
             aria-label="Search shows"
             className="py-[9px] pl-[34px]"
@@ -82,7 +134,7 @@ export function ShowsBrowser({ shows, clients }: { shows: SampleShow[]; clients:
           <span>Client</span>
           <select
             value={clientFilter}
-            onChange={(e) => setClientFilter(e.target.value)}
+            onChange={(e) => setParam("client", e.target.value)}
             aria-label="Filter by client"
             className={SELECT_CLASS}
             style={SELECT_STYLE}
@@ -100,7 +152,9 @@ export function ShowsBrowser({ shows, clients }: { shows: SampleShow[]; clients:
           <span>Sort</span>
           <select
             value={sort}
-            onChange={(e) => setSort(e.target.value as SortKey)}
+            onChange={(e) =>
+              setParam("sort", e.target.value === DEFAULT_SORT ? "" : e.target.value)
+            }
             aria-label="Sort shows"
             className={SELECT_CLASS}
             style={SELECT_STYLE}

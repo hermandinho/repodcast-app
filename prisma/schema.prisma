@@ -168,6 +168,7 @@ model Agency {
   memberTransitions    MemberTransition[]
   billingRemindersSent BillingReminderSent[]
   onboardingNudgesSent OnboardingNudgeSent[]
+  usageSnapshots       AgencyUsageSnapshot[]
 }
 
 model Member {
@@ -706,4 +707,167 @@ model WebhookDelivery {
 
   @@unique([source, eventId])
   @@index([source, processedAt])
+}
+
+// ============================================================
+// Phase 3.6 — ROOT user & platform admin backend
+// ============================================================
+//
+// These tables sit ABOVE the tenant graph. A SystemAdmin is a Repodcast
+// employee with global access, not a `Member` of any agency. They authenticate
+// through Clerk like any other user; the gate is "is there a SystemAdmin row
+// for this clerkUserId?", resolved by `server/auth/system.ts`.
+//
+// SECURITY POSTURE
+// - SystemAuditLog is append-only. Every ROOT mutation flows through
+//   `withSystemAudit(...)`, which writes the audit row in the SAME prisma
+//   $transaction as the mutation. No mutation should ever land without a
+//   matching audit row.
+// - Soft-delete via `deactivatedAt` so audit FKs survive forever.
+
+/// Platform-employee role granted to a Clerk user via `SystemAdmin`. Distinct
+/// from `MemberRole`, which scopes a person inside ONE agency.
+///
+/// - ROOT     — full mutate access across every tenant (suspend, delete,
+///              force-cancel, hard-delete content). Should be 1-2 max in
+///              normal operation.
+/// - OPERATOR — same read as ROOT; can act on day-to-day support (extend a
+///              sub, re-fire a stuck Inngest run, flag a refund). Cannot
+///              hard-delete agencies or invoke schema-touching ops.
+/// - SUPPORT  — read everything; can initiate read-only impersonation and
+///              write to a small surface (resend welcome, regenerate a
+///              portal token).
+/// - ANALYST  — read everything; NO write access. For finance/BI sharing
+///              without the footgun.
+enum SystemAdminRole {
+  ROOT
+  OPERATOR
+  SUPPORT
+  ANALYST
+}
+
+/// One row per Repodcast employee with platform-admin access. Resolved off
+/// `clerkUserId`. Same Clerk user may also have `Member` rows in agencies
+/// (e.g. the founder also runs a test agency) — the two contexts are looked
+/// up independently.
+model SystemAdmin {
+  id            String          @id @default(cuid())
+  /// Clerk user id (`user_…`). Resolved from `auth().userId` in
+  /// `getSystemAdminContext`. Unique because each Clerk user maps to at most
+  /// one platform-admin identity.
+  clerkUserId   String          @unique
+  email         String
+  name          String?
+  role          SystemAdminRole @default(SUPPORT)
+  /// When true (default), `/root/*` will redirect to MFA setup if the Clerk
+  /// session has no second factor. Off only via direct DB edit; UI never
+  /// exposes a toggle so a ROOT can't downgrade their own posture.
+  mfaEnforced   Boolean         @default(true)
+  /// Last time this admin loaded any `/root/*` page. Updated best-effort in
+  /// `requireSystemAdminContext`. Surfaced on the system-admin list for
+  /// "who's actually using their access" hygiene.
+  lastActiveAt  DateTime?
+  /// Soft-delete tombstone. Lookups filter `deactivatedAt: null` so audit
+  /// foreign-key history survives.
+  deactivatedAt DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  authoredAuditEntries SystemAuditLog[] @relation("AuditAuthor")
+
+  @@index([role])
+  @@index([deactivatedAt])
+}
+
+/// Phase 3.6.16 + 3.6.18 step 4 — nightly rollup of per-agency usage.
+///
+/// One row per (agency, UTC calendar day). Powers the `/root` overview's
+/// hot paths so we stop running `groupBy` on `UsageLog` / `GeneratedOutput`
+/// on every dashboard render. The current period (today) still reads live;
+/// snapshots cover everything that's closed.
+///
+/// `date` is anchored to **midnight UTC** for one canonical key per day —
+/// the unique constraint enforces "no two snapshots for the same day-agency",
+/// which makes the nightly cron safely idempotent (upsert keyed on
+/// (agencyId, date) → re-runs update, never duplicate).
+///
+/// `plan` is snapshotted at write time so the 12-week stacked-bar chart can
+/// segment by the plan the agency was ON during that week — a customer
+/// upgrading mid-month won't retroactively re-tag their old activity.
+///
+/// `revenueCents` rolls up PAID invoices' `amountCents`. Mixed-currency rows
+/// would normally need conversion, but every Stripe invoice we ingest is
+/// already in the agency's `preferredCurrency` and we don't currently
+/// aggregate across agencies in non-USD reporting — see PLAN §3.6.7 for the
+/// multi-currency cohort note.
+model AgencyUsageSnapshot {
+  id           String   @id @default(cuid())
+  agencyId     String
+  /// 00:00 UTC of the day this snapshot represents.
+  date         DateTime
+  /// The agency's plan at snapshot time.
+  plan         Plan
+  /// New episodes created on this UTC day, scoped to the agency.
+  episodes     Int      @default(0)
+  /// New current-version outputs created on this UTC day (excludes superseded).
+  outputs      Int      @default(0)
+  /// Sum of `UsageLog.costCents` for this UTC day.
+  costCents    Int      @default(0)
+  /// Sum of PAID invoices' `amountCents` for this UTC day.
+  revenueCents Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  agency Agency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+
+  /// One snapshot per agency-day. Backs the cron's idempotent upsert.
+  @@unique([agencyId, date])
+  /// Hot path for date-range aggregates ("sum for the current month").
+  @@index([date])
+  /// Hot path for per-agency time series ("show me this agency's last 90d").
+  @@index([agencyId, date(sort: Desc)])
+}
+
+/// Append-only audit log of every ROOT-side write. Inserted in the SAME
+/// `prisma.$transaction` as the mutation it describes, via the
+/// `withSystemAudit(...)` wrapper. If the mutation rolls back, the audit row
+/// rolls back too — and vice versa. There is no "wrote but didn't log" path.
+///
+/// The action key is a free-form dotted string (e.g. `agency.suspend`,
+/// `member.impersonate`, `subscription.force_cancel`) keyed off a const map
+/// in `server/db/system/audit-actions.ts` so the TS layer enforces consistency
+/// while the column stays migration-stable.
+///
+/// `before` / `after` snapshot the row(s) touched. Stored as Json so we can
+/// capture arbitrarily-shaped pre/post images without inventing a column.
+model SystemAuditLog {
+  id                String   @id @default(cuid())
+  bySystemAdminId   String
+  /// Dotted action key. See `server/db/system/audit-actions.ts`.
+  action            String
+  targetAgencyId    String?
+  targetMemberId    String?
+  /// Free-form entity-type tag (e.g. "agency", "subscription", "member"). Pairs
+  /// with `targetEntityId` so we can audit rows the schema doesn't have a
+  /// dedicated FK column for.
+  targetEntityType  String?
+  targetEntityId    String?
+  before            Json?
+  after             Json?
+  /// Free-text reason the operator typed in the confirm dialog. Required for
+  /// destructive actions at the action layer.
+  note              String?
+  /// Source IP at the time of the action. Raw (not hashed) — this is internal
+  /// audit, not user-facing telemetry. Stripped to first non-trusted-proxy hop
+  /// at the action layer.
+  ipAddress         String?
+  userAgent         String?
+  createdAt         DateTime @default(now())
+
+  bySystemAdmin SystemAdmin @relation("AuditAuthor", fields: [bySystemAdminId], references: [id], onDelete: Restrict)
+
+  @@index([bySystemAdminId, createdAt(sort: Desc)])
+  @@index([targetAgencyId, createdAt(sort: Desc)])
+  @@index([action, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
 }

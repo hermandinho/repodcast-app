@@ -801,16 +801,261 @@ Three forward-only steps: **Workspace → Teammates → First client**. The trai
 - [ ] Add NETWORK ($499) Stripe product + limits (25 shows, unlimited seats, batch + priority)
 - [ ] Priority generation queue (Inngest concurrency keyed by plan)
 
-## 3.6 Admin panel
+## 3.6 ROOT user & platform admin backend
 
-- [ ] **Admin** (`/admin`, restricted by clerk role or env-listed user ids): agency table, MRR, generation queue health, churn tracking
-- [ ] Read-only impersonation tooling (use Clerk's "impersonate" feature)
+> **Premise:** Repodcast needs a platform-level operator role that sits **above** all agencies — for support, billing reconciliation, incident response, abuse handling, fraud review, and revenue visibility. A ROOT user is **not** a `Member` of any agency; they're a Repodcast employee with global read + scoped-write access across every tenant. This section also lands the **system-wide analytics backend** every founder/operator needs to run the business — MRR, churn, generation volume, cost-to-serve, queue health, error rates, top accounts, top consumers, retention cohorts.
+>
+> **Why this lands in Phase 3 (and not later):** every metric below answers a question we'd otherwise be answering by ad-hoc Prisma queries against production. Going live without it is operating blind. Per the user's ask: "we need a ROOT user to manage all agencies + detailed analytics backend of the whole system."
+>
+> **Strict scope boundary — what ROOT does NOT do:** ROOT does not bypass legal data-handling boundaries (we keep the same Privacy/Terms commitments), does not enter agency-to-client money flow (still no PCI scope), and does not silently mutate tenant data without an audit row. Every ROOT mutation lands in `SystemAuditLog`. Reads are unrestricted; writes are bounded, audited, and reversible where possible.
 
-## 3.7 Analytics & monitoring depth
+### 3.6.1 Auth & access control
+
+- [x] **`SystemAdminRole` enum** — `ROOT | OPERATOR | SUPPORT | ANALYST`.
+  - `ROOT` — full mutate access across every tenant, including suspend/delete agency, force-cancel subscription, hard-delete content. There should be **2 ROOT users max** in normal operation (founder + designated incident commander).
+  - `OPERATOR` — same read access as ROOT; can act on day-to-day support tickets (extend a subscription, re-fire a stuck Inngest function, refund-flag an invoice). Cannot delete agencies or invoke schema-touching ops.
+  - `SUPPORT` — read everything; can only initiate **read-only impersonation** + write to a small surface (e.g. resend a welcome email, mark a support ticket resolved, regenerate a portal token for a customer who lost it).
+  - `ANALYST` — read everything; **no write access at all**. For finance/BI sharing without giving them a footgun.
+- [x] **`SystemAdmin` model** — landed in migration `20260630160000_system_admin`. Fields: `id`, `clerkUserId @unique`, `email`, `name?`, `role SystemAdminRole @default(SUPPORT)`, `mfaEnforced Boolean @default(true)`, `lastActiveAt?`, `deactivatedAt?` (soft-delete tombstone so audit FKs survive), `createdAt`, `updatedAt`. **No** FK to `Member`. Seeded via `npm run admin:bootstrap-root` which reads `ROOT_BOOTSTRAP_EMAIL` + `ROOT_BOOTSTRAP_CLERK_USER_ID` and upserts an idempotent ROOT row (re-running clears `deactivatedAt`).
+- [x] **Clerk-side gate** — `server/auth/system.ts#getSystemAdminContext()` resolves the active Clerk user against the `SystemAdmin` table (`deactivatedAt: null` filter). Returns `SystemAdminContext` shape mirroring the tenant `AuthContext`. A signed-in user can hold both a `SystemAdmin` row and `Member` rows; the contexts are looked up independently.
+- [~] **MFA enforcement** — schema field `SystemAdmin.mfaEnforced` is in place (default `true`), but the runtime check is currently a no-op. The original code consulted `sessionClaims.factors`, which is NOT a default Clerk JWT claim — exposing it requires a custom JWT template every install must configure, OR a per-request `clerkClient.users.getUser(userId)` round-trip to read `twoFactorEnabled`. The intended redirect target was also a dead end (a signed-in user hitting `/sign-in` gets bounced to `/` by Clerk, creating a loop). Wiring this properly lands alongside write-mode impersonation (3.6.6) where MFA actually matters; the schema field is reserved so the future check can flip on without a migration.
+- [ ] **IP allowlist (optional)** — `ROOT_IP_ALLOWLIST` env (comma-separated CIDR). When set, `/root/*` middleware rejects requests off-list with 404 (not 403 — don't leak the surface's existence). Off by default for solo-founder dev; documented as the hardening step before scaling the team.
+- [x] **Route gate** — `app/(root)/layout.tsx` calls `requireSystemAdminContext()`. Unauthenticated → `redirect("/sign-in?redirect_url=/root")`. Authenticated without a `SystemAdmin` row → `notFound()` (renders the global 404, not a 403, so the surface stays invisible to probing). Best-effort `lastActiveAt` bump runs after the gate passes.
+- [x] **No tenant `getAuthContext()` fallthrough** — the `/root` layout never calls `getAuthContext()`; the read-side helpers live under `server/db/system/*` and take a `SystemAdminContext`, not a `TenantContext`. ROOT correctness will live in its own test suite (`tests/server/auth/system-role-guard.test.ts` + `tests/server/db/system-audit.test.ts` cover step-1 surface area; 11 new tests, 301 total).
+
+### 3.6.2 Audit logging (mandatory for every ROOT write)
+
+- [x] **`SystemAuditLog` model** — landed in the same migration. Fields + indices match the spec (`bySystemAdminId, createdAt DESC`, `targetAgencyId, createdAt DESC`, `action, createdAt DESC`, `createdAt DESC`). FK to `SystemAdmin` is `ON DELETE RESTRICT` as a defense-in-depth backstop against an accidental hard-delete that would orphan audit history; soft-delete via `deactivatedAt` is the only supported teardown.
+- [x] **Action key registry** — `server/db/system/audit-actions.ts` exports a `SYSTEM_AUDIT_ACTIONS` const map (22 keys covering agency lifecycle, subscription/invoice, member, admin, config, support, abuse, impersonation). The `action` column stays free-form `String` so adding a new action doesn't need a migration; the TS layer enforces consistency via `SystemAuditAction` union.
+- [x] **`withSystemAudit(ctx, input, fn)`** — `server/db/system/audit.ts`. Wraps the callback in a single `prisma.$transaction`; passes the TX client + a `MutableAuditSnapshot` helper (`setBefore`/`setAfter`/`setNote`) so the action can refine the snapshot based on its own write result. Snapshots are deep-cloned through `JSON.parse(JSON.stringify(...))` so a later mutation of the source object can't poison the audit row. The audit row insert runs INSIDE the same TX as the mutation — either both land or both roll back. 6 unit tests cover the happy path, mutation-throws → audit-never-written, audit-throws → wrapper-rejects, default-null snapshot path, and deep-clone semantics.
+- [ ] **`/root/audit` log viewer** — paginated, filterable by admin, action, target agency, date range. Read-only. Always-on, no soft-delete affordance even for the ROOT user themself (audit log is constitutional, not editable).
+- [ ] **Optional: pipe `SystemAuditLog` writes to Sentry as `audit.event` breadcrumbs** so an external SIEM can ingest them too.
+
+### 3.6.3 Route layout (`/root/*`)
+
+> Distinct from `/admin` because that path already reads as "Clerk admin" in this codebase. `/root` is unambiguous.
+
+- [ ] `/root` — landing dashboard (overview).
+- [ ] `/root/agencies` — global agency list.
+- [ ] `/root/agencies/[id]` — single agency drilldown.
+- [ ] `/root/users` — cross-agency user/member search.
+- [ ] `/root/finance` — Stripe-side revenue, refunds, disputes, MRR cohorts.
+- [ ] `/root/operations` — cost-to-serve, AI spend, R2 storage, generation queue health.
+- [ ] `/root/quality` — flagged outputs, support requests, abuse reports.
+- [ ] `/root/config` — feature flags, plan-limit overrides, prompt rollouts.
+- [ ] `/root/audit` — audit-log viewer.
+- [ ] `/root/system` — health checks (DB, Inngest, Clerk, Stripe, R2, Resend, Sentry, PostHog reachability + latency).
+- [ ] **Layout chrome:** separate sidebar from the tenant dashboard. Red-tinted top bar that reads "ROOT MODE" so an operator never forgets they're in the platform admin (preventing the classic "ran a dev query on prod" confusion).
+
+### 3.6.4 Platform overview dashboard (`/root`)
+
+> **Status:** initial slice landed in ship-order step 3. `server/db/system/overview.ts#getRootOverview` parallelises ~13 live aggregate queries into one payload powering the dashboard; the snapshot-backed swap lands as step 4. **Live now:** MRR / ARR / net new MRR (MTD) / paying-vs-non-paying split / gross margin (MRR − AI spend) / total agencies + members / episodes-MTD + outputs-MTD / AI spend MTD / in-flight episodes / pipeline failures 24h / failed-episodes lifetime / webhook deliveries 24h grouped by source / episodes-by-source horizontal bars / 12-week stacked-bar of current-version outputs by plan / recent platform-admin activity feed. **Marked "—" placeholders:** churn % (needs the finance dashboard's MoM movement, step 6), p95 generation latency (needs per-call duration tracking — TODO on the pipeline). MRR sums plan prices for agencies with a non-null `stripeSubscriptionId`; dev rows without a sub count as non-paying. 16 new tests pin the math (MRR pricing math + null cost-sum collapse + negative margin path + zero-fill pivots + 12-bucket Monday-UTC alignment + role gate); 332 tests total.
+
+Single screen, KPI-dense, no scrolling for the must-see numbers.
+
+- [ ] **Top row — money & growth**
+  - MRR (sum of `Agency.plan` → monthly $ on active Stripe subs)
+  - ARR (MRR × 12)
+  - Net new MRR this month (signups + upgrades − cancellations − downgrades)
+  - Logo churn % (agencies that cancelled in last 30d / total active at start of period)
+  - Revenue churn % (cancelled-MRR / starting-MRR)
+- [ ] **Second row — usage**
+  - Total agencies (active + paused split)
+  - Total members (across all agencies)
+  - Episodes processed this month
+  - Outputs generated this month
+  - Total Anthropic spend MTD (sum `UsageLog.costCents`)
+  - Anthropic gross margin (subscription revenue − Anthropic cost) — the **hero number** for unit economics
+- [ ] **Third row — health**
+  - Inngest function success rate (last 24h)
+  - Pipeline failure count (last 24h) — clickable to filtered queue view
+  - Webhook delivery success rate (Stripe + Clerk + Resend) — last 24h
+  - Sentry error rate (per 1k requests)
+  - p95 generation duration
+- [ ] **Charts**
+  - 90-day MRR line + cohort retention heatmap (Phase 3.6.7)
+  - 12-week stacked bar of outputs generated by plan tier
+  - Episodes-by-source pie (PASTE / UPLOAD / RSS / YOUTUBE) — tells us where to invest
+
+### 3.6.5 Agency management (`/root/agencies`)
+
+- [~] **Searchable list** — landed in step 2. Live filters: name search (debounced 250 ms), plan, status (active / suspended), `createdFrom` / `createdTo` (cross-anchored date pickers, end-of-day widening). Columns: agency + owner email, plan pill, members, episodes-MTD, outputs-MTD, cost-MTD (USD formatted), last-activity (relative), created (ISO date). 25/page pagination preserves filter params on prev/next. Per-row aggregates use bounded `groupBy` calls over the visible page only — swap to `AgencyUsageSnapshot` joins lands in step 4 of the ship order. Open for ANALYST / SUPPORT / OPERATOR / ROOT. Sortable columns + "no activity in N days" filter + CSV export still TODO.
+- [ ] **CSV export** of the filtered list (same filter params as the URL).
+- [~] **Agency drilldown `/root/agencies/[id]`** — Overview tab landed. Header shows name, plan, agency id, created date, owner contact, onboarding step, Stripe deep-link. Below the header: month-to-date KPI strip (episodes, outputs, AI spend, paid-invoice revenue in agency's preferred currency), lifetime totals strip (members, clients, shows, episodes, current outputs, paid invoices), and recent-platform-admin-activity feed (last 10 `SystemAuditLog` entries scoped via `targetAgencyId`). `<AgencyTabNav>` renders the other six tabs as "soon" disabled chips so the chrome is in place for steps 3–11.
+  - Tabs: Overview / Members / Clients & Shows / Episodes / Billing / Usage / Audit
+  - **Overview** — KPI strip + last-30d activity sparkline + last 10 audit entries scoped to this agency
+  - **Members** — full Member list with role, last-active, "impersonate" button per row (gated to OPERATOR/ROOT, opens 3.6.6 read-only mode)
+  - **Clients & Shows** — full client + show tree, counts, last-episode date per show
+  - **Episodes** — full episode history, status, output count, generation cost
+  - **Billing** — Stripe sub + invoice list with hosted PDF links, payment-method last-4, next-charge date
+  - **Usage** — full `UsageLog` per-episode breakdown, model used, tokens in/out, cost, profit margin
+  - **Audit** — `SystemAuditLog` filtered to `targetAgencyId == this`
+- [ ] **ROOT actions per agency** (all wrapped in `withSystemAudit`):
+  - **Suspend / Unsuspend** — `Agency.suspendedAt DateTime?` (new column). Suspended agencies bounce on dashboard with a "Your account is suspended — contact support" page. New schema migration. Existing read-only export still allowed (data preservation).
+  - **Force-cancel subscription** — calls Stripe `subscription.cancel({ invoice_now: true, prorate: true })`, syncs back to `Agency.plan = STUDIO`. Confirm dialog required.
+  - **Grant plan override** — bumps an agency to a plan above their paid tier without charging (comp account for partners, beta testers, support escalations). New `Agency.planOverride Plan?` column; `getAgencyPlan()` returns `planOverride ?? plan`. Audit row captures the comp justification.
+  - **Refund last invoice** — does NOT process refund directly; opens Stripe dashboard to the invoice with a deep link, prefills a `SystemAuditLog` row with `action: "invoice.refund_request"` so the operator notes _why_ they refunded. Manual side: actual refund must happen in Stripe so the webhook path stays the single source of truth.
+  - **Hard-delete agency (ROOT only, irreversible)** — confirmation modal requires typing the agency name. Triggers cascade through `onDelete: Cascade`. Pre-flight: lock all R2 objects scoped under `audio/<agencyId>/...` and `artwork/<agencyId>/...` into a 30-day quarantine prefix before delete so GDPR-style recovery is possible.
+
+### 3.6.6 Impersonation (read-only by default)
+
+- [ ] **`/root/agencies/[id]/impersonate?as={memberId}`** — opens a session-scoped impersonation envelope. Visual treatment: every page renders a top banner `"VIEWING AS {name} ({email}) — agency {agencyName} — read-only — End impersonation →"`. Banner color: bright orange (different from ROOT red) so the operator is never confused about which mode they're in.
+- [ ] **Implementation**: `getAuthContext()` reads an `impersonate` cookie (`{ systemAdminId, asMemberId, agencyId, mode: "read" | "write", startedAt }`) and **swaps** the resolved `TenantContext` to the impersonated agency. All subsequent reads go through the normal tenant-scoped repos with the impersonated agency's `agencyId`. Writes are blocked at the action layer: every server action's first line is `assertNotReadOnlyImpersonation()` which throws `ForbiddenError` if `mode == "read"`. Cookie is `httpOnly`, `secure`, expires after **60 minutes** so a forgotten tab can't sit live forever.
+- [ ] **`mode: "write"` (ROOT only)** — for cases where the operator must make a change with the customer on the phone (e.g. re-name a show with a typo). Banner flips to red, mutations allowed but every action ALSO inserts a `SystemAuditLog` row with `action: "tenant.proxy_write"` so the change is double-attributed.
+- [ ] **End impersonation** — banner button clears the cookie + redirects to `/root/agencies/[id]` with a toast confirming the session ended.
+
+### 3.6.7 Financial dashboard (`/root/finance`)
+
+- [ ] **MRR breakdown**
+  - By plan (Studio / Agency / Network)
+  - By cohort (signup month)
+  - By currency (Phase 2 has `Agency.preferredCurrency`)
+- [ ] **Movement waterfall** — for the chosen month: starting MRR + new + expansion (upgrades) − contraction (downgrades) − churn = ending MRR
+- [ ] **Cohort retention heatmap** — N×M grid: rows are signup months, columns are months-since-signup, cells are "% of cohort still subscribed." Standard SaaS chart, but with `Agency.createdAt` + Stripe sub state as the source.
+- [ ] **Invoices** — global table of every `Invoice` row across all agencies. Filter by status (PAID / OPEN / VOID / UNCOLLECTIBLE), agency, date range. Quick links to Stripe-hosted PDF and Stripe dashboard.
+- [ ] **Disputes & failed payments** — pulled from Stripe `customer.subscription.{paused, deleted}` + `invoice.payment_failed` events (already handled in the existing webhook; surface them here).
+- [ ] **CSV export** for finance/accounting hand-off (matches `/clients/[id]/statements/[id]/route.ts` shape patterns).
+- [ ] **LTV / CAC scaffolding** — LTV estimate from average revenue × average lifespan (months); CAC slot is manual entry (`SystemConfig` row, see 3.6.11) since acquisition spend is off-platform. Renders LTV:CAC ratio with a 3× target line.
+
+### 3.6.8 Operational analytics (`/root/operations`)
+
+- [ ] **AI spend dashboard**
+  - Total Anthropic spend today / MTD / lifetime
+  - Spend by model (`UsageLog.model` groupBy — Claude version distribution)
+  - Spend by platform (which output platforms are the most expensive to generate)
+  - Spend by agency (top 20 by cost-to-serve)
+  - Margin per agency (revenue − Anthropic cost) — flag agencies with negative margin
+  - **Forecasted month-end spend** = MTD × (days-in-month / current-day)
+- [ ] **Generation queue health**
+  - Inngest function pass/fail/retry rates per function (`generate-episode`, `regenerate-output`, `transcribe-episode`, `import-rss-episode`, `refresh-voice-description`, `cleanup-orphan-audio`, `check-renewals`, `check-onboarding-nudges`)
+  - p50 / p95 / p99 duration per function
+  - Currently-in-flight count
+  - Last 50 failures with `agencyId`, `episodeId`, error message, retry count, deep-link to Inngest dashboard
+  - **Manual re-fire button** per failed run (ROOT + OPERATOR only)
+- [ ] **R2 storage**
+  - Total bytes stored, by prefix (`audio/` vs `artwork/` vs `statements/`)
+  - Top 20 agencies by storage
+  - Orphaned object count + last cleanup-cron run timestamp
+- [ ] **Webhook health**
+  - `WebhookDelivery` rolled up by `source` × day for last 30d
+  - Recent failed dispatches (we don't currently log failures — add a `lastDispatchError String?` + `attempts Int @default(0)` to track retry exhaustion)
+- [ ] **Email deliverability** (Resend)
+  - Sent / delivered / bounced / complained counts per template (welcome / generation-complete / invite / renewal-reminder / onboarding-finish-setup / onboarding-first-client). Requires writing send results to a new `EmailDelivery` log table.
+- [ ] **External API health** — small green/red status grid for each provider (`Anthropic`, `Deepgram`, `Podcast Index`, `Stripe`, `Clerk`, `R2`, `Resend`, `Sentry`, `PostHog`) with last successful round-trip timestamp. Sourced from a periodic Inngest ping cron.
+
+### 3.6.9 Cross-agency user search (`/root/users`)
+
+- [ ] Search by email / name / `clerkUserId`. Returns every `Member` row matching.
+- [ ] Click → opens a side-panel with: full identity card, all agency memberships (joined dates, roles), Clerk last-sign-in, ROOT actions: resend welcome / reset password (via Clerk SDK) / open impersonation modal for any of their memberships.
+- [ ] Useful for: support ticket "what agencies am I in?", abuse triage (track a bad actor across tenants), GDPR data-export requests.
+
+### 3.6.10 Quality, abuse, and moderation (`/root/quality`)
+
+- [ ] **Flagged outputs queue** — new `GeneratedOutput.flagReason String?` + `flaggedByMemberId String?` + `flaggedAt DateTime?` columns. Tenant members can flag (Phase 4 polish — out of scope for 3.6 ship). ROOT view lists flagged rows across all agencies with full context.
+- [ ] **Abuse reports** — new `AbuseReport` table for inbound complaints (e.g. spam, copyright, brand impersonation). Fields: `id`, `reportedByEmail?` (external), `targetAgencyId?`, `targetMemberId?`, `targetOutputId?`, `category` (enum: `SPAM | COPYRIGHT | IMPERSONATION | HARASSMENT | OTHER`), `body`, `status` (`OPEN | IN_REVIEW | RESOLVED | DISMISSED`), `assignedToSystemAdminId?`, `resolution String?`, `createdAt`, `resolvedAt?`. Inbound channel: a public `/legal/report` form that posts here.
+- [ ] **Support escalations queue** — surface customer-side support requests (when 3.6.13 adds a "request help" button in the dashboard). Triage by status, assigned operator, age.
+- [ ] **Anti-fraud signals** — list of recently-created agencies with high spend / no payment / mismatched IP geolocation / disposable-email domains. Doesn't auto-suspend — just flags for review.
+
+### 3.6.11 Platform configuration (`/root/config`)
+
+- [ ] **`SystemConfig` model** — flat key/value table (`key @unique`, `value Json`, `updatedAt`, `updatedBySystemAdminId`). Stores: feature-flag overrides not in PostHog (e.g. `RSS_IMPORT_ENABLED`), per-plan limit overrides (rare — most plan limits are in `lib/plans.ts`), Anthropic model defaults, monthly cost-cap overrides per plan, CAC entry for LTV:CAC, marketing copy that can change without redeploy.
+- [ ] **Per-agency plan-limit override** — sometimes a customer hits a limit and we want to comp them an extra 50 episodes without changing their plan. New `AgencyLimitOverride` table (`agencyId`, `resource`, `value Int`, `expiresAt?`, `note`, `bySystemAdminId`). `planCapacity()` consults this table and uses the override if present + unexpired. Audit-logged.
+- [ ] **Prompt rollouts** — Phase 4-shaped feature: A/B test a new prompt against current production for a subset of agencies. Implemented as a `SystemConfig` row driving a deterministic hash check (`hashAgencyId(agencyId) % 100 < experiment.percent`). Outside the ROOT-shipping scope but documented here so the config surface is the right home for it.
+- [ ] **Read-only "config history"** — `SystemConfig` writes hit `SystemAuditLog` with `action: "config.update"` + before/after JSON.
+
+### 3.6.12 System health (`/root/system`)
+
+- [ ] Extends the existing `/api/health` endpoint into a full reachability grid:
+  - Postgres — `SELECT 1` + latency
+  - Inngest — `GET /api/inngest` self-introspection
+  - Clerk — `clerkClient.users.getCount()` smoke
+  - Stripe — `stripe.balance.retrieve()` smoke
+  - R2 — `headBucket()` smoke
+  - Anthropic — last successful call timestamp (we don't ping just to ping; we use the most-recent `UsageLog.createdAt` as a proxy)
+  - Resend — `domains.list()` smoke
+  - Sentry — DSN ping
+  - PostHog — `/decide` ping
+- [ ] **Latency over time** — sparkline per provider for last 24h. Inngest cron writes a `HealthProbe` row every 5 min.
+- [ ] **Recent error rate** — Sentry events ingested via Sentry's API (Phase 3.6 stretch — for v1 the cheap version is a deep-link to the Sentry project filtered to last 24h).
+
+### 3.6.13 Customer-side support hook (out of scope for 3.6 but planned)
+
+- [ ] Dashboard topbar gains a "Need help?" button → opens a modal that POSTs a `SupportRequest` row (new model: agency / member / category / body). Lands in `/root/quality` as a triage item.
+- [ ] Confirmation email back to the requester via Resend.
+- [ ] Why this lives in 3.6 docs: it's the inbound side of the ROOT support flow. The actual UI on the customer side is Phase 4 polish.
+
+### 3.6.14 Schema additions summary
+
+> All landing in one Phase 3.6 migration. Pre-flight: confirm none of these names collide with future Phase 2 work (none do — checked against existing 2.13 + 2.5 + 2.10 names).
+
+- [ ] **Enums:** `SystemAdminRole`, `AbuseReportCategory`, `AbuseReportStatus`, `LimitOverrideResource`.
+- [ ] **New models:** `SystemAdmin`, `SystemAuditLog`, `AgencyLimitOverride`, `SystemConfig`, `AbuseReport`, `SupportRequest`, `EmailDelivery`, `HealthProbe`.
+- [ ] **Agency additions:** `suspendedAt DateTime?`, `planOverride Plan?`, `lastAdminNote String?` (optional CRM-style scratchpad written from the agency drilldown).
+- [ ] **GeneratedOutput additions:** `flagReason String?`, `flaggedByMemberId String?`, `flaggedAt DateTime?` (for the moderation queue — kept slim, no full new table).
+- [ ] **WebhookDelivery additions:** `lastDispatchError String?`, `attempts Int @default(0)` (so the operations dashboard can surface retry exhaustion).
+- [ ] **No changes to existing tenant-scoped models** beyond the optional `suspendedAt` / `planOverride` / `flag*` fields above — keeping the multi-tenant repo helpers blissfully unaware of platform admin state.
+
+### 3.6.15 Repo + server-action layer
+
+- [ ] **`server/auth/system.ts`** — `getSystemAdminContext()`, `requireSystemAdminContext()`, `assertSystemRole(ctx, allowed)`, `assertNotReadOnlyImpersonation(ctx)`. Mirrors the tenant `auth/context.ts` API surface so the ergonomics are familiar.
+- [ ] **`server/db/system/*.ts`** — repo helpers that **do not** take a `TenantContext`. One file per subject area: `agencies.ts`, `users.ts`, `audit.ts`, `finance.ts`, `operations.ts`, `quality.ts`, `config.ts`, `health.ts`. Each helper takes a `SystemAdminContext` for permission gating + audit attribution.
+- [ ] **`withSystemAudit(ctx, action, before, fn)`** — transactional wrapper described in 3.6.2.
+- [ ] **Server actions** — co-located under `app/(root)/.../actions.ts` mirroring the tenant pattern. Each action's first lines: `requireSystemAdminContext()` → `assertSystemRole(...)` → wrap the body in `withSystemAudit`.
+
+### 3.6.16 Analytics implementation notes
+
+- [ ] **Where the numbers come from**
+  - MRR / churn / cohorts → derived from `Invoice` + `Agency.plan` + Stripe-side subscription state (cached in `Agency.stripeSubscriptionId`).
+  - Usage / outputs / cost → existing `UsageLog`, `Episode`, `GeneratedOutput`.
+  - Queue health → Inngest's introspection API (`@inngest/api`).
+  - Webhooks → `WebhookDelivery` (existing).
+  - Errors → Sentry's Events API + DSN.
+  - Funnel events → PostHog's Insights API.
+- [x] **Nightly rollup table** (`AgencyUsageSnapshot`) — landed in migration `20260630180000_agency_usage_snapshot`. Schema: `(agencyId, date)` composite unique + `plan` snapshot + `episodes` / `outputs` / `costCents` / `revenueCents` (PAID invoices). Two Inngest functions cover the surface: `nightly-usage-rollup` (`cron: 0 2 * * *`, 02:00 UTC) snapshots the prior UTC day for every agency, per-agency `step.run` so a partial-batch failure resumes cleanly; `backfill-usage-rollup` (`event: system/rollup.backfill.requested`) re-runs the same per-(day, agency) worker over an arbitrary `{fromIso, toIso}` half-open range so operators can fill historic data after the migration. Pure helpers `utcDayStart` / `priorUtcDay` / `utcDayRange` / `rollupAgencyForDay` live in `server/db/system/rollup.ts` and are unit-tested without an Inngest harness. 18 new tests (350 total) cover UTC midnight anchoring, half-open range semantics, idempotency (re-runs upsert), tenant-chain scoping, PAID-only revenue, and null-aggregate collapse to 0. **Migration needs `npm run db:migrate` against the live Neon DB to land the table.**
+- [ ] **Caching strategy** — `/root` overview reads from rollup tables, not live `UsageLog`. Refresh interval ≤ 5 min via `revalidateTag("root-overview")` on rollup-cron completion.
+- [ ] **Real-time gauges (queue depth, in-flight count)** — read directly from Inngest's API, NOT cached. p95 / p99 reads from the rollup.
+
+### 3.6.17 Testing
+
+- [ ] Unit tests for the ROOT auth gate matrix (4 roles × 6 example actions × write/read = 48 cases, table-driven).
+- [ ] Tenant-isolation tests for `withSystemAudit` — assert the audit row + the mutation land in the same TX (rollback test: force the audit-write to fail mid-TX, confirm the mutation is rolled back).
+- [ ] Smoke tests for `getSystemAdminContext()` — `clerkUserId` not in `SystemAdmin` → null; deactivated row → null; active row → resolved.
+- [ ] Audit-immutability tests — `update` / `delete` on `SystemAuditLog` should be forbidden at the Prisma layer (`@@map` to a view, or runtime guard in `prisma.$extends`). Lock it down so even a future ROOT can't tamper.
+- [ ] **Aggregate-math tests** for the MRR / cohort / margin functions — fixture an agency mix, assert the formulas. Same pattern as the existing `cost-to-serve` tests in Phase 2.13.5.
+
+### 3.6.18 Roadmap shaping & ordering
+
+- [~] **3.6 ship order** (intra-phase):
+  1. [x] `SystemAdmin` + `SystemAuditLog` schema + auth gate + `/root` layout shell — landed. Migration `20260630160000_system_admin` adds enum + 2 tables + 4 indices. `server/auth/system.ts` exposes `getSystemAdminContext` / `requireSystemAdminContext` / `assertSystemRole` + role bundles (`SYSTEM_ROOT_ONLY`, `SYSTEM_WRITE_ROLES`, `SYSTEM_READ_ROLES`). `server/db/system/audit.ts` exposes `withSystemAudit`. Bootstrap CLI `npm run admin:bootstrap-root` mints the first ROOT row idempotently. Route group `app/(root)/` has the gated layout (red-tinted topbar + role pill + dedicated sidebar) and a `/root` overview placeholder showing live agency/member/episode/output counts + recent audit feed. 11 new tests, 301 total; typecheck + lint clean.
+  2. [x] `/root/agencies` list + drilldown (Overview tab only) — landed. `server/db/system/agencies.ts` exposes `listAgenciesForRoot` (Zod-validated search / plan / status / date-range filters; per-page month-to-date aggregates derived via bounded `groupBy` calls), `getAgencyForRoot` (single-row drilldown with lifetime totals + month-to-date strip including paid-invoice revenue) and `listAgencyAuditEntries`. `/root/agencies` page uses URL-driven filters with 25/page pagination; `/root/agencies/[id]` opens the Overview tab with the other six tabs marked "soon" in `<AgencyTabNav>`. Read-open to every system role (ANALYST through ROOT) — writes for suspend / plan-override / hard-delete land with subsequent slices. 15 new tests, 316 total; typecheck + lint clean.
+  3. [x] `/root` overview dashboard wired to live (uncached) queries — landed. `server/db/system/overview.ts#getRootOverview` parallelises ~13 aggregate queries (MRR via `Agency.groupBy(plan) WHERE stripeSubscriptionId != null`, episodes/outputs/AI spend MTD, pipeline failures 24h, webhook deliveries 24h, episodes-by-source pivot, 12-week outputs-by-plan in-memory bucketing). `/root/page.tsx` renders 3 KPI rows + 2 inline-SVG charts (`<EpisodesBySourceChart>` horizontal bars + `<OutputsByPlanChart>` stacked bar) + recent audit feed. KPI tones flip to amber when gross margin goes negative or pipeline failures > 0. Churn % and p95 latency marked "—" until the finance dashboard (step 6) and per-call duration tracking land. 16 new tests, 332 total; typecheck + lint clean.
+  4. [x] `AgencyUsageSnapshot` rollup cron + swap dashboard to read snapshot — landed. Schema (see §3.6.16) + `nightly-usage-rollup` cron (02:00 UTC) + `backfill-usage-rollup` event-triggered companion. `getRootOverview` now uses the canonical OLAP pattern: snapshot `aggregate({ date: { gte: monthStart, lt: todayUtc } })` for closed-period MTD totals + a live tail (`episode.count` / `generatedOutput.count` / `usageLog.aggregate` filtered to `createdAt >= todayUtc`) for today. The 12-week chart switched to `agencyUsageSnapshot.findMany` and buckets the pre-aggregated rows by week + plan (snapshot row count is bounded by `agencies × 84 days`, vs. the prior unbounded `GeneratedOutput.findMany`). MRR + health metrics stay live (cheap + inherently 24h-windowed). 18 new tests, 350 total — covering the snapshot/live composition, the closed-period WHERE shape, the bucket merge across agencies, and the pure date helpers. **Transition note:** snapshots are empty on first deploy; fire `inngest.send({ name: "system/rollup.backfill.requested", data: { fromIso, toIso } })` to populate historic data or wait for the first nightly cron.
+  5. Impersonation (read-only mode).
+  6. Financial dashboard.
+  7. Operational analytics.
+  8. Quality / moderation / abuse.
+  9. Config + plan-limit overrides.
+  10. Impersonation (write mode, ROOT only).
+  11. Hard-delete agency + R2 quarantine.
+- [ ] **What does NOT block public launch:** quality/moderation queue (3.6.10), config rollouts (3.6.11), write-mode impersonation (3.6.6). Everything above 3.6.10 _does_ block launch.
+
+### Exit criteria
+
+- A bootstrap script seeds a single `ROOT` user from `ROOT_BOOTSTRAP_EMAIL`. That user can sign in, land on `/root`, and see live MRR / agency count / generation volume.
+- Every ROOT write produces a `SystemAuditLog` row in the same TX. Audit log is queryable and immutable.
+- An OPERATOR can list all agencies, drill into one, and impersonate any member of that agency in read-only mode. The banner makes the impersonation visible at all times.
+- ROOT can suspend / unsuspend an agency and grant a plan override; both flow through Stripe correctly + survive a webhook replay.
+- The `/root` overview renders in < 500 ms p95 on production-scale data (rollup-backed).
+- Finance dashboard reconciles MRR ± 1 % vs. Stripe's own MRR view.
+- The system health page surfaces a red dot within 60 s of any provider going down (verified by killing the local Postgres connection in dev).
+
+## 3.7 Customer-side analytics & monitoring (cross-cutting tenant features)
+
+> Scoped to **tenant-facing** observability — what an agency OWNER sees about their own data. Platform-wide visibility for the Repodcast team lives in 3.6.
 
 - [ ] Full PostHog funnel: register → first generation → approve → upgrade
 - [ ] Sentry alerts on pipeline + webhook failures
-- [ ] Usage/cost dashboard for ops
+- [ ] Per-agency cost/usage dashboard (already partially live via `/settings/billing` usage meters; this finishes the picture with monthly + 90-day trends)
 - [ ] Feature flags (PostHog) for gradual rollouts
 
 ## 3.8 Launch assets

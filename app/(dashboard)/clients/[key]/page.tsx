@@ -83,15 +83,26 @@ export default async function ClientOverviewPage({ params }: { params: Promise<{
                 </div>
               )}
               <div className="min-w-0 flex-1">
-                <div className="text-ink truncate font-sans text-[14px] font-semibold">
-                  {s.name}
+                <div className="flex items-center gap-2">
+                  <span className="text-ink truncate font-sans text-[14px] font-semibold">
+                    {s.name}
+                  </span>
+                  {s.rssUrl && (
+                    <span
+                      className="bg-accent-soft text-accent inline-flex flex-shrink-0 items-center gap-[4px] rounded-full px-[7px] py-[2px] font-sans text-[10px] font-semibold tracking-[0.04em] uppercase"
+                      title="RSS feed connected"
+                    >
+                      <span className="h-[5px] w-[5px] rounded-full bg-[#2E9E5B]" />
+                      RSS
+                    </span>
+                  )}
                 </div>
-                <div className="text-muted-2 mt-[2px] text-[12px]">
+                <div className="text-muted-2 mt-[2px] truncate text-[12px]">
                   Hosted by {s.host} · {s.episodeCount} episode
-                  {s.episodeCount === 1 ? "" : "s"}
+                  {s.episodeCount === 1 ? "" : "s"} · Updated {s.lastActivity}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-shrink-0 items-center gap-2">
                 <VoiceStrengthBars samples={s.samples} size="sm" />
                 <span
                   className="font-sans text-[11.5px] font-semibold"

@@ -4,6 +4,7 @@ import { checkRenewals } from "./functions/check-renewals";
 import { cleanupOrphanAudio } from "./functions/cleanup-orphan-audio";
 import { generateEpisode } from "./functions/generate-episode";
 import { importRssEpisode } from "./functions/import-rss-episode";
+import { backfillUsageRollup, nightlyUsageRollup } from "./functions/nightly-usage-rollup";
 import { refreshVoiceDescription } from "./functions/refresh-voice-description";
 import { regenerateOutput } from "./functions/regenerate-output";
 import { transcribeEpisode } from "./functions/transcribe-episode";
@@ -35,4 +36,6 @@ export const functions = [
   checkRenewals,
   checkOnboardingNudges,
   cleanupOrphanAudio,
+  nightlyUsageRollup,
+  backfillUsageRollup,
 ];

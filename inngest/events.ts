@@ -75,6 +75,21 @@ export type Events = {
     };
   };
 
+  /**
+   * Phase 3.6.18 step 4 — manual backfill of the nightly usage rollup. Run
+   * once with `{fromIso, toIso}` to populate snapshots for a date range
+   * (inclusive lower bound, exclusive upper). Each day's rollup is
+   * idempotent (upsert), so re-running the same range is safe.
+   */
+  "system/rollup.backfill.requested": {
+    data: {
+      /** Inclusive UTC midnight lower bound (ISO string). */
+      fromIso: string;
+      /** Exclusive UTC midnight upper bound (ISO string). */
+      toIso: string;
+    };
+  };
+
   /** Smoke-test event still used by the no-op helloFn. */
   "test/hello": {
     data: Record<string, unknown>;

@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { NewClientButton } from "@/components/clients/new-client-button";
+import { ClientsBrowser, type ClientWithStats } from "@/components/clients/clients-browser";
 import { listClientsForUI, listShowsForUI } from "@/server/data/source";
 import { resolveTenantContext } from "@/server/data/tenant";
 
@@ -10,10 +10,35 @@ import { resolveTenantContext } from "@/server/data/tenant";
 export default async function ClientsPage() {
   const tenant = await resolveTenantContext();
   const [clients, shows] = await Promise.all([listClientsForUI(tenant), listShowsForUI(tenant)]);
-  const showsByClient = new Map<string, number>();
+
+  // Roll up per-client aggregates from the show list once. The browser uses
+  // these for the card stats and as sort keys.
+  const aggByClient = new Map<string, { shows: number; episodes: number; samples: number }>();
   for (const s of shows) {
-    showsByClient.set(s.clientKey, (showsByClient.get(s.clientKey) ?? 0) + 1);
+    const prev = aggByClient.get(s.clientKey) ?? { shows: 0, episodes: 0, samples: 0 };
+    aggByClient.set(s.clientKey, {
+      shows: prev.shows + 1,
+      episodes: prev.episodes + s.episodeCount,
+      samples: prev.samples + s.samples,
+    });
   }
+
+  const clientsWithStats: ClientWithStats[] = clients.map((c) => {
+    const agg = aggByClient.get(c.key) ?? { shows: 0, episodes: 0, samples: 0 };
+    return {
+      key: c.key,
+      name: c.name,
+      description: c.description,
+      contactName: c.contactName,
+      contactEmail: c.contactEmail,
+      artworkUrl: c.artworkUrl,
+      initial: c.initial,
+      avatarBg: c.avatarBg,
+      showCount: agg.shows,
+      episodeCount: agg.episodes,
+      voiceSamples: agg.samples,
+    };
+  });
 
   return (
     <div className="px-[30px] pt-[28px] pb-[60px]">
@@ -30,63 +55,7 @@ export default async function ClientsPage() {
         <NewClientButton />
       </div>
 
-      {clients.length === 0 ? (
-        <ClientsEmptyState />
-      ) : (
-        <div
-          className="grid gap-[18px]"
-          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(296px, 1fr))" }}
-        >
-          {clients.map((c) => (
-            <Link
-              key={c.key}
-              href={`/clients/${c.key}`}
-              className="group border-border bg-surface shadow-card hover:border-border-2 hover:shadow-card-hover block overflow-hidden rounded-3xl border p-5 transition-shadow"
-            >
-              <div className="flex items-center gap-3">
-                {c.artworkUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={c.artworkUrl}
-                    alt=""
-                    className="h-12 w-12 flex-shrink-0 rounded-xl object-cover"
-                    style={{ background: "#EEF1F6" }}
-                  />
-                ) : (
-                  <div
-                    className="font-display flex h-12 w-12 items-center justify-center rounded-xl text-[15px] font-bold text-white"
-                    style={{ background: c.avatarBg }}
-                  >
-                    {c.initial}
-                  </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="font-display text-ink truncate text-[16px] leading-tight font-semibold">
-                    {c.name}
-                  </div>
-                  {c.contactName && (
-                    <div className="text-muted-2 mt-[2px] truncate text-[12.5px]">
-                      {c.contactName}
-                    </div>
-                  )}
-                </div>
-              </div>
-              {c.description && (
-                <p className="text-muted mt-3 line-clamp-2 text-[12.5px] leading-[1.5]">
-                  {c.description}
-                </p>
-              )}
-              <div className="mt-4 flex items-center justify-between border-t border-[#F0F3F8] pt-3 text-[12px]">
-                <span className="text-muted-2">
-                  {showsByClient.get(c.key) ?? 0} show
-                  {(showsByClient.get(c.key) ?? 0) === 1 ? "" : "s"}
-                </span>
-                <span className="text-accent group-hover:translate-x-[2px]">Open →</span>
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
+      {clients.length === 0 ? <ClientsEmptyState /> : <ClientsBrowser clients={clientsWithStats} />}
     </div>
   );
 }
