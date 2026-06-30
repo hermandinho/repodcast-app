@@ -1,4 +1,4 @@
-import { Plan } from "@prisma/client";
+import { Plan } from "@/lib/enums";
 import { DEFAULT_CURRENCY, type SupportedCurrency } from "@/lib/currencies";
 
 /**
