@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Platform, TranscriptSource } from "@prisma/client";
+import { Platform, TranscriptSource } from "@/lib/enums";
 import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import { VoiceStrengthBars } from "@/components/ui/voice-strength-bars";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { MemberRole } from "@prisma/client";
+import { MemberRole } from "@/lib/enums";
 import type { PlatformMeta } from "@/lib/sample-data/platforms";
 import { statusMeta, type EpisodeStatus } from "@/lib/sample-data/episode-status";
 import { qualityColor } from "@/lib/sample-data/quality";
@@ -116,7 +116,6 @@ export function OutputCard({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setViewing(null);
     if (!hasHistory) {
-       
       setVersions(null);
       return;
     }

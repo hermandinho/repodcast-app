@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MemberRole } from "@prisma/client";
+import { MemberRole } from "@/lib/enums";
 import { PlatformBadge } from "@/components/ui/platform-badge";
 import { VoiceStrengthBars } from "@/components/ui/voice-strength-bars";
 import { ClipMomentsPanel } from "@/components/episodes/clip-moments-panel";

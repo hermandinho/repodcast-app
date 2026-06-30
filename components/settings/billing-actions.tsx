@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Plan } from "@prisma/client";
+import { Plan } from "@/lib/enums";
 import { Button } from "@/components/ui/button";
 import { PLAN_ORDER, PLAN_DISPLAY } from "@/lib/plans";
 import { CURRENCY_META, SUPPORTED_CURRENCIES, type SupportedCurrency } from "@/lib/currencies";

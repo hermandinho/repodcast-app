@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
-import { Platform } from "@prisma/client";
+import { Platform } from "@/lib/enums";
 import { Button } from "@/components/ui/button";
 import { PlatformBadge } from "@/components/ui/platform-badge";
 import { VoiceStrengthBars } from "@/components/ui/voice-strength-bars";

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { OnboardingStep, Plan } from "@prisma/client";
+import { OnboardingStep, Plan } from "@/lib/enums";
 import { Input } from "@/components/ui/input";
 import { track } from "@/lib/analytics/track-client";
 import { PLAN_DISPLAY, PLAN_ORDER, planDisplayFor } from "@/lib/plans";

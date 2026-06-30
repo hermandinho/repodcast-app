@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useTransition } from "react";
-import { OutputStatus, Platform } from "@prisma/client";
+import { OutputStatus, Platform } from "@/lib/enums";
 
 /**
  * Phase 2.13.3 — filter row for the deliverable ledger.
