@@ -919,29 +919,12 @@ Single screen, KPI-dense, no scrolling for the must-see numbers.
 
 ### 3.6.8 Operational analytics (`/root/operations`)
 
-- [ ] **AI spend dashboard**
-  - Total Anthropic spend today / MTD / lifetime
-  - Spend by model (`UsageLog.model` groupBy — Claude version distribution)
-  - Spend by platform (which output platforms are the most expensive to generate)
-  - Spend by agency (top 20 by cost-to-serve)
-  - Margin per agency (revenue − Anthropic cost) — flag agencies with negative margin
-  - **Forecasted month-end spend** = MTD × (days-in-month / current-day)
-- [ ] **Generation queue health**
-  - Inngest function pass/fail/retry rates per function (`generate-episode`, `regenerate-output`, `transcribe-episode`, `import-rss-episode`, `refresh-voice-description`, `cleanup-orphan-audio`, `check-renewals`, `check-onboarding-nudges`)
-  - p50 / p95 / p99 duration per function
-  - Currently-in-flight count
-  - Last 50 failures with `agencyId`, `episodeId`, error message, retry count, deep-link to Inngest dashboard
-  - **Manual re-fire button** per failed run (ROOT + OPERATOR only)
-- [ ] **R2 storage**
-  - Total bytes stored, by prefix (`audio/` vs `artwork/` vs `statements/`)
-  - Top 20 agencies by storage
-  - Orphaned object count + last cleanup-cron run timestamp
-- [ ] **Webhook health**
-  - `WebhookDelivery` rolled up by `source` × day for last 30d
-  - Recent failed dispatches (we don't currently log failures — add a `lastDispatchError String?` + `attempts Int @default(0)` to track retry exhaustion)
-- [ ] **Email deliverability** (Resend)
-  - Sent / delivered / bounced / complained counts per template (welcome / generation-complete / invite / renewal-reminder / onboarding-finish-setup / onboarding-first-client). Requires writing send results to a new `EmailDelivery` log table.
-- [ ] **External API health** — small green/red status grid for each provider (`Anthropic`, `Deepgram`, `Podcast Index`, `Stripe`, `Clerk`, `R2`, `Resend`, `Sentry`, `PostHog`) with last successful round-trip timestamp. Sourced from a periodic Inngest ping cron.
+- [x] **AI spend dashboard** — today / MTD / lifetime tiles, per-model groupBy, top-20 agencies by MTD cost with margin = `priceFor(agency.plan) − costCentsMtd` (negative values flag agencies that lose us money on serving costs alone), straight-line month-end forecast = `mtd × (daysInMonth / dayOfMonth)`. Per-platform spend is deferred because `UsageLog` has no `platform` column — would need either a schema change or a fragile time-window join to outputs.
+- [~] **Generation queue health** — DB-side slice landed: in-flight episode count + failed-24h + failed-lifetime + last 50 failed episodes with `failureReason` and agency context. Inngest-side metrics (pass/fail/retry rates per function, p50/p95/p99 durations, manual re-fire) deferred — each needs the Inngest REST/GraphQL surface + auth, lands as its own slice.
+- [ ] **R2 storage** — total bytes stored by prefix (`audio/` vs `artwork/` vs `statements/`), top 20 agencies by storage, orphaned object count + last cleanup-cron run timestamp. Blocked on an indexed source for storage counters — naive `ListObjectsV2` is expensive at scale; future cron writes counters into a snapshot table.
+- [~] **Webhook health** — initial 30-day surface landed: `WebhookDelivery` rolled up by source over the last 30d + a per-day combined sparkline (zero-filled). Recent-failed-dispatches surface still deferred — needs the `WebhookDelivery.lastDispatchError String?` + `attempts Int @default(0)` columns from the original spec.
+- [ ] **Email deliverability** (Resend) — sent / delivered / bounced / complained counts per template (welcome / generation-complete / invite / renewal-reminder / onboarding-finish-setup / onboarding-first-client). Requires writing send results to a new `EmailDelivery` log table.
+- [ ] **External API health** — small green/red status grid for each provider (`Anthropic`, `Deepgram`, `Podcast Index`, `Stripe`, `Clerk`, `R2`, `Resend`, `Sentry`, `PostHog`) with last successful round-trip timestamp. Sourced from a periodic Inngest ping cron. Lands with §3.6.12.
 
 ### 3.6.9 Cross-agency user search (`/root/users`)
 
@@ -1032,7 +1015,7 @@ Single screen, KPI-dense, no scrolling for the must-see numbers.
   4. [x] `AgencyUsageSnapshot` rollup cron + swap dashboard to read snapshot — landed. Schema (see §3.6.16) + `nightly-usage-rollup` cron (02:00 UTC) + `backfill-usage-rollup` event-triggered companion. `getRootOverview` now uses the canonical OLAP pattern: snapshot `aggregate({ date: { gte: monthStart, lt: todayUtc } })` for closed-period MTD totals + a live tail (`episode.count` / `generatedOutput.count` / `usageLog.aggregate` filtered to `createdAt >= todayUtc`) for today. The 12-week chart switched to `agencyUsageSnapshot.findMany` and buckets the pre-aggregated rows by week + plan (snapshot row count is bounded by `agencies × 84 days`, vs. the prior unbounded `GeneratedOutput.findMany`). MRR + health metrics stay live (cheap + inherently 24h-windowed). 18 new tests, 350 total — covering the snapshot/live composition, the closed-period WHERE shape, the bucket merge across agencies, and the pure date helpers. **Transition note:** snapshots are empty on first deploy; fire `inngest.send({ name: "system/rollup.backfill.requested", data: { fromIso, toIso } })` to populate historic data or wait for the first nightly cron.
   5. [x] Impersonation (read-only mode) — landed. HMAC-signed `repodcast_impersonate` cookie + `getAuthContext` swap + `requireRole` chokepoint on read-only writes + orange `<ImpersonationBanner>` in `(dashboard)/layout.tsx` + start/end server actions wrapped in `withSystemAudit` + Members panel on the Overview tab. 15 new tests (365 total): cookie round-trip + tampering + expiry + key rotation + `requireRole` / `assertNotReadOnlyImpersonation` / `assertRole` chokepoints. Requires `IMPERSONATION_SIGNING_KEY` (≥ 32 bytes) in env; missing key fails closed (start action redirects with `impersonate_error=signing_key_missing` — no audit row).
   6. [x] Financial dashboard — landed. `/root/finance` renders MRR-by-plan + MRR-by-currency + 12-month signup cohorts + paginated invoice table; `getFinanceSummary` parallelises ~9 aggregate queries against `Agency`/`Invoice`/`UsageLog` with no rollup-table dependency. Filter-shaped CSV export at `GET /api/root/finance/invoices.csv` (RFC-4180 quoted, 10K-row hard cap). Movement waterfall + full retention heatmap + LTV/CAC scaffolding deferred (each blocked on schema or external surface not yet captured). 15 new tests (380 total) cover MRR-sum coherence + per-currency bucketing + cohort year-boundary handling + invoice where-clause shape + CSV cap.
-  7. Operational analytics.
+  7. [x] Operational analytics — landed. `/root/operations` renders AI-spend tiles (today / MTD / lifetime / straight-line month-end forecast) + MTD spend by model + top-20 agencies by MTD spend with margin flagging + pipeline queue (in-flight + failed 24h + failed lifetime + last 50 failures with agency context) + 30-day webhook deliveries (per-source totals + per-day sparkline). `server/db/system/operations.ts#getOperationsSummary` fan-outs ~11 aggregates with no rollup-table dependency. Inngest-side metrics (per-function pass/fail + durations + manual re-fire), R2 storage, email deliverability, and the external-API status grid stay deferred — each needs an external API or schema addition we don't yet capture. 13 new tests (393 total) cover the month-end-forecast math, 30-day daily-series bucketing, margin-vs-MRR composition, and missing-agency drops.
   8. Quality / moderation / abuse.
   9. Config + plan-limit overrides.
   10. Impersonation (write mode, ROOT only).
