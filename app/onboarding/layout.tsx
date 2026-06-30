@@ -1,13 +1,18 @@
 import { auth } from "@clerk/nextjs/server";
+import { OnboardingStep } from "@prisma/client";
 import { redirect } from "next/navigation";
-import { userHasAnyMembership } from "@/server/db/agencies";
+import { getOnboardingStepForUser } from "@/server/db/agencies";
 import { isLiveDb } from "@/server/data/source";
 
 /**
  * Inverse of the dashboard layout's onboarding gate: if the user is signed
- * in *and* already belongs to an agency, send them straight back to the
- * dashboard. Stops users from looping through onboarding after they've
- * already created their workspace.
+ * in *and* has finished the wizard, send them straight to the dashboard.
+ *
+ * Phase 2.10 swap: we used to redirect on the cheaper "do you have any
+ * Member row" check, but that yanked users with a created agency but an
+ * unfinished step 2/3 over to the dashboard, defeating the resume promise.
+ * Now we redirect iff `onboardingStep === DONE` — any earlier step keeps
+ * the user in the wizard so they pick up where they left off.
  *
  * Sample-data mode skips the check — the demo tenant is always "set up".
  */
@@ -15,7 +20,8 @@ export default async function OnboardingLayout({ children }: { children: React.R
   if (isLiveDb()) {
     const { userId } = await auth();
     if (!userId) redirect("/sign-in");
-    if (await userHasAnyMembership(userId)) redirect("/dashboard");
+    const step = await getOnboardingStepForUser(userId);
+    if (step === OnboardingStep.DONE) redirect("/dashboard");
   }
   return (
     <div

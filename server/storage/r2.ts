@@ -3,9 +3,11 @@ import "server-only";
 import { S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import {
-  PutObjectCommand,
-  GetObjectCommand,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
   type S3ClientConfig,
 } from "@aws-sdk/client-s3";
 
@@ -114,4 +116,82 @@ export async function signR2DownloadUrl(key: string, expiresInSec = 300): Promis
   return getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), {
     expiresIn: expiresInSec,
   });
+}
+
+// ============================================================
+// Bulk read / delete (Phase 2.7 orphan-cleanup cron)
+// ============================================================
+
+export type R2ObjectSummary = {
+  key: string;
+  /** Server-side LastModified, or `null` when R2 doesn't surface it (rare). */
+  lastModified: Date | null;
+  /** Object size in bytes when available — used by callers that report freed storage. */
+  size: number | null;
+};
+
+/**
+ * Paginated walk under a key prefix. Returns every object in the bucket
+ * under `prefix`. Bounded by `maxObjects` (default 10_000) so a runaway
+ * bucket doesn't melt the cron's wall-clock budget.
+ *
+ * Throws if R2 isn't configured — callers should `getR2Client()`-gate
+ * before invoking (the cron skips silently in dev).
+ */
+export async function listR2Objects(
+  prefix: string,
+  maxObjects = 10_000,
+): Promise<R2ObjectSummary[]> {
+  const { client, bucket } = requireR2Client();
+  const out: R2ObjectSummary[] = [];
+  let continuationToken: string | undefined;
+
+  while (out.length < maxObjects) {
+    const res = await client.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: prefix,
+        ContinuationToken: continuationToken,
+      }),
+    );
+    for (const obj of res.Contents ?? []) {
+      if (!obj.Key) continue;
+      out.push({
+        key: obj.Key,
+        lastModified: obj.LastModified ?? null,
+        size: obj.Size ?? null,
+      });
+      if (out.length >= maxObjects) break;
+    }
+    if (!res.IsTruncated || !res.NextContinuationToken) break;
+    continuationToken = res.NextContinuationToken;
+  }
+  return out;
+}
+
+/**
+ * Batch delete. S3's `DeleteObjects` accepts up to 1000 keys per call, so
+ * we chunk transparently. Returns the count actually deleted (server-side
+ * confirmation), which a caller can compare to `keys.length` to spot any
+ * AWS-side failures.
+ */
+export async function deleteR2Objects(keys: string[]): Promise<number> {
+  if (keys.length === 0) return 0;
+  const { client, bucket } = requireR2Client();
+  const BATCH = 1000;
+  let deleted = 0;
+  for (let i = 0; i < keys.length; i += BATCH) {
+    const slice = keys.slice(i, i + BATCH);
+    const res = await client.send(
+      new DeleteObjectsCommand({
+        Bucket: bucket,
+        Delete: { Objects: slice.map((k) => ({ Key: k })), Quiet: true },
+      }),
+    );
+    // Quiet mode means `Deleted` is omitted on success — fall back to the
+    // slice length when AWS doesn't enumerate, but trust enumerated errors.
+    const errored = res.Errors?.length ?? 0;
+    deleted += slice.length - errored;
+  }
+  return deleted;
 }

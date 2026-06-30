@@ -11,6 +11,14 @@ import {
   GenerationCompleteEmail,
   type GenerationCompleteEmailProps,
 } from "./templates/generation-complete";
+import {
+  OnboardingFinishSetupEmail,
+  type OnboardingFinishSetupEmailProps,
+} from "./templates/onboarding-finish-setup";
+import {
+  OnboardingFirstClientEmail,
+  type OnboardingFirstClientEmailProps,
+} from "./templates/onboarding-first-client";
 import { WelcomeEmail, type WelcomeEmailProps } from "./templates/welcome";
 
 type SendResult = { ok: true; id: string } | { ok: false; reason: string };
@@ -108,4 +116,32 @@ export async function sendClientRenewalReminderEmail(
       ? `Renewal in 7 days — ${props.clientName}`
       : `Renewal coming up — ${props.clientName}`;
   return send({ to, subject, html });
+}
+
+// ============================================================
+// Onboarding drop-off recovery (Phase 2.10)
+// ============================================================
+
+export async function sendOnboardingFinishSetupEmail(
+  to: string,
+  props: OnboardingFinishSetupEmailProps,
+): Promise<SendResult> {
+  const html = await render(OnboardingFinishSetupEmail(props));
+  return send({
+    to,
+    subject: `Finish setting up ${props.agencyName}`,
+    html,
+  });
+}
+
+export async function sendOnboardingFirstClientEmail(
+  to: string,
+  props: OnboardingFirstClientEmailProps,
+): Promise<SendResult> {
+  const html = await render(OnboardingFirstClientEmail(props));
+  return send({
+    to,
+    subject: `Add your first client to ${props.agencyName}`,
+    html,
+  });
 }

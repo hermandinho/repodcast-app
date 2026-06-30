@@ -2,12 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Plan } from "@prisma/client";
+import { OnboardingStep, Plan } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { track } from "@/lib/analytics/track-client";
 import { PLAN_DISPLAY, PLAN_ORDER, planDisplayFor } from "@/lib/plans";
 import { DEFAULT_CURRENCY, formatPlanPrice } from "@/lib/currencies";
-import { createAgencyAction } from "@/app/onboarding/actions";
+import { createAgencyAction, setOnboardingStepAction } from "@/app/onboarding/actions";
 import { inviteMemberAction } from "@/app/(dashboard)/settings/team/actions";
 import { createClientAction } from "@/app/(dashboard)/clients/actions";
 
@@ -19,22 +19,56 @@ import { createClientAction } from "@/app/(dashboard)/clients/actions";
  *   2. Teammates — optional invites (`inviteMemberAction` per row).
  *   3. First client — optional (`createClientAction`).
  *
- * Steps 2 and 3 are skippable. The `/onboarding` layout redirects users who
- * already have a Member to /dashboard, so refreshing mid-wizard sends the
- * user there — fine, since steps 2/3 are both reachable from settings and
- * the dashboard's GetStarted card.
+ * Steps 2 and 3 are skippable. Phase 2.10 added persisted progress: after
+ * each advance/skip/finish the wizard fires `setOnboardingStepAction`, and
+ * the /onboarding gate redirects to /dashboard only once the persisted step
+ * is `DONE`. So bailing mid-flow and signing back in resumes at the same
+ * step — see `initialStep` prop.
  */
 type Step = "workspace" | "teammates" | "client";
 type InviteRow = { email: string; role: "admin" | "member" };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export function OnboardingWizard({ suggestedAgencyName }: { suggestedAgencyName: string }) {
+// Map a wizard step to the OnboardingStep enum value that means
+// "the user just *finished* this step." The wizard writes this after a
+// successful advance/skip, and writes DONE at the end of the funnel.
+const STEP_COMPLETED_ENUM: Record<Step, OnboardingStep> = {
+  workspace: OnboardingStep.TEAMMATES, // workspace done → resume at step 2
+  teammates: OnboardingStep.CLIENT, //   teammates done → resume at step 3
+  client: OnboardingStep.DONE, //        client done    → wizard finished
+};
+
+// When resuming, mark all earlier steps as completed so the stepper renders
+// a checkmark on them — otherwise a user landing on step 3 would see step 2
+// as "untouched."
+const COMPLETED_BEFORE: Record<Step, Step[]> = {
+  workspace: [],
+  teammates: ["workspace"],
+  client: ["workspace", "teammates"],
+};
+
+export function OnboardingWizard({
+  suggestedAgencyName,
+  initialStep = "workspace",
+}: {
+  suggestedAgencyName: string;
+  initialStep?: Step;
+}) {
   const router = useRouter();
-  const [step, setStep] = useState<Step>("workspace");
-  const [completed, setCompleted] = useState<Set<Step>>(new Set());
+  const [step, setStep] = useState<Step>(initialStep);
+  const [completed, setCompleted] = useState<Set<Step>>(
+    () => new Set(COMPLETED_BEFORE[initialStep]),
+  );
   const [submitting, startSubmit] = useTransition();
   const [error, setError] = useState<string | null>(null);
+
+  // Phase 2.10 — fire-and-forget step persistence. We never block the UI on
+  // this; if the write fails, the next sign-in just resumes from the last
+  // step that *did* land.
+  const persistStep = (finishedStep: Step) => {
+    void setOnboardingStepAction({ step: STEP_COMPLETED_ENUM[finishedStep] });
+  };
 
   // Step 1
   const [agencyName, setAgencyName] = useState(suggestedAgencyName);
@@ -47,24 +81,29 @@ export function OnboardingWizard({ suggestedAgencyName }: { suggestedAgencyName:
   // Step 3
   const [clientName, setClientName] = useState("");
 
-  // Onboarding funnel — fire `onboarding_started` exactly once per mount.
+  // Onboarding funnel — fire `onboarding_started` exactly once per mount,
+  // and only when the wizard is actually starting from step 1. A user who
+  // resumes mid-flow already fired this on the original visit.
   // Ref-gated so StrictMode's double-mount in dev doesn't double-fire.
   const startedFired = useRef(false);
   useEffect(() => {
     if (startedFired.current) return;
+    if (initialStep !== "workspace") return;
     startedFired.current = true;
     track("onboarding_started", { suggestedAgencyName });
-  }, [suggestedAgencyName]);
+  }, [suggestedAgencyName, initialStep]);
 
   const advance = (next: Step) => {
     setError(null);
     setCompleted((prev) => new Set(prev).add(step));
+    persistStep(step);
     setStep(next);
   };
 
   const finish = () => {
     setError(null);
     setCompleted((prev) => new Set(prev).add(step));
+    persistStep(step);
     router.push("/dashboard");
   };
 

@@ -111,6 +111,18 @@ enum InviteStatus {
   EXPIRED
 }
 
+/// Phase 2.10 — the wizard step the user last cleared. `DONE` means the user
+/// has either finished or explicitly skipped past step 3. The /onboarding
+/// gate redirects to /dashboard iff step is `DONE`, so bailing mid-flow
+/// resumes the wizard exactly where it was left. Existing pre-2.10 rows
+/// default to `DONE` so they're not yanked back into the wizard on next sign-in.
+enum OnboardingStep {
+  WORKSPACE
+  TEAMMATES
+  CLIENT
+  DONE
+}
+
 // ============================================================
 // Tenant & access
 // ============================================================
@@ -138,6 +150,12 @@ model Agency {
   /// unset.
   brandLogoUrl         String?
   brandAccentColor     String?
+  /// Phase 2.10 — the wizard step the founding OWNER last cleared. Written
+  /// to `TEAMMATES` by `createAgencyForUser` (step 1 finishes when the row
+  /// is created) and advanced from the wizard via `setOnboardingStepAction`.
+  /// The /onboarding layout redirects to /dashboard only when this is `DONE`.
+  /// Default `DONE` so existing rows aren't dragged back into the wizard.
+  onboardingStep       OnboardingStep @default(DONE)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
@@ -149,6 +167,7 @@ model Agency {
   invites              MemberInvite[]
   memberTransitions    MemberTransition[]
   billingRemindersSent BillingReminderSent[]
+  onboardingNudgesSent OnboardingNudgeSent[]
 }
 
 model Member {
@@ -644,6 +663,25 @@ model BillingReminderSent {
 
   @@unique([clientId, marker])
   @@index([agencyId, sentAt])
+}
+
+/// Phase 2.10 — dedupe ledger for the onboarding drop-off-recovery cron.
+/// The cron fires "finish setup" at 24h and "your first client is waiting"
+/// at 72h after `Agency.createdAt` whenever onboarding hasn't finished. A
+/// row's presence means that marker has been sent; missing row + window
+/// open = next run sends. Same claim-before-send pattern as
+/// `BillingReminderSent`.
+model OnboardingNudgeSent {
+  id       String   @id @default(cuid())
+  agencyId String
+  /// The drop-off marker that fired: "24h" (finish setup) or "72h" (first client).
+  marker   String
+  sentAt   DateTime @default(now())
+
+  agency Agency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+
+  @@unique([agencyId, marker])
+  @@index([sentAt])
 }
 
 /// Idempotency ledger for inbound webhooks. Each row marks one provider

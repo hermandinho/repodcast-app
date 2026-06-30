@@ -1,11 +1,15 @@
 "use server";
 
 import { auth, currentUser } from "@clerk/nextjs/server";
-import { Plan } from "@prisma/client";
+import { OnboardingStep, Plan } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { ValidationError } from "@/server/auth/errors";
-import { createAgencyForUser, userHasAnyMembership } from "@/server/db/agencies";
+import {
+  createAgencyForUser,
+  setOnboardingStepForUser,
+  userHasAnyMembership,
+} from "@/server/db/agencies";
 import { isLiveDb } from "@/server/data/source";
 
 export type OnboardingResult =
@@ -14,6 +18,10 @@ export type OnboardingResult =
 const createAgencyActionInput = z.object({
   agencyName: z.string().min(1).max(120),
   plan: z.nativeEnum(Plan).default(Plan.STUDIO),
+});
+
+const setOnboardingStepActionInput = z.object({
+  step: z.nativeEnum(OnboardingStep),
 });
 
 /**
@@ -64,4 +72,32 @@ export async function createAgencyAction(raw: unknown): Promise<OnboardingResult
   });
 
   return { ok: true, data: { agencyId: agency.id } };
+}
+
+/**
+ * Phase 2.10 — persist the wizard's current step so a bail-out resumes
+ * exactly where the user left off. Called from the wizard after each
+ * advance/skip/finish.
+ *
+ * Failure-tolerant by design: this is a UX nice-to-have, not a flow gate.
+ * If the write fails, the user keeps going in this session; the next sign-in
+ * just resumes from the last successfully-persisted step.
+ */
+export async function setOnboardingStepAction(raw: unknown): Promise<{ ok: boolean }> {
+  const parsed = setOnboardingStepActionInput.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false };
+  }
+  if (!isLiveDb()) {
+    return { ok: true };
+  }
+  const { userId } = await auth();
+  if (!userId) return { ok: false };
+  try {
+    await setOnboardingStepForUser(userId, parsed.data.step);
+    return { ok: true };
+  } catch (err) {
+    console.warn("[onboarding] setOnboardingStep failed", err);
+    return { ok: false };
+  }
 }

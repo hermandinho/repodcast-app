@@ -1,5 +1,7 @@
 import { inngest } from "./client";
+import { checkOnboardingNudges } from "./functions/check-onboarding-nudges";
 import { checkRenewals } from "./functions/check-renewals";
+import { cleanupOrphanAudio } from "./functions/cleanup-orphan-audio";
 import { generateEpisode } from "./functions/generate-episode";
 import { importRssEpisode } from "./functions/import-rss-episode";
 import { refreshVoiceDescription } from "./functions/refresh-voice-description";
@@ -31,4 +33,6 @@ export const functions = [
   transcribeEpisode,
   importRssEpisode,
   checkRenewals,
+  checkOnboardingNudges,
+  cleanupOrphanAudio,
 ];
