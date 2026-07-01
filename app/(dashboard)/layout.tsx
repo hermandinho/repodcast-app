@@ -38,6 +38,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
             memberEmail={auth.impersonation.as.email}
             memberName={auth.impersonation.as.name}
             mode={auth.impersonation.mode}
+            actorRole={auth.impersonation.actorRole}
           />
         ) : null}
         <main className="flex-1 overflow-y-auto">{children}</main>

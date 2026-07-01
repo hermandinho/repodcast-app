@@ -1,7 +1,7 @@
 import "server-only";
 
 import { auth, currentUser } from "@clerk/nextjs/server";
-import type { MemberRole, Plan } from "@prisma/client";
+import type { MemberRole, Plan, SystemAdminRole } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { prisma } from "@/server/db/client";
 import { ForbiddenError } from "./errors";
@@ -37,6 +37,12 @@ export type AuthContext = {
   impersonation: {
     systemAdminId: string;
     mode: ImpersonationMode;
+    /**
+     * Role of the SystemAdmin who opened the envelope. Surfaced so the
+     * tenant chrome can render ROOT-only affordances (e.g. the
+     * "Promote to WRITE" button on the banner) without a re-lookup.
+     */
+    actorRole: SystemAdminRole;
     /** Original SystemAdmin display fields — for audit + admin chrome. */
     actor: { email: string; name: string | null };
     /** Impersonated Member display fields — surfaced by the orange banner. */
@@ -134,7 +140,7 @@ async function resolveImpersonatedContext(
     currentUser(),
     prisma.systemAdmin.findFirst({
       where: { id: payload.systemAdminId, clerkUserId, deactivatedAt: null },
-      select: { id: true, email: true, name: true },
+      select: { id: true, email: true, name: true, role: true },
     }),
     prisma.member.findUnique({
       where: { id: payload.asMemberId },
@@ -176,6 +182,7 @@ async function resolveImpersonatedContext(
     impersonation: {
       systemAdminId: admin.id,
       mode: payload.mode,
+      actorRole: admin.role,
       actor: { email: admin.email, name: admin.name },
       as: { email: impersonatedMember.email, name: impersonatedMember.name },
       startedAt: payload.startedAt,

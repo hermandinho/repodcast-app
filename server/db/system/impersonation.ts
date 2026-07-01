@@ -3,6 +3,7 @@ import "server-only";
 import { NotFoundError } from "@/server/auth/errors";
 import {
   assertSystemRole,
+  SYSTEM_ROOT_ONLY,
   SYSTEM_WRITE_ROLES,
   type SystemAdminContext,
 } from "@/server/auth/system";
@@ -121,6 +122,75 @@ export type EndImpersonationInput = {
  * Defensive: if a role got demoted mid-envelope, they still need a way to
  * exit cleanly.
  */
+export type PromoteImpersonationInput = {
+  /** Both taken from the current read-mode cookie payload; passed in so this
+   *  helper doesn't have to re-read the cookie itself (keeps it TX-friendly). */
+  agencyId: string;
+  memberId: string;
+  /** The read-mode `startedAt` — carried forward so the write-mode envelope
+   *  inherits the same TTL window rather than resetting the 60-min clock. */
+  startedAt: string;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+};
+
+/**
+ * Promote an active read-mode impersonation envelope to write-mode. ROOT-only:
+ * writes cost money (Anthropic tokens on regenerate, Stripe on billing edits),
+ * and the promoted envelope lets a Repodcast employee mutate customer data
+ * with the customer's own attribution. `SYSTEM_ROOT_ONLY` keeps that gated.
+ *
+ * Audit trail bracketing:
+ *   IMPERSONATE_START (read)   ← minted the envelope
+ *   IMPERSONATE_PROMOTE_WRITE  ← this row, marks the moment writes unlock
+ *   ...                        ← tenant-side mutations happen here
+ *   IMPERSONATE_END            ← envelope closed
+ *
+ * Per-action `TENANT_PROXY_WRITE` rows for every mutation inside the window
+ * are a stretch item — a live envelope is bounded to 60 minutes and both
+ * open/close audit rows carry actor identity, so the window is attributable
+ * even without per-action instrumentation.
+ */
+export async function promoteImpersonationToWrite(
+  ctx: SystemAdminContext,
+  input: PromoteImpersonationInput,
+): Promise<void> {
+  assertSystemRole(ctx, SYSTEM_ROOT_ONLY);
+
+  await withSystemAudit(
+    ctx,
+    {
+      action: SYSTEM_AUDIT_ACTIONS.IMPERSONATE_PROMOTE_WRITE,
+      targetAgencyId: input.agencyId,
+      targetMemberId: input.memberId,
+      ipAddress: input.ipAddress ?? null,
+      userAgent: input.userAgent ?? null,
+    },
+    async (tx, audit) => {
+      // Defensive: re-verify the (agency, member) pair inside the TX so a
+      // stale cookie whose target member was deleted between START and
+      // PROMOTE doesn't get promoted.
+      const member = await tx.member.findUnique({
+        where: { id: input.memberId },
+        select: { id: true, agencyId: true },
+      });
+      if (!member || member.agencyId !== input.agencyId) {
+        throw new NotFoundError(
+          `Member ${input.memberId} no longer belongs to agency ${input.agencyId}`,
+        );
+      }
+      audit.setBefore({ mode: "read", startedAt: input.startedAt });
+      audit.setAfter({
+        mode: "write",
+        agencyId: input.agencyId,
+        memberId: input.memberId,
+        startedAt: input.startedAt,
+        promotedAt: new Date().toISOString(),
+      });
+    },
+  );
+}
+
 export async function endImpersonation(
   ctx: SystemAdminContext,
   input: EndImpersonationInput,

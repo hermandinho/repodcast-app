@@ -12,7 +12,11 @@ import {
   setImpersonationCookie,
 } from "@/server/auth/impersonation";
 import { requireSystemAdminContext } from "@/server/auth/system";
-import { endImpersonation, startImpersonation } from "@/server/db/system/impersonation";
+import {
+  endImpersonation,
+  promoteImpersonationToWrite,
+  startImpersonation,
+} from "@/server/db/system/impersonation";
 
 const startInput = z.object({
   agencyId: z.string().min(1),
@@ -90,6 +94,75 @@ export async function startImpersonationAction(formData: FormData): Promise<void
     startedAt: started.startedAt.toISOString(),
   });
 
+  redirect("/dashboard");
+}
+
+/**
+ * Promote the active read-mode envelope to write-mode. ROOT-only — see
+ * `promoteImpersonationToWrite` for the audit / gating story.
+ *
+ * On success, the current cookie is replaced with a new one carrying the
+ * same `startedAt` (so TTL isn't reset) but `mode: "write"`. The
+ * dashboard's banner flips from orange to red on the next render, and
+ * `requireRole` starts allowing writes for this session.
+ *
+ * Failure modes redirect back to the dashboard with `impersonate_error=<code>`
+ * so the caller can surface a toast. Signing-key-missing is a hard error
+ * (the cookie can't be re-minted) — the current envelope stays intact.
+ */
+export async function promoteImpersonationAction(): Promise<void> {
+  const ctx = await requireSystemAdminContext();
+  const payload = await readImpersonationPayload();
+
+  if (!payload) {
+    // No live envelope — send the ROOT operator back to the agency list
+    // so they can start fresh from an agency drilldown.
+    redirect("/root/agencies?impersonate_error=no_envelope");
+  }
+  if (payload.mode === "write") {
+    // Idempotent no-op — the envelope is already promoted. Return to the
+    // dashboard where the red banner is already showing.
+    redirect("/dashboard");
+  }
+
+  // Probe the signing key up front — see `startImpersonationAction` for
+  // why this matters (no phantom audit row when the env is missing).
+  const probe = encodeImpersonationCookie({
+    systemAdminId: payload.systemAdminId,
+    asMemberId: payload.asMemberId,
+    agencyId: payload.agencyId,
+    mode: "write",
+    startedAt: payload.startedAt,
+  });
+  if (!probe) {
+    redirect(`/root/agencies/${payload.agencyId}?impersonate_error=signing_key_missing`);
+  }
+
+  const { ipAddress, userAgent } = await clientHeaders();
+
+  try {
+    await promoteImpersonationToWrite(ctx, {
+      agencyId: payload.agencyId,
+      memberId: payload.asMemberId,
+      startedAt: payload.startedAt,
+      ipAddress,
+      userAgent,
+    });
+  } catch (err) {
+    const code = errCode(err);
+    redirect(`/root/agencies/${payload.agencyId}?impersonate_error=${code}`);
+  }
+
+  await setImpersonationCookie({
+    systemAdminId: payload.systemAdminId,
+    asMemberId: payload.asMemberId,
+    agencyId: payload.agencyId,
+    mode: "write",
+    startedAt: payload.startedAt,
+  });
+  // Force in-flight server components to re-resolve the auth context so the
+  // banner flips + writes unlock immediately.
+  revalidatePath("/", "layout");
   redirect("/dashboard");
 }
 
