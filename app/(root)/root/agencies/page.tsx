@@ -102,6 +102,8 @@ export default async function RootAgenciesListPage({
     return qs ? `/root/agencies?${qs}` : "/root/agencies";
   };
 
+  const deletedName = parseString(params.deleted);
+
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-6">
       <header className="flex items-baseline justify-between">
@@ -115,6 +117,13 @@ export default async function RootAgenciesListPage({
           </p>
         </div>
       </header>
+
+      {deletedName ? (
+        <div className="rounded-lg border border-emerald-700/60 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-200">
+          Agency <span className="font-semibold">{deletedName}</span> was permanently deleted. R2
+          objects were quarantined; the audit row survives.
+        </div>
+      ) : null}
 
       <AgencyFilters />
 

@@ -171,13 +171,36 @@ describe("assertPlanCapacity", () => {
 // ============================================================
 
 describe("getAgencyPlan", () => {
-  it("returns the agency's plan when the row exists", async () => {
-    mocks.prisma.agency.findUnique.mockResolvedValue({ plan: Plan.AGENCY });
+  it("returns the base plan when no override is set", async () => {
+    mocks.prisma.agency.findUnique.mockResolvedValue({
+      plan: Plan.AGENCY,
+      planOverride: null,
+    });
     await expect(getAgencyPlan(A1)).resolves.toBe(Plan.AGENCY);
     expect(mocks.prisma.agency.findUnique).toHaveBeenCalledWith({
       where: { id: A1 },
-      select: { plan: true },
+      select: { plan: true, planOverride: true },
     });
+  });
+
+  it("prefers planOverride when set (comp / support-escalation grant)", async () => {
+    // Paid tier is STUDIO, override bumps to NETWORK — hot path for a
+    // partner comp account.
+    mocks.prisma.agency.findUnique.mockResolvedValue({
+      plan: Plan.STUDIO,
+      planOverride: Plan.NETWORK,
+    });
+    await expect(getAgencyPlan(A1)).resolves.toBe(Plan.NETWORK);
+  });
+
+  it("also honours a *downward* override (throttle an abusing account)", async () => {
+    // Paid tier is NETWORK, override caps at STUDIO — the override is
+    // absolute, not "max of override/plan".
+    mocks.prisma.agency.findUnique.mockResolvedValue({
+      plan: Plan.NETWORK,
+      planOverride: Plan.STUDIO,
+    });
+    await expect(getAgencyPlan(A1)).resolves.toBe(Plan.STUDIO);
   });
 
   it("throws ForbiddenError when the agency row is missing", async () => {

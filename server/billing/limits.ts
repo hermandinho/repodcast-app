@@ -102,14 +102,19 @@ export async function assertPlanCapacity(
   }
 }
 
-/** Read the current agency's plan in one query — used by route-level guards. */
+/**
+ * Read the current agency's *effective* plan in one query. Prefers
+ * `planOverride` (set by ROOT via `grantAgencyPlanOverride`) when present —
+ * so comp accounts and support-escalation grants take effect without
+ * touching Stripe or the customer's paid tier.
+ */
 export async function getAgencyPlan(agencyId: string): Promise<Plan> {
   const agency = await prisma.agency.findUnique({
     where: { id: agencyId },
-    select: { plan: true },
+    select: { plan: true, planOverride: true },
   });
   if (!agency) throw new ForbiddenError("Agency not found");
-  return agency.plan;
+  return agency.planOverride ?? agency.plan;
 }
 
 /**

@@ -152,6 +152,17 @@ model Agency {
   /// Used by the /pricing + /onboarding/plan flow to round-trip the picker
   /// state, and by `/settings/billing` to label the current sub.
   billingCadence       BillingCadence @default(MONTHLY)
+  /// Phase 3.6.5 — ROOT-side suspension tombstone. Non-null = the agency is
+  /// currently suspended; the tenant dashboard bounces to a "your account
+  /// is suspended" screen. Read-only surfaces (data export) still resolve.
+  /// Set by `suspendAgency`, cleared by `unsuspendAgency`, both audit-logged.
+  suspendedAt          DateTime?
+  /// Phase 3.6.5 — comp plan-override. When set, `getAgencyPlan()` returns
+  /// this in place of `plan`. Used to grant an agency capacity above (or
+  /// below) their paid tier without touching Stripe — comp accounts,
+  /// partners, support escalations. Every grant / revoke lands an audit row
+  /// with the operator's justification.
+  planOverride         Plan?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
@@ -166,6 +177,10 @@ model Agency {
   onboardingNudgesSent OnboardingNudgeSent[]
   usageSnapshots       AgencyUsageSnapshot[]
   limitOverrides       AgencyLimitOverride[]
+
+  /// Same hot-path index as declared inline in the migration — mirrored here
+  /// so `prisma migrate diff` stays clean on the next migration boundary.
+  @@index([suspendedAt])
 }
 
 model Member {

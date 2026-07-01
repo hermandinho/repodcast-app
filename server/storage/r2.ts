@@ -3,6 +3,7 @@ import "server-only";
 import { S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import {
+  CopyObjectCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
@@ -194,4 +195,89 @@ export async function deleteR2Objects(keys: string[]): Promise<number> {
     deleted += slice.length - errored;
   }
   return deleted;
+}
+
+/**
+ * Server-side copy — no download/upload round-trip. The AWS SDK v3 handles
+ * the CopySource header encoding for us, so plain `${bucket}/${key}` works
+ * even when the key contains `/` separators.
+ */
+export async function copyR2Object(sourceKey: string, destKey: string): Promise<void> {
+  const { client, bucket } = requireR2Client();
+  await client.send(
+    new CopyObjectCommand({
+      Bucket: bucket,
+      Key: destKey,
+      CopySource: `${bucket}/${sourceKey}`,
+    }),
+  );
+}
+
+// ============================================================
+// Agency-wide quarantine (Phase 3.6.5 hard-delete)
+// ============================================================
+
+/** Prefixes we walk when quarantining an agency's assets. Keep in sync with
+ *  the write-side paths (see `audio-actions.ts` + `artwork-actions.ts`). */
+const AGENCY_ASSET_PREFIXES = ["audio", "artwork"] as const;
+
+/** Root prefix under which every quarantined object lands. Bucket lifecycle
+ *  policy should auto-expire this branch after 30 days — set it via the R2
+ *  dashboard or `wrangler r2 bucket lifecycle` (see `scripts/configure-r2-cors.ts`
+ *  for the sibling pattern). */
+export const R2_QUARANTINE_ROOT = "_quarantine";
+
+export type QuarantineSummary = {
+  /** Total objects copied into the quarantine prefix. */
+  copied: number;
+  /** Total objects deleted from their original prefix. */
+  deleted: number;
+  /** Full destination prefixes populated by this quarantine run — surfaced
+   *  in the audit row so an operator can find the objects to restore. */
+  quarantinePrefixes: string[];
+};
+
+/**
+ * Copy every object under `audio/<agencyId>/` and `artwork/<agencyId>/` into
+ * `_quarantine/<agencyId>/<isoTimestamp>/<originalKey>`, then delete the
+ * originals. Pairs with `hardDeleteAgency` in `server/db/system/agencies.ts`:
+ * the DB row is only deleted after this returns cleanly.
+ *
+ * The destination structure preserves the ORIGINAL key verbatim beneath the
+ * quarantine root, so restoration is a straight prefix strip — no rebuilding
+ * of nested paths.
+ *
+ * Bounded to 20k objects per prefix (via `listR2Objects`'s cap). A wildly
+ * larger agency would need chunked runs; that scale isn't a v1 concern.
+ */
+export async function quarantineR2AgencyPrefixes(
+  agencyId: string,
+  timestamp: string,
+): Promise<QuarantineSummary> {
+  let copied = 0;
+  let deleted = 0;
+  const quarantinePrefixes: string[] = [];
+  const quarantineRoot = `${R2_QUARANTINE_ROOT}/${agencyId}/${timestamp}`;
+
+  for (const prefix of AGENCY_ASSET_PREFIXES) {
+    const source = `${prefix}/${agencyId}/`;
+    const objects = await listR2Objects(source, 20_000);
+    if (objects.length === 0) continue;
+
+    // Copy each object server-side. Serial is fine — this only fires when
+    // an operator hard-deletes an agency (rare) and the copies are internal
+    // to R2 (fast). Parallelising with `Promise.all` risks 429s on tiny
+    // agencies that Cloudflare rate-limits; not worth it.
+    for (const obj of objects) {
+      const destKey = `${quarantineRoot}/${obj.key}`;
+      await copyR2Object(obj.key, destKey);
+      copied += 1;
+    }
+
+    const removed = await deleteR2Objects(objects.map((o) => o.key));
+    deleted += removed;
+    quarantinePrefixes.push(`${quarantineRoot}/${prefix}/${agencyId}/`);
+  }
+
+  return { copied, deleted, quarantinePrefixes };
 }
