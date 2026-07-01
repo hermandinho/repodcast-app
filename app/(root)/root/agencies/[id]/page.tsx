@@ -113,9 +113,6 @@ export default async function RootAgencyDrilldownPage({
             ) : (
               <span className="text-sm text-zinc-500">No Stripe customer linked</span>
             )}
-            <div className="text-xs text-zinc-500">
-              Onboarding: <span className="text-zinc-300">{agency.onboardingStep}</span>
-            </div>
           </div>
         </div>
       </header>

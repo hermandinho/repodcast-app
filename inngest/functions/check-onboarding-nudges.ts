@@ -1,4 +1,4 @@
-import { MemberRole, OnboardingStep } from "@prisma/client";
+import { MemberRole } from "@prisma/client";
 import { prisma } from "@/server/db/client";
 import {
   sendOnboardingFinishSetupEmail,
@@ -9,22 +9,23 @@ import { inngest } from "../client";
 /**
  * Phase 2.10 — hourly onboarding drop-off-recovery cron.
  *
- * Two markers:
- *  - `24h` — Agency created ~24h ago and the founding OWNER hasn't finished
- *           the wizard (`onboardingStep !== DONE`). Sends "finish setup" with
- *           a deep link back to `/onboarding` (the resume gate routes to the
- *           exact step they bailed on).
- *  - `72h` — Agency created ~72h ago and still has zero `Client` rows. Sends
- *           "your first client is waiting" with a CTA to `/clients`.
+ * Two markers, both keyed off `Agency.createdAt`:
+ *  - `24h` — Agency created ~24h ago and still doesn't carry a live Stripe
+ *           subscription (i.e. the OWNER hasn't finished /onboarding/plan).
+ *           Sends "finish setup" with a deep link to `/onboarding` (the
+ *           router lands on the plan step).
+ *  - `72h` — Agency has a live sub (they paid) but still has zero `Client`
+ *           rows. Sends "your first client is waiting" with a CTA to
+ *           `/clients`.
  *
- * Both markers can fire for the same agency by design (a user who bails at
- * step 2 gets the 24h "finish setup" *and* the 72h "first client" nudge —
- * they're escalating reminders, not a single funnel).
+ * The 24h/72h gates cover different failure modes — a user who never pays
+ * only ever gets the 24h nudge; a user who pays but doesn't set up clients
+ * only ever gets the 72h nudge. `OnboardingNudgeSent` keeps them idempotent.
  *
  * Schedule: hourly. Each marker's window is exactly 1h wide so a successful
- * run lands the email exactly once per (agency, marker). `OnboardingNudgeSent`
- * gives us belt-and-suspenders idempotency across cron retries + the
- * window-slip edge case where the cron skips an hour.
+ * run lands the email exactly once per (agency, marker). The dedupe table
+ * gives belt-and-suspenders idempotency across cron retries + the window-
+ * slip edge case where the cron skips an hour.
  *
  * Same claim-then-send pattern as `check-renewals.ts`: try to insert the
  * dedupe row first; on P2002 (already sent) skip; release the claim if no
@@ -72,17 +73,20 @@ export const checkOnboardingNudges = inngest.createFunction(
       const { start, end } = markerWindow(now, hours);
 
       // Read agencies outside step.run so retries see fresh DB state and we
-      // avoid Inngest's JSON serialization of Date columns. Filter:
-      //  - createdAt in the marker's hour-wide window
-      //  - onboarding not finished (the 24h email is moot for a finished user)
-      //  - for 72h: also gate on "no clients yet"
+      // avoid Inngest's JSON serialization of Date columns.
+      //
+      // Marker filters:
+      //  - 24h → sub is null (they never finished /onboarding/plan).
+      //  - 72h → sub is live AND no clients yet (they paid but haven't set
+      //    up their first client).
       const agencies = await prisma.agency.findMany({
         where: {
           createdAt: { gte: start, lt: end },
-          onboardingStep: { not: OnboardingStep.DONE },
-          ...(marker === "72h" ? { clients: { none: {} } } : {}),
+          ...(marker === "24h"
+            ? { stripeSubscriptionId: null }
+            : { stripeSubscriptionId: { not: null }, clients: { none: {} } }),
         },
-        select: { id: true, name: true, onboardingStep: true },
+        select: { id: true, name: true },
       });
 
       for (const agency of agencies) {

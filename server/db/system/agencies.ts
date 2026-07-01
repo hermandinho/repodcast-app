@@ -69,7 +69,6 @@ export type AgencyDetailForRoot = {
   preferredCurrency: string;
   brandLogoUrl: string | null;
   brandAccentColor: string | null;
-  onboardingStep: string;
   renewalRemindersEnabled: boolean;
   /** Owner of the agency (first OWNER row). May be missing on misconfigured rows. */
   owner: { id: string; email: string; name: string | null } | null;
@@ -306,7 +305,6 @@ export async function getAgencyForRoot(
       preferredCurrency: true,
       brandLogoUrl: true,
       brandAccentColor: true,
-      onboardingStep: true,
       renewalRemindersEnabled: true,
       members: {
         where: { role: "OWNER" },
@@ -384,7 +382,6 @@ export async function getAgencyForRoot(
     preferredCurrency: agency.preferredCurrency,
     brandLogoUrl: agency.brandLogoUrl,
     brandAccentColor: agency.brandAccentColor,
-    onboardingStep: agency.onboardingStep,
     renewalRemindersEnabled: agency.renewalRemindersEnabled,
     owner,
     totals: {

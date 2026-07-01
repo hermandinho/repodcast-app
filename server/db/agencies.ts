@@ -1,6 +1,6 @@
 import "server-only";
 
-import { MemberRole, OnboardingStep, Plan, type Agency } from "@prisma/client";
+import { MemberRole, Plan, type Agency } from "@prisma/client";
 import { z } from "zod";
 import { NotFoundError } from "@/server/auth/errors";
 import { requireRole, type TenantContext } from "@/server/auth/tenant";
@@ -104,9 +104,6 @@ export async function createAgencyForUser(input: CreateAgencyForUserInput): Prom
       data: {
         name: input.agencyName,
         plan: input.plan,
-        // Step 1 (workspace) is what we just completed — next step the
-        // wizard advances to is teammates. Resume gate keys off this.
-        onboardingStep: OnboardingStep.TEAMMATES,
       },
     });
     await tx.member.create({
@@ -189,62 +186,6 @@ export async function getOnboardingStateForUser(
     return { kind: "paying", agencyId: agency.id, agencyName: agency.name };
   }
   return { kind: "no-subscription", agencyId: agency.id, agencyName: agency.name };
-}
-
-/**
- * Phase 2.10 — what step is the user's first agency on?
- *
- * Returns:
- *  - `null` when the user has no Member yet (wizard starts at step 1)
- *  - the persisted `Agency.onboardingStep` otherwise
- *
- * Used by `/onboarding/{layout,page}` to redirect-or-resume. Picks the
- * *oldest* membership so a user with multiple agencies always lands on
- * their original onboarding (multi-agency UX is out of scope until the
- * topbar agency switcher ships).
- */
-export async function getOnboardingStepForUser(
-  clerkUserId: string,
-): Promise<OnboardingStep | null> {
-  const member = await prisma.member.findFirst({
-    where: { clerkUserId },
-    orderBy: { createdAt: "asc" },
-    select: { agency: { select: { onboardingStep: true } } },
-  });
-  return member?.agency.onboardingStep ?? null;
-}
-
-/**
- * Phase 2.10 — advance the wizard's persisted step. Called from
- * `setOnboardingStepAction` after each in-wizard advance/skip/finish.
- * Scoped to the user's oldest agency (matches `getOnboardingStepForUser`),
- * since the wizard only ever runs against the founding agency.
- *
- * Tolerant of races: if the row already exists at a later step (e.g. a
- * second tab raced ahead), this no-ops — we never move the step backwards.
- */
-const STEP_ORDER: Record<OnboardingStep, number> = {
-  [OnboardingStep.WORKSPACE]: 0,
-  [OnboardingStep.TEAMMATES]: 1,
-  [OnboardingStep.CLIENT]: 2,
-  [OnboardingStep.DONE]: 3,
-};
-
-export async function setOnboardingStepForUser(
-  clerkUserId: string,
-  next: OnboardingStep,
-): Promise<void> {
-  const member = await prisma.member.findFirst({
-    where: { clerkUserId },
-    orderBy: { createdAt: "asc" },
-    select: { agencyId: true, agency: { select: { onboardingStep: true } } },
-  });
-  if (!member) return;
-  if (STEP_ORDER[next] <= STEP_ORDER[member.agency.onboardingStep]) return;
-  await prisma.agency.update({
-    where: { id: member.agencyId },
-    data: { onboardingStep: next },
-  });
 }
 
 /**

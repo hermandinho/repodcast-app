@@ -12,13 +12,12 @@ import {
 } from "@react-email/components";
 
 /**
- * Phase 2.10 — "Finish setting up" nudge.
+ * "Finish setting up" nudge.
  *
  * Sent by the hourly `onboarding/check-nudges` Inngest cron ~24h after
- * `Agency.createdAt` whenever the founding OWNER hasn't pushed
- * `Agency.onboardingStep` to `DONE`. CTA deep-links back to `/onboarding`,
- * which (Phase 2.10 resume gate) drops them onto the exact step they bailed
- * on rather than restarting from step 1.
+ * `Agency.createdAt` whenever the founding OWNER hasn't yet subscribed
+ * (`Agency.stripeSubscriptionId IS NULL`). CTA deep-links back to `/onboarding`,
+ * where the router forwards them to the plan-selection substep.
  */
 const ACCENT = "#3A5BA0";
 const INK = "#1A2A4A";

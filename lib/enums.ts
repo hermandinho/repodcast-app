@@ -3,7 +3,6 @@ import type {
   BillingCycle as PrismaBillingCycle,
   ClientStatus as PrismaClientStatus,
   MemberRole as PrismaMemberRole,
-  OnboardingStep as PrismaOnboardingStep,
   OutputStatus as PrismaOutputStatus,
   Plan as PrismaPlan,
   Platform as PrismaPlatform,
@@ -81,11 +80,3 @@ export const ClientStatus = {
   CHURNED: "CHURNED",
 } as const satisfies Record<PrismaClientStatus, PrismaClientStatus>;
 export type ClientStatus = PrismaClientStatus;
-
-export const OnboardingStep = {
-  WORKSPACE: "WORKSPACE",
-  TEAMMATES: "TEAMMATES",
-  CLIENT: "CLIENT",
-  DONE: "DONE",
-} as const satisfies Record<PrismaOnboardingStep, PrismaOnboardingStep>;
-export type OnboardingStep = PrismaOnboardingStep;
