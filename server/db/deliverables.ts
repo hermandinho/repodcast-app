@@ -9,7 +9,7 @@ import {
 } from "@prisma/client";
 import { z } from "zod";
 import { NotFoundError } from "@/server/auth/errors";
-import { requireRole, type TenantContext } from "@/server/auth/tenant";
+import { requireReadRole, type TenantContext } from "@/server/auth/tenant";
 import { prisma } from "./client";
 
 /**
@@ -127,7 +127,7 @@ export async function listDeliverablesForClient(
   clientId: string,
   raw: ListDeliverablesFilterInput,
 ): Promise<{ rows: DeliverableRow[]; total: number }> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   await assertClientInTenant(ctx, clientId);
   const where = buildDeliverablesWhere(ctx, clientId, raw);
 
@@ -158,7 +158,7 @@ export async function streamDeliverablesForClient(
   clientId: string,
   filters: Omit<ListDeliverablesFilterInput, "take" | "skip">,
 ): Promise<DeliverableRow[]> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   await assertClientInTenant(ctx, clientId);
   const where = buildDeliverablesWhere(ctx, clientId, filters);
   return prisma.generatedOutput.findMany({

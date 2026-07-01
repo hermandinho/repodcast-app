@@ -9,7 +9,7 @@ import {
 } from "@prisma/client";
 import { z } from "zod";
 import { NotFoundError } from "@/server/auth/errors";
-import { requireRole, type TenantContext } from "@/server/auth/tenant";
+import { requireReadRole, requireRole, type TenantContext } from "@/server/auth/tenant";
 import { assertMinPlan, getAgencyPlan } from "@/server/billing/limits";
 import { prisma } from "./client";
 
@@ -120,7 +120,7 @@ export async function listPortalLinks(
   ctx: TenantContext,
   clientId: string,
 ): Promise<PortalLinkListRow[]> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   await assertClientInTenant(ctx, clientId);
   return prisma.clientPortalLink.findMany({
     where: {

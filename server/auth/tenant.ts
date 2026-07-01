@@ -34,8 +34,11 @@ export function toTenantContext(auth: AuthContext): TenantContext {
 /**
  * Throw ForbiddenError if the current member's role isn't in `allowed`,
  * OR if the request is running under a read-only impersonation envelope.
- * Repositories call this at the top of mutation helpers so the read-only
+ * Repositories call this at the top of MUTATION helpers so the read-only
  * rule survives even when callers forget the dedicated assert.
+ *
+ * Read helpers should use `requireReadRole` instead — otherwise an operator
+ * doing read-only impersonation can't even browse the tenant they're inside.
  */
 export function requireRole(ctx: TenantContext, allowed: readonly MemberRole[]): void {
   if (ctx.impersonation?.mode === "read") {
@@ -43,6 +46,25 @@ export function requireRole(ctx: TenantContext, allowed: readonly MemberRole[]):
       "Writes are disabled while impersonating in read-only mode. End the impersonation to act as yourself.",
     );
   }
+  if (!allowed.includes(ctx.role)) {
+    throw new ForbiddenError(
+      `Role ${ctx.role} is not allowed (need one of: ${allowed.join(", ")})`,
+    );
+  }
+}
+
+/**
+ * Role check for READ helpers. Same shape as `requireRole` but WITHOUT the
+ * read-mode-impersonation guard — a SystemAdmin acting as a Member via the
+ * read-only envelope needs to be able to browse the tenant, otherwise the
+ * whole read-only mode is useless.
+ *
+ * Reads don't need any extra impersonation guard: the resolved
+ * `TenantContext` carries the impersonated Member's real role, so an
+ * impersonated REVIEWER sees exactly what a REVIEWER sees. Writes remain
+ * gated by `requireRole` above.
+ */
+export function requireReadRole(ctx: TenantContext, allowed: readonly MemberRole[]): void {
   if (!allowed.includes(ctx.role)) {
     throw new ForbiddenError(
       `Role ${ctx.role} is not allowed (need one of: ${allowed.join(", ")})`,

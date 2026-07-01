@@ -6,7 +6,7 @@ import {
   type MemberTransitionKind,
   type Prisma,
 } from "@prisma/client";
-import { requireRole, type TenantContext } from "@/server/auth/tenant";
+import { requireReadRole, type TenantContext } from "@/server/auth/tenant";
 import { prisma } from "./client";
 
 /**
@@ -88,7 +88,7 @@ export async function listMemberTransitions(
   ctx: TenantContext,
   limit = 12,
 ): Promise<MemberTransitionWithContext[]> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   return prisma.memberTransition.findMany({
     where: { agencyId: ctx.agencyId },
     orderBy: { createdAt: "desc" },

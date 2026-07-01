@@ -1,7 +1,7 @@
 import "server-only";
 
 import { MemberRole, OutputStatus } from "@prisma/client";
-import { requireRole, type TenantContext } from "@/server/auth/tenant";
+import { requireReadRole, type TenantContext } from "@/server/auth/tenant";
 import { prisma } from "./client";
 
 const READ_ROLES = [
@@ -40,7 +40,7 @@ const SHORT_MONTH = new Intl.DateTimeFormat("en-US", { month: "short" });
 // ============================================================
 
 export async function episodesThisMonth(ctx: TenantContext): Promise<number> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   return prisma.episode.count({
     where: {
       show: { client: { agencyId: ctx.agencyId } },
@@ -50,7 +50,7 @@ export async function episodesThisMonth(ctx: TenantContext): Promise<number> {
 }
 
 export async function outputsGeneratedThisMonth(ctx: TenantContext): Promise<number> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   return prisma.generatedOutput.count({
     where: {
       episode: { show: { client: { agencyId: ctx.agencyId } } },
@@ -64,7 +64,7 @@ export async function outputsGeneratedThisMonth(ctx: TenantContext): Promise<num
 // ============================================================
 
 export async function episodesPriorMonth(ctx: TenantContext): Promise<number> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   return prisma.episode.count({
     where: {
       show: { client: { agencyId: ctx.agencyId } },
@@ -74,7 +74,7 @@ export async function episodesPriorMonth(ctx: TenantContext): Promise<number> {
 }
 
 export async function outputsGeneratedPriorMonth(ctx: TenantContext): Promise<number> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   return prisma.generatedOutput.count({
     where: {
       episode: { show: { client: { agencyId: ctx.agencyId } } },
@@ -89,7 +89,7 @@ export async function outputsGeneratedPriorMonth(ctx: TenantContext): Promise<nu
  * count.
  */
 export async function approvalRate(ctx: TenantContext): Promise<number> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   const [approved, eligible] = await Promise.all([
     prisma.generatedOutput.count({
       where: {
@@ -116,7 +116,7 @@ export async function approvalRate(ctx: TenantContext): Promise<number> {
  * v1 rows as untouched.
  */
 export async function percentPostedUnedited(ctx: TenantContext): Promise<number> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   const [approved, untouched] = await Promise.all([
     prisma.generatedOutput.count({
       where: {
@@ -159,7 +159,7 @@ export async function weeklyOutputVolume(
   ctx: TenantContext,
   weeks = 8,
 ): Promise<WeeklyVolumePoint[]> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
 
   const now = new Date();
   const startWeek = weekStart(new Date(now.getTime() - (weeks - 1) * 7 * 86_400_000));
@@ -200,7 +200,7 @@ export async function weeklyOutputVolume(
 // ============================================================
 
 export async function recentEpisodes(ctx: TenantContext, limit = 5) {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   return prisma.episode.findMany({
     where: { show: { client: { agencyId: ctx.agencyId } } },
     orderBy: { createdAt: "desc" },
@@ -219,7 +219,7 @@ export async function recentEpisodes(ctx: TenantContext, limit = 5) {
 // ============================================================
 
 export async function dashboardSummary(ctx: TenantContext) {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   const [
     episodesMonth,
     outputsMonth,

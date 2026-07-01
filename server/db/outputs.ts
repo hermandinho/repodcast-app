@@ -3,7 +3,7 @@ import "server-only";
 import { MemberRole, OutputStatus, type GeneratedOutput, type Platform } from "@prisma/client";
 import { z } from "zod";
 import { NotFoundError, ValidationError } from "@/server/auth/errors";
-import { requireRole, type TenantContext } from "@/server/auth/tenant";
+import { requireReadRole, requireRole, type TenantContext } from "@/server/auth/tenant";
 import { levenshtein } from "@/lib/edit-distance";
 import { prisma } from "./client";
 import { createSampleFromOutput } from "./voice-samples";
@@ -53,7 +53,7 @@ export async function listOutputsForEpisode(
   ctx: TenantContext,
   episodeId: string,
 ): Promise<GeneratedOutput[]> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   // Only return the current version of each platform slot — superseded rows
   // are kept for history but the grid always renders the latest.
   return prisma.generatedOutput.findMany({
@@ -67,7 +67,7 @@ export async function listOutputsForEpisode(
 }
 
 export async function getOutput(ctx: TenantContext, outputId: string): Promise<GeneratedOutput> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   const output = await prisma.generatedOutput.findFirst({
     where: {
       id: outputId,
@@ -89,7 +89,7 @@ export async function listVersionsForOutput(
   ctx: TenantContext,
   outputId: string,
 ): Promise<GeneratedOutput[]> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   const seed = await prisma.generatedOutput.findFirst({
     where: {
       id: outputId,
@@ -451,7 +451,7 @@ export async function qualityByPlatformForEpisode(
   ctx: TenantContext,
   episodeId: string,
 ): Promise<QualityByPlatform> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   const rows = await prisma.generatedOutput.groupBy({
     by: ["platform"],
     where: {

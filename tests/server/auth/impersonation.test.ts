@@ -39,6 +39,7 @@ import {
 } from "@/server/auth/impersonation";
 import {
   assertNotReadOnlyImpersonation,
+  requireReadRole,
   requireRole,
   type TenantContext,
 } from "@/server/auth/tenant";
@@ -178,6 +179,25 @@ describe("read-only impersonation — chokepoints", () => {
         impersonation: { systemAdminId: "sa_1", mode: "write" },
       }),
     ).not.toThrow();
+  });
+
+  it("requireReadRole PASSES under read-only impersonation (reads must stay open)", () => {
+    // Regression guard for the bug where an operator opened a read-only
+    // envelope and then couldn't browse the tenant they were inside — the
+    // topbar's `listClients` call was tripping `requireRole` on every render.
+    expect(() => requireReadRole(readOnly(), [MemberRole.OWNER])).not.toThrow();
+    // Still gates on role membership though — a REVIEWER cannot exercise a
+    // ROLE-narrowed read helper.
+    expect(() =>
+      requireReadRole({ ...readOnly(), role: MemberRole.REVIEWER }, [MemberRole.OWNER]),
+    ).toThrow(ForbiddenError);
+  });
+
+  it("requireReadRole runs the role check identically to requireRole otherwise", () => {
+    expect(() => requireReadRole(tenantBase, [MemberRole.OWNER])).not.toThrow();
+    expect(() =>
+      requireReadRole({ ...tenantBase, role: MemberRole.REVIEWER }, [MemberRole.OWNER]),
+    ).toThrow(ForbiddenError);
   });
 });
 
