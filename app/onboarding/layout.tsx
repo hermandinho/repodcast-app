@@ -1,5 +1,8 @@
+import { UserButton } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import { BrandMark } from "@/components/landing/nav";
 import { getOnboardingStateForUser } from "@/server/db/agencies";
 import { isLiveDb } from "@/server/data/source";
 
@@ -42,8 +45,16 @@ export default async function OnboardingLayout({ children }: { children: React.R
         }}
       />
 
-      <div className="relative mx-auto flex min-h-screen max-w-[720px] flex-col justify-center px-5 py-8 sm:py-10">
-        {children}
+      <div className="relative flex min-h-screen flex-col">
+        <header className="flex items-center justify-between px-5 py-5 sm:px-8 sm:py-6">
+          <Link href="/" className="no-underline" aria-label="Repodcast home">
+            <BrandMark />
+          </Link>
+          <UserButton />
+        </header>
+        <main className="mx-auto flex w-full max-w-[720px] flex-1 flex-col justify-center px-5 pb-10 sm:pb-14">
+          {children}
+        </main>
       </div>
     </div>
   );

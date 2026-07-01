@@ -36,7 +36,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider appearance={clerkAppearance}>
+    <ClerkProvider appearance={clerkAppearance} afterSignOutUrl="/">
       <html
         lang="en"
         className={`${inter.variable} ${sora.variable} ${jetBrainsMono.variable} h-full`}
