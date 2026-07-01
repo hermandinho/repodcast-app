@@ -46,11 +46,20 @@ export default async function OnboardingLayout({ children }: { children: React.R
       />
 
       <div className="relative flex min-h-screen flex-col">
-        <header className="flex items-center justify-between px-5 py-5 sm:px-8 sm:py-6">
-          <Link href="/" className="no-underline" aria-label="Repodcast home">
-            <BrandMark />
-          </Link>
-          <UserButton />
+        {/*
+          Header contents live inside the same `max-w-[720px]` column as the
+          form below — so the brand mark sits above the left edge of the card
+          and the user button above the right. Without this the two poke into
+          the far corners of the viewport on wide monitors and read as
+          disconnected from the content.
+        */}
+        <header className="w-full px-5 py-5 sm:px-8 sm:py-6">
+          <div className="mx-auto flex w-full max-w-[720px] items-center justify-between">
+            <Link href="/" className="no-underline" aria-label="Repodcast home">
+              <BrandMark />
+            </Link>
+            <UserButton />
+          </div>
         </header>
         <main className="mx-auto flex w-full max-w-[720px] flex-1 flex-col justify-center px-5 pb-10 sm:pb-14">
           {children}
