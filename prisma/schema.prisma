@@ -165,6 +165,7 @@ model Agency {
   billingRemindersSent BillingReminderSent[]
   onboardingNudgesSent OnboardingNudgeSent[]
   usageSnapshots       AgencyUsageSnapshot[]
+  limitOverrides       AgencyLimitOverride[]
 }
 
 model Member {
@@ -364,6 +365,13 @@ model GeneratedOutput {
   supersededAt       DateTime?
   /// Self-pointer to the prior version (null on v1). Held by the new row.
   previousVersionId  String?
+  /// Phase 3.6.10 — moderation flag columns. Populated when a tenant member
+  /// (Phase 4 UI) or a ROOT operator (v1 manual entry) flags an output for
+  /// review. `flaggedByMemberId` is a plain String — no FK — so a hard-deleted
+  /// Member doesn't cascade-wipe the flag history.
+  flagReason         String?
+  flaggedByMemberId  String?
+  flaggedAt          DateTime?
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
@@ -380,6 +388,8 @@ model GeneratedOutput {
   @@index([status])
   @@index([approvedByMemberId])
   @@index([previousVersionId])
+  /// Hot path: "list all unresolved flagged outputs" on `/root/quality`.
+  @@index([flaggedAt])
 }
 
 /// Append-only log of status changes on `GeneratedOutput`. Powers the
@@ -769,7 +779,17 @@ model SystemAdmin {
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
-  authoredAuditEntries SystemAuditLog[] @relation("AuditAuthor")
+  authoredAuditEntries    SystemAuditLog[]       @relation("AuditAuthor")
+  /// Phase 3.6.11 — SystemConfig rows this admin last wrote. `updatedBy` FK
+  /// uses `Restrict` so a soft-delete via `deactivatedAt` is the only teardown
+  /// (see the FK block in the migration).
+  authoredConfigWrites    SystemConfig[]         @relation("ConfigAuthor")
+  /// Phase 3.6.11 — agency plan-limit overrides this admin granted.
+  authoredLimitOverrides  AgencyLimitOverride[]  @relation("LimitOverrideAuthor")
+  /// Phase 3.6.10 — abuse reports currently assigned to this admin.
+  /// `onDelete: SetNull` on the FK so a soft-delete drops the queue link
+  /// without losing the report itself.
+  assignedAbuseReports    AbuseReport[]          @relation("AbuseAssignee")
 
   @@index([role])
   @@index([deactivatedAt])
@@ -866,4 +886,160 @@ model SystemAuditLog {
   @@index([targetAgencyId, createdAt(sort: Desc)])
   @@index([action, createdAt(sort: Desc)])
   @@index([createdAt(sort: Desc)])
+}
+
+// ============================================================
+// Phase 3.6.11 — Platform configuration + per-agency overrides
+// ============================================================
+//
+// SystemConfig is a flat key/value bag for platform-wide toggles that don't
+// warrant their own column (feature flags not shipped through PostHog,
+// Anthropic model defaults, cost-cap overrides per plan, the CAC entry for
+// LTV:CAC, marketing copy). `value` is Json so an operator can change a
+// value's SHAPE without a schema migration; the audit log's before/after
+// captures every mutation.
+//
+// AgencyLimitOverride grants a specific agency a resource ceiling different
+// from its plan's default (e.g. "give Acme 100 episodes/month even though
+// they're on STUDIO"). Consumed by `planCapacity()` in
+// `server/billing/limits.ts`.
+
+/// Which of the four metered resources an override applies to. Mirrors the
+/// `LimitedResource` union in `server/billing/limits.ts`; keep them in sync.
+enum LimitOverrideResource {
+  SHOWS
+  MEMBERS
+  EPISODES
+  GENERATIONS
+}
+
+/// Flat key/value bag for platform-wide toggles. See §3.6.11.
+///
+/// - `key` is the operator-facing identifier (e.g. `RSS_IMPORT_ENABLED`,
+///   `CAC_USD_MONTHLY`, `ANTHROPIC_DEFAULT_MODEL`). No enum — arbitrary keys
+///   land here so we don't need a migration per new config surface.
+/// - `value` is Json to survive shape changes. Callers cast on read; the
+///   admin UI edits raw JSON so mistakes surface loudly.
+/// - `updatedBySystemAdminId` is Restrict on delete so audit attribution
+///   survives even if a ROOT is soft-deleted. Nullable so the initial
+///   bootstrap seed (no admin yet) can still write rows.
+model SystemConfig {
+  id                     String   @id @default(cuid())
+  key                    String   @unique
+  value                  Json
+  /// Free-text description of what the key controls. Rendered in the admin
+  /// UI so the next operator doesn't have to grep the codebase to find out
+  /// what `RSS_IMPORT_ENABLED` gates.
+  description            String?
+  updatedBySystemAdminId String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  updatedBy SystemAdmin? @relation("ConfigAuthor", fields: [updatedBySystemAdminId], references: [id], onDelete: Restrict)
+
+  @@index([updatedBySystemAdminId])
+}
+
+/// Per-agency resource-limit override. One row per (agencyId, resource) at a
+/// time — the operator updates the row to change the value, sets `expiresAt`
+/// to end it, or hard-deletes to revoke immediately (with an audit note).
+///
+/// Consumed by `planCapacity()`: if a live row exists for a resource and its
+/// `expiresAt` hasn't passed, its `value` replaces the plan default. If the
+/// override is LOWER than the plan default, that's intentional — operators
+/// use it to cap an abusing agency without downgrading the plan.
+model AgencyLimitOverride {
+  id              String                @id @default(cuid())
+  agencyId        String
+  resource        LimitOverrideResource
+  /// New cap for the resource. Absolute value — not additive on top of the
+  /// plan default. `0` = fully disable the resource for this agency.
+  value           Int
+  /// When the override stops applying. Null = indefinite. Past-timestamped
+  /// rows are ignored by `planCapacity()` but retained for audit.
+  expiresAt       DateTime?
+  /// Free-text reason (e.g. "comp for support case #123"). Surfaced in the
+  /// admin table + captured on the initial audit row.
+  note            String?
+  bySystemAdminId String
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  agency Agency      @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  by     SystemAdmin @relation("LimitOverrideAuthor", fields: [bySystemAdminId], references: [id], onDelete: Restrict)
+
+  /// One live override per (agency, resource). Editing an existing override
+  /// updates the row in place; audit captures the history.
+  @@unique([agencyId, resource])
+  @@index([expiresAt])
+  @@index([bySystemAdminId])
+}
+
+// ============================================================
+// Phase 3.6.10 — Quality, abuse, and moderation
+// ============================================================
+//
+// AbuseReport is the durable queue for inbound complaints — spam, copyright,
+// brand impersonation, harassment. Two ingress paths (both funnel into the
+// same table):
+//   1. Public `/legal/report` form (Phase 4 — inbound anonymous). Populates
+//      `reportedByEmail` from the form.
+//   2. Manual entry by a ROOT / OPERATOR from `/root/quality` — for phoned-in
+//      complaints logged after the fact. `reportedByEmail` may be null.
+//
+// The `target*` columns are plain nullable Strings — no FK — so hard-deleting
+// an agency, member, or output doesn't cascade-wipe reports that referenced
+// it. Same posture as `SystemAuditLog.targetAgencyId`.
+
+/// Category the reporter picked (or the intake operator inferred).
+enum AbuseReportCategory {
+  SPAM
+  COPYRIGHT
+  IMPERSONATION
+  HARASSMENT
+  OTHER
+}
+
+/// Triage state. `OPEN` = untouched, `IN_REVIEW` = an operator is on it,
+/// `RESOLVED` = action taken (see `resolution`), `DISMISSED` = no action
+/// needed (e.g. wrong URL, spam-of-a-report). Both terminal states stamp
+/// `resolvedAt`.
+enum AbuseReportStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+model AbuseReport {
+  id                        String              @id @default(cuid())
+  /// Reporter's email as provided on the intake form. Nullable so a phoned-in
+  /// complaint logged manually still lands here.
+  reportedByEmail           String?
+  category                  AbuseReportCategory
+  /// Free-text complaint body from the intake form.
+  body                      String
+  status                    AbuseReportStatus   @default(OPEN)
+  /// Nullable target pointers — no FK (see the header note).
+  targetAgencyId            String?
+  targetMemberId            String?
+  targetOutputId            String?
+  /// The SystemAdmin currently on it. Set when triage flips to IN_REVIEW /
+  /// RESOLVED / DISMISSED.
+  assignedToSystemAdminId   String?
+  /// Free-text summary of what the operator did (used the "resolve" action).
+  /// Null on OPEN / IN_REVIEW / DISMISSED.
+  resolution                String?
+  createdAt                 DateTime            @default(now())
+  /// Stamped when status flips to RESOLVED or DISMISSED.
+  resolvedAt                DateTime?
+  updatedAt                 DateTime            @updatedAt
+
+  assignedTo SystemAdmin? @relation("AbuseAssignee", fields: [assignedToSystemAdminId], references: [id], onDelete: SetNull)
+
+  /// Queue hot path: paginated OPEN list sorted by age.
+  @@index([status, createdAt])
+  @@index([assignedToSystemAdminId, status])
+  @@index([targetAgencyId, createdAt])
+  @@index([category, status])
 }

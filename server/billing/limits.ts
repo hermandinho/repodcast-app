@@ -4,6 +4,10 @@ import type { Plan } from "@prisma/client";
 import { ForbiddenError } from "@/server/auth/errors";
 import { prisma } from "@/server/db/client";
 import { planLimitsFor } from "@/lib/plans";
+import {
+  getEffectiveLimitOverride,
+  LIMITED_TO_LIMIT_OVERRIDE_RESOURCE,
+} from "@/server/db/system/config";
 
 export type LimitedResource = "shows" | "members" | "episodes" | "generations";
 
@@ -20,6 +24,12 @@ function monthStart(now = new Date()): Date {
  * Current usage of `resource` for this agency in the current billing window.
  * Surfaces (used, limit) so the UI can render meters before the user attempts
  * a write.
+ *
+ * `limit` respects an `AgencyLimitOverride` if a live (unexpired) row exists
+ * for this (agency, resource). Overrides are absolute — the override value
+ * replaces the plan default outright rather than adding to it, so operators
+ * can also use them to CAP an abusing agency below its plan tier. See
+ * `server/db/system/config.ts#getEffectiveLimitOverride`.
  */
 export async function planCapacity(
   agencyId: string,
@@ -27,38 +37,50 @@ export async function planCapacity(
   resource: LimitedResource,
 ): Promise<PlanCapacityResult> {
   const limits = planLimitsFor(plan);
+  const [override, used] = await Promise.all([
+    getEffectiveLimitOverride(agencyId, LIMITED_TO_LIMIT_OVERRIDE_RESOURCE[resource]),
+    countUsed(agencyId, resource),
+  ]);
+  const planLimit = planDefaultFor(limits, resource);
+  return { used, limit: override ?? planLimit };
+}
 
+function planDefaultFor(
+  limits: ReturnType<typeof planLimitsFor>,
+  resource: LimitedResource,
+): number {
   switch (resource) {
-    case "shows": {
-      // Shows are the metered resource — clients are unlimited (a single
-      // client can own many shows in the new hierarchy).
-      const used = await prisma.show.count({
-        where: { client: { agencyId } },
-      });
-      return { used, limit: limits.shows };
-    }
-    case "members": {
-      const used = await prisma.member.count({ where: { agencyId } });
-      return { used, limit: limits.seats };
-    }
-    case "episodes": {
-      const used = await prisma.episode.count({
+    case "shows":
+      return limits.shows;
+    case "members":
+      return limits.seats;
+    case "episodes":
+      return limits.episodesPerMonth;
+    case "generations":
+      return limits.generationsPerMonth;
+  }
+}
+
+async function countUsed(agencyId: string, resource: LimitedResource): Promise<number> {
+  switch (resource) {
+    case "shows":
+      return prisma.show.count({ where: { client: { agencyId } } });
+    case "members":
+      return prisma.member.count({ where: { agencyId } });
+    case "episodes":
+      return prisma.episode.count({
         where: {
           show: { client: { agencyId } },
           createdAt: { gte: monthStart() },
         },
       });
-      return { used, limit: limits.episodesPerMonth };
-    }
-    case "generations": {
-      const used = await prisma.generatedOutput.count({
+    case "generations":
+      return prisma.generatedOutput.count({
         where: {
           episode: { show: { client: { agencyId } } },
           createdAt: { gte: monthStart() },
         },
       });
-      return { used, limit: limits.generationsPerMonth };
-    }
   }
 }
 

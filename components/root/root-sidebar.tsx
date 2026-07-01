@@ -13,13 +13,13 @@ type RootNavItem = {
 const navItems: readonly RootNavItem[] = [
   { href: "/root", label: "Overview", ready: true },
   { href: "/root/agencies", label: "Agencies", ready: true },
-  { href: "/root/users", label: "Users" },
+  { href: "/root/users", label: "Users", ready: true },
   { href: "/root/finance", label: "Finance", ready: true },
   { href: "/root/operations", label: "Operations", ready: true },
-  { href: "/root/quality", label: "Quality" },
-  { href: "/root/config", label: "Config" },
-  { href: "/root/audit", label: "Audit log" },
-  { href: "/root/system", label: "System health" },
+  { href: "/root/quality", label: "Quality", ready: true },
+  { href: "/root/config", label: "Config", ready: true },
+  { href: "/root/audit", label: "Audit log", ready: true },
+  { href: "/root/system", label: "System health", ready: true },
 ];
 
 function findActiveHref(pathname: string): string | null {

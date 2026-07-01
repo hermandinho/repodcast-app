@@ -24,6 +24,13 @@ const mocks = vi.hoisted(() => ({
     member: { count: vi.fn() },
     episode: { count: vi.fn() },
     generatedOutput: { count: vi.fn() },
+    /**
+     * Phase 3.6.11 wired `planCapacity` through `getEffectiveLimitOverride`,
+     * which reads from this table. Default mock resolves to `null` (no
+     * override) so every pre-existing test stays green — the tests below
+     * override this to exercise the override path explicitly.
+     */
+    agencyLimitOverride: { findUnique: vi.fn() },
   },
 }));
 
@@ -48,6 +55,9 @@ beforeEach(() => {
       }
     }
   }
+  // Default: no override — every legacy planCapacity assertion assumes the
+  // plan default takes hold. The override tests reset this per-case.
+  mocks.prisma.agencyLimitOverride.findUnique.mockResolvedValue(null);
 });
 
 // ============================================================
@@ -253,5 +263,70 @@ describe("assertMinPlan", () => {
         expect(() => assertMinPlan(caller, minimum)).toThrow(ForbiddenError);
       }
     }
+  });
+});
+
+// ============================================================
+// planCapacity — AgencyLimitOverride consumption (Phase 3.6.11)
+// ============================================================
+//
+// The override replaces the plan default absolutely — an override of 5 on a
+// STUDIO account with the default `shows: 3` means the effective cap is 5,
+// not 5+3. An override of 1 on the same account is a HARD CAP: the operator
+// can throttle an abusing agency below its plan tier.
+
+describe("planCapacity — override consumption", () => {
+  it("uses the override value in place of the plan default when active", async () => {
+    mocks.prisma.show.count.mockResolvedValue(2);
+    mocks.prisma.agencyLimitOverride.findUnique.mockResolvedValue({
+      value: 10,
+      expiresAt: null,
+    });
+
+    const result = await planCapacity(A1, Plan.STUDIO, "shows");
+    expect(result).toEqual({ used: 2, limit: 10 });
+    // Prisma is looked up by the composite unique — confirm the enum is
+    // mapped from the lowercase resource union.
+    expect(mocks.prisma.agencyLimitOverride.findUnique).toHaveBeenCalledWith({
+      where: { agencyId_resource: { agencyId: A1, resource: "SHOWS" } },
+      select: { value: true, expiresAt: true },
+    });
+  });
+
+  it("ignores an override whose expiresAt has passed", async () => {
+    mocks.prisma.member.count.mockResolvedValue(4);
+    // Expired one hour ago.
+    mocks.prisma.agencyLimitOverride.findUnique.mockResolvedValue({
+      value: 999,
+      expiresAt: new Date(Date.now() - 60 * 60 * 1000),
+    });
+
+    const result = await planCapacity(A1, Plan.AGENCY, "members");
+    expect(result.limit).toBe(planLimitsFor(Plan.AGENCY).seats);
+    expect(result.used).toBe(4);
+  });
+
+  it("honours a future expiresAt (still in effect)", async () => {
+    mocks.prisma.episode.count.mockResolvedValue(1);
+    mocks.prisma.agencyLimitOverride.findUnique.mockResolvedValue({
+      value: 500,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    });
+
+    const result = await planCapacity(A1, Plan.STUDIO, "episodes");
+    expect(result.limit).toBe(500);
+  });
+
+  it("respects an override of `0` (fully cap the resource)", async () => {
+    mocks.prisma.generatedOutput.count.mockResolvedValue(0);
+    mocks.prisma.agencyLimitOverride.findUnique.mockResolvedValue({
+      value: 0,
+      expiresAt: null,
+    });
+
+    const result = await planCapacity(A1, Plan.NETWORK, "generations");
+    expect(result.limit).toBe(0);
+    // assertPlanCapacity would fire ForbiddenError on any usage against this
+    // cap — which is exactly the abuse-throttle path the override enables.
   });
 });
