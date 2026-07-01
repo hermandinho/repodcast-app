@@ -155,6 +155,43 @@ export async function userHasAnyMembership(clerkUserId: string): Promise<boolean
 }
 
 /**
+ * Phase 3.x — snapshot used by the `/onboarding` router to decide which
+ * substep to send the user to.
+ *
+ * Returns:
+ *  - `{ kind: "no-membership" }` — user hasn't created an agency yet →
+ *    /onboarding/workspace
+ *  - `{ kind: "no-subscription", agencyId, agencyName }` — has agency but
+ *    no live Stripe sub → /onboarding/plan
+ *  - `{ kind: "paying", agencyId, agencyName }` — sub is live → /dashboard
+ *
+ * Scoped to the user's oldest agency, matching every other "which agency
+ * are we onboarding" helper. Multi-agency membership is a separate flow.
+ */
+export type OnboardingStateForUser =
+  | { kind: "no-membership" }
+  | { kind: "no-subscription"; agencyId: string; agencyName: string }
+  | { kind: "paying"; agencyId: string; agencyName: string };
+
+export async function getOnboardingStateForUser(
+  clerkUserId: string,
+): Promise<OnboardingStateForUser> {
+  const member = await prisma.member.findFirst({
+    where: { clerkUserId },
+    orderBy: { createdAt: "asc" },
+    select: {
+      agency: { select: { id: true, name: true, stripeSubscriptionId: true } },
+    },
+  });
+  if (!member) return { kind: "no-membership" };
+  const { agency } = member;
+  if (agency.stripeSubscriptionId) {
+    return { kind: "paying", agencyId: agency.id, agencyName: agency.name };
+  }
+  return { kind: "no-subscription", agencyId: agency.id, agencyName: agency.name };
+}
+
+/**
  * Phase 2.10 — what step is the user's first agency on?
  *
  * Returns:

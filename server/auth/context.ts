@@ -18,6 +18,12 @@ export type AuthContext = {
     id: string;
     name: string;
     plan: Plan;
+    /**
+     * Present when the agency has an active (or once-active) Stripe sub.
+     * Used by the dashboard gate to enforce the paid-only onboarding flow —
+     * unpaid agencies get bounced to /onboarding.
+     */
+    stripeSubscriptionId: string | null;
   };
   member: {
     id: string;
@@ -88,7 +94,7 @@ export async function getAuthContext(): Promise<AuthContext | null> {
         id: true,
         role: true,
         agency: {
-          select: { id: true, name: true, plan: true },
+          select: { id: true, name: true, plan: true, stripeSubscriptionId: true },
         },
       },
     }),
@@ -107,6 +113,7 @@ export async function getAuthContext(): Promise<AuthContext | null> {
       id: member.agency.id,
       name: member.agency.name,
       plan: member.agency.plan,
+      stripeSubscriptionId: member.agency.stripeSubscriptionId,
     },
     member: {
       id: member.id,
@@ -137,7 +144,7 @@ async function resolveImpersonatedContext(
         name: true,
         role: true,
         agencyId: true,
-        agency: { select: { id: true, name: true, plan: true } },
+        agency: { select: { id: true, name: true, plan: true, stripeSubscriptionId: true } },
       },
     }),
   ]);
@@ -160,6 +167,7 @@ async function resolveImpersonatedContext(
       id: impersonatedMember.agency.id,
       name: impersonatedMember.agency.name,
       plan: impersonatedMember.agency.plan,
+      stripeSubscriptionId: impersonatedMember.agency.stripeSubscriptionId,
     },
     member: {
       id: impersonatedMember.id,

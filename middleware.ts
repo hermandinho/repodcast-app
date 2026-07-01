@@ -8,6 +8,8 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 const isPublicRoute = createRouteMatcher([
   // Marketing landing — must render for logged-out visitors.
   "/",
+  // Public pricing page — drives the self-service signup funnel.
+  "/pricing",
   "/sign-in(.*)",
   "/sign-up(.*)",
   // Invite acceptance lands on /invite/[token] BEFORE the recipient has an

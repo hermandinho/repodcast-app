@@ -184,7 +184,12 @@ describe("read-only impersonation — chokepoints", () => {
 describe("read-only impersonation — assertRole chokepoint (AuthContext layer)", () => {
   const baseAuth: AuthContext = {
     user: { clerkUserId: "user_1", email: "ops@example.com", name: null, imageUrl: null },
-    agency: { id: "agency_1", name: "Test Agency", plan: Plan.STUDIO },
+    agency: {
+      id: "agency_1",
+      name: "Test Agency",
+      plan: Plan.STUDIO,
+      stripeSubscriptionId: "sub_test",
+    },
     member: { id: "mem_1", role: MemberRole.OWNER },
     impersonation: null,
   };

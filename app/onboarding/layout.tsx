@@ -1,27 +1,23 @@
 import { auth } from "@clerk/nextjs/server";
-import { OnboardingStep } from "@prisma/client";
 import { redirect } from "next/navigation";
-import { getOnboardingStepForUser } from "@/server/db/agencies";
+import { getOnboardingStateForUser } from "@/server/db/agencies";
 import { isLiveDb } from "@/server/data/source";
 
 /**
- * Inverse of the dashboard layout's onboarding gate: if the user is signed
- * in *and* has finished the wizard, send them straight to the dashboard.
+ * `/onboarding/*` layout.
  *
- * Phase 2.10 swap: we used to redirect on the cheaper "do you have any
- * Member row" check, but that yanked users with a created agency but an
- * unfinished step 2/3 over to the dashboard, defeating the resume promise.
- * Now we redirect iff `onboardingStep === DONE` — any earlier step keeps
- * the user in the wizard so they pick up where they left off.
- *
- * Sample-data mode skips the check — the demo tenant is always "set up".
+ * Gate: unauthenticated → /sign-in. Users who already have a live Stripe
+ * subscription short-circuit to /dashboard (in case they land here by
+ * refreshing after finishing checkout). Everything else — no agency yet
+ * OR agency-but-no-sub — passes through to whichever substep the child
+ * route renders.
  */
 export default async function OnboardingLayout({ children }: { children: React.ReactNode }) {
   if (isLiveDb()) {
     const { userId } = await auth();
-    if (!userId) redirect("/sign-in");
-    const step = await getOnboardingStepForUser(userId);
-    if (step === OnboardingStep.DONE) redirect("/dashboard");
+    if (!userId) redirect("/sign-in?redirect_url=%2Fonboarding");
+    const state = await getOnboardingStateForUser(userId);
+    if (state.kind === "paying") redirect("/dashboard");
   }
   return (
     <div
@@ -31,7 +27,6 @@ export default async function OnboardingLayout({ children }: { children: React.R
         color: "#1A2A4A",
       }}
     >
-      {/* Decorative orb — adds visual depth without dominating */}
       <div
         aria-hidden
         className="pointer-events-none absolute -top-32 -right-32 h-[420px] w-[420px] rounded-full"
@@ -47,7 +42,7 @@ export default async function OnboardingLayout({ children }: { children: React.R
         }}
       />
 
-      <div className="relative mx-auto flex min-h-screen max-w-[600px] flex-col justify-center px-5 py-8 sm:py-10">
+      <div className="relative mx-auto flex min-h-screen max-w-[720px] flex-col justify-center px-5 py-8 sm:py-10">
         {children}
       </div>
     </div>
