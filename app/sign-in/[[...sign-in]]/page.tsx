@@ -1,23 +1,33 @@
 import { SignIn } from "@clerk/nextjs";
+import Link from "next/link";
+import { AuthShell } from "@/components/auth/auth-shell";
 
 // Clerk's `<SignIn>` is wrapped in a `withClerk` HOC that returns `null` until
-// the client-side Clerk instance loads, then renders a `<div data-clerk-component="SignIn">`
-// portal mount target. The server-rendered HTML is empty for that subtree, so React
-// 19 flags the mismatch on hydration. `suppressHydrationWarning` is the canonical
-// escape hatch for third-party portal mounts whose first paint deliberately differs
-// from SSR. Scoped tightly to the Clerk subtree.
+// the client-side Clerk instance loads. `AuthShell` scopes
+// `suppressHydrationWarning` around the mount so React 19 doesn't flag the
+// portal handoff. Theme comes from `lib/clerk-appearance.ts` via
+// <ClerkProvider> in app/layout.tsx — no need to pass `appearance` here.
 //
-// `fallbackRedirectUrl` sends anyone without an explicit `?redirect_url=...` through
-// /after-sign-in — a server component that resolves the caller's actual role
-// (SystemAdmin, paying member, unpaid member, no membership) and forwards to the
-// right surface. ROOT-only users have no tenant Member so this is the only way to
-// keep them out of the /dashboard → /onboarding bounce loop.
+// `fallbackRedirectUrl` sends anyone without an explicit `?redirect_url=...`
+// through /after-sign-in, which resolves the caller's role (SystemAdmin,
+// paying member, unpaid member, no membership) and forwards to the right
+// surface. Keeps ROOT-only users out of the /dashboard → /onboarding loop.
 export default function SignInPage() {
   return (
-    <div className="bg-canvas flex min-h-screen items-center justify-center px-4 py-12">
-      <div suppressHydrationWarning>
-        <SignIn fallbackRedirectUrl="/after-sign-in" />
-      </div>
-    </div>
+    <AuthShell
+      altHref="/sign-up"
+      altLabel="Get started"
+      footNote={
+        <>
+          Trouble signing in?{" "}
+          <Link href="/pricing" className="underline" style={{ color: "#5A6473" }}>
+            Back to pricing
+          </Link>
+          .
+        </>
+      }
+    >
+      <SignIn fallbackRedirectUrl="/after-sign-in" signUpUrl="/sign-up" />
+    </AuthShell>
   );
 }
