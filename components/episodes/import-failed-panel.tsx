@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { PipelineStepper, type PipelineStep } from "./pipeline-stepper";
 
 /**
  * Phase 2.8 follow-up — error banner rendered on `/episodes/[id]` when
@@ -35,38 +36,35 @@ export function ImportFailedPanel({
           ? "YouTube import failed"
           : "Generation failed";
 
+  // Which pipeline step actually failed determines the stepper's error marker.
+  // RSS/YOUTUBE fail during import; UPLOAD fails during transcribe; PASTE
+  // (rare here) fails during generate.
+  const failedStep: PipelineStep =
+    source === "RSS" || source === "YOUTUBE"
+      ? "import"
+      : source === "UPLOAD"
+        ? "transcribe"
+        : "generate";
+
   const params = new URLSearchParams();
   if (showId) params.set("showId", showId);
   if (clientId) params.set("clientId", clientId);
   const wizardHref = `/episodes/new${params.toString() ? `?${params.toString()}` : ""}`;
 
+  // PASTE / UPLOAD / RSS / YOUTUBE all map cleanly to the stepper; the PASTE
+  // case (no import + no transcribe) still works — `source="PASTE"` yields a
+  // single-step "generate" stepper, which reads correctly.
+  const stepperSource = source;
+
   return (
     <div
-      className="mb-5 rounded-2xl p-[18px]"
+      className="mb-5 rounded-2xl p-[16px]"
       style={{ background: "#FBEDEC", border: "1px solid #F0CFC2" }}
     >
-      <div className="flex items-start gap-[14px]">
-        <span
-          className="flex h-[36px] w-[36px] flex-shrink-0 items-center justify-center rounded-[10px]"
-          style={{ background: "#F7DAD3" }}
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 18 18"
-            fill="none"
-            stroke="#A03425"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M9 2L1 16h16L9 2z" />
-            <path d="M9 7v4M9 13.2v.1" />
-          </svg>
-        </span>
+      <div className="mb-[14px] flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <div className="font-display text-[15px] font-semibold text-[#A03425]">{headline}</div>
-          <p className="mt-[3px] text-[12.5px] text-[#7A3128]">
+          <div className="font-display text-[14.5px] font-semibold text-[#A03425]">{headline}</div>
+          <p className="mt-[3px] text-[12px] leading-[1.55] text-[#7A3128]">
             {reason ??
               "The pipeline hit a non-retriable error and stopped. Try a different source or contact support if the issue persists."}
           </p>
@@ -78,6 +76,7 @@ export function ImportFailedPanel({
           {source === "RSS" ? "Pick a different episode" : "Start a new episode"}
         </Link>
       </div>
+      <PipelineStepper source={stepperSource} activeStep={failedStep} failedStep={failedStep} />
     </div>
   );
 }

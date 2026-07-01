@@ -6,6 +6,7 @@ import {
   retranscribeEpisodeAction,
   updateEpisodeTranscriptAction,
 } from "@/app/(dashboard)/episodes/[id]/actions";
+import { PipelineStepper } from "./pipeline-stepper";
 
 /**
  * Phase 2.7 — empty-state UX on `/episodes/[id]` while an UPLOAD episode
@@ -78,31 +79,17 @@ export function TranscribingPanel({ episodeId }: { episodeId: string }) {
 
   return (
     <div
-      className="mb-5 rounded-2xl p-[18px]"
-      style={{ background: "#F1FAF5", border: "1px solid #BFE3CD" }}
+      className="mb-5 rounded-2xl p-[16px]"
+      style={{ background: "#F7FBF9", border: "1px solid #DBEBE1" }}
     >
-      <div className="flex items-start gap-[14px]">
-        <span
-          className="flex h-[36px] w-[36px] flex-shrink-0 items-center justify-center rounded-[10px]"
-          style={{ background: "#E7F4EC" }}
-        >
-          <span
-            className="inline-block h-[18px] w-[18px] rounded-full"
-            style={{
-              border: "2.5px solid #BFE3CD",
-              borderTopColor: "#1E7A47",
-              animation: "spin .9s linear infinite",
-            }}
-          />
-        </span>
+      <div className="mb-[14px] flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <div className="font-display text-ink text-[15px] font-semibold">
+          <div className="font-display text-ink text-[14.5px] font-semibold">
             Transcribing your audio
           </div>
-          <p className="text-muted mt-[3px] text-[12.5px]">
+          <p className="text-muted-2 mt-[3px] text-[12px] leading-[1.55]">
             Deepgram is working through the recording — typically 30–90 seconds for a one-hour
-            episode. The page will update automatically when the transcript lands and outputs start
-            generating.
+            episode. Generation starts as soon as the transcript lands.
           </p>
         </div>
         <div className="flex flex-shrink-0 items-center gap-[7px]">
@@ -124,6 +111,8 @@ export function TranscribingPanel({ episodeId }: { episodeId: string }) {
           </button>
         </div>
       </div>
+
+      <PipelineStepper source="UPLOAD" activeStep="transcribe" />
 
       {showEditor && (
         <div className="mt-[14px]">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState, useTransition, type CSSProperties, type ReactNode } from "react";
 import { MemberRole } from "@/lib/enums";
 import type { PlatformMeta } from "@/lib/sample-data/platforms";
 import { statusMeta, type EpisodeStatus } from "@/lib/sample-data/episode-status";
@@ -63,12 +63,19 @@ export function OutputCard({
   hostName,
   state,
   viewerRole,
+  readOnly = false,
   actions,
 }: {
   platform: PlatformMeta;
   hostName: string;
   state: OutputState;
   viewerRole: MemberRole;
+  /**
+   * True when the request is running under a read-only impersonation
+   * envelope. Every write button is gated at the UI layer so the user
+   * doesn't see optimistic success that the API is about to reject.
+   */
+  readOnly?: boolean;
   actions: OutputCardActions;
 }) {
   const sm = statusMeta(state.status);
@@ -82,15 +89,22 @@ export function OutputCard({
 
   // Role gating — pairs with server-side requireRole guards in
   // `server/db/outputs.ts`. UI just disables + tooltips when the action
-  // would be rejected by the server anyway.
-  const roleCanEdit = EDIT_ROLES.includes(viewerRole);
-  const roleCanApprove = APPROVE_ROLES.includes(viewerRole);
-  const editBlockedReason = roleCanEdit
-    ? null
-    : "Reviewers can't edit content — ask an Editor or Admin.";
-  const approveBlockedReason = roleCanApprove
-    ? null
-    : "Editors can't approve — request a review instead.";
+  // would be rejected by the server anyway. `readOnly` collapses both
+  // capabilities on top of the role check so a SystemAdmin browsing in
+  // read-only impersonation sees the same UI state regardless of the
+  // underlying member's role.
+  const roleCanEdit = !readOnly && EDIT_ROLES.includes(viewerRole);
+  const roleCanApprove = !readOnly && APPROVE_ROLES.includes(viewerRole);
+  const editBlockedReason = readOnly
+    ? "Read-only impersonation — writes are disabled."
+    : roleCanEdit
+      ? null
+      : "Reviewers can't edit content — ask an Editor or Admin.";
+  const approveBlockedReason = readOnly
+    ? "Read-only impersonation — writes are disabled."
+    : roleCanApprove
+      ? null
+      : "Editors can't approve — request a review instead.";
 
   // ---- Version switcher ----------------------------------------------------
   // `viewing` is null when the current version is shown; otherwise points at
@@ -160,11 +174,20 @@ export function OutputCard({
     (versions !== null && !versions.some((v) => v.version === displayedVersion - 1));
   const nextDisabled = displayedVersion >= state.version;
 
+  // Approved cards recede visually: no card shadow (relies on the pale
+  // green border for status) and a slightly tinted background. Ready/
+  // review/failed cards keep the full shadow so the reviewer's eye lands
+  // on unfinished work first.
+  const rootClass = approved
+    ? "relative flex flex-col rounded-2xl p-4 pb-[14px]"
+    : "bg-surface shadow-card relative flex flex-col rounded-2xl p-4 pb-[14px]";
+  const rootStyle: CSSProperties = {
+    border: `1px solid ${sm.cardBorder}`,
+    ...(approved ? { background: "#F8FBF9" } : {}),
+  };
+
   return (
-    <div
-      className="bg-surface shadow-card relative flex flex-col rounded-2xl p-4 pb-[14px]"
-      style={{ border: `1px solid ${sm.cardBorder}` }}
-    >
+    <div className={rootClass} style={rootStyle}>
       {state.justApproved && (
         <div
           className="rounded-pill absolute top-3 right-[14px] z-[5] inline-flex items-center gap-[6px] bg-[#1E7A47] px-[11px] py-[6px] font-sans text-[11.5px] font-semibold text-white"
@@ -332,21 +355,77 @@ export function OutputCard({
             className="h-[188px] w-full resize-y rounded-[10px] px-3 py-[11px] font-sans text-[13px] leading-[1.55] text-[#2A3550] outline-none"
             style={{ border: "1px solid #C9D4E8", background: "#FBFCFE" }}
           />
-          <div className="mt-[10px] flex gap-2">
-            <button
-              type="button"
-              onClick={actions.onSaveEdit}
-              className="bg-accent rounded-md px-[14px] py-2 font-sans text-[12.5px] font-semibold text-white"
-            >
-              Save changes
-            </button>
-            <button
-              type="button"
-              onClick={actions.onCancelEdit}
-              className="border-border text-muted rounded-md border bg-white px-[14px] py-2 font-sans text-[12.5px] font-medium"
-            >
-              Cancel
-            </button>
+          {/* Edit-mode actions — Save/Cancel plus the same status action the
+              reviewer would reach in display mode (Save & approve / Save &
+              request review). The compound actions save the draft first
+              then fire the status transition so a small last-mile tweak
+              doesn't need a mode-switch trip. */}
+          <div className="mt-[10px] flex flex-wrap items-center gap-x-2 gap-y-[8px]">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={actions.onSaveEdit}
+                className="bg-accent rounded-md px-[14px] py-[7px] font-sans text-[12.5px] font-semibold text-white"
+              >
+                Save changes
+              </button>
+              <button
+                type="button"
+                onClick={actions.onCancelEdit}
+                className="border-border text-muted rounded-md border bg-white px-[14px] py-[7px] font-sans text-[12.5px] font-medium"
+              >
+                Cancel
+              </button>
+            </div>
+
+            <div className="ml-auto flex flex-wrap items-center gap-[6px]">
+              {inReview && roleCanApprove && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    actions.onSaveEdit();
+                    actions.onReject();
+                  }}
+                  className="rounded-[9px] px-[12px] py-[7px] font-sans text-[12.5px] font-semibold text-[#A06D12] transition-colors hover:bg-[#FBF1DE]"
+                  style={{ border: "1px solid #E6D9B8", background: "#fff" }}
+                >
+                  Save & reject
+                </button>
+              )}
+
+              {isReady && roleCanEdit && !roleCanApprove && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    actions.onSaveEdit();
+                    actions.onRequestReview();
+                  }}
+                  className="text-accent hover:bg-accent-soft rounded-[9px] px-[13px] py-[7px] font-sans text-[12.5px] font-semibold transition-colors"
+                  style={{ border: "1px solid var(--color-accent-border)", background: "#fff" }}
+                >
+                  Save & request review
+                </button>
+              )}
+
+              {canApproveStatus && roleCanApprove && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    actions.onSaveEdit();
+                    actions.onApprove();
+                  }}
+                  title={approveBlockedReason ?? undefined}
+                  className="rounded-[9px] px-[14px] py-[7px] font-sans text-[12.5px] font-semibold text-white"
+                  style={{
+                    background: "var(--color-accent)",
+                    border: "1px solid rgba(0,0,0,.06)",
+                    boxShadow: "0 1px 2px rgba(26,42,74,.2)",
+                  }}
+                >
+                  ✓ Save & approve
+                </button>
+              )}
+            </div>
           </div>
         </>
       )}
@@ -470,14 +549,19 @@ export function OutputCard({
             </span>
           </div>
 
-          {/* Action row — disabled while viewing a historical version. */}
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex gap-1">
-              <button
-                type="button"
+          {/* Action row — icon-only secondary controls (Copy / Edit /
+              Regenerate) sit tight on the left; primary status actions
+              (Reject / Request review / Approve) push right and wrap onto
+              their own line at narrow card widths. This replaces the older
+              five-button flat row that overflowed 340 px cards whenever an
+              IN_REVIEW card had both Reject and Approve visible. */}
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-[8px]">
+            <div className="flex items-center gap-[2px]">
+              <IconButton
                 onClick={actions.onCopy}
-                className="hover:bg-canvas flex items-center gap-[6px] rounded-md px-[9px] py-[7px] font-sans text-[12.5px] font-medium transition-colors"
-                style={{ color: state.justCopied ? "#1E7A47" : "#5A6473" }}
+                title={state.justCopied ? "Copied" : "Copy"}
+                active={state.justCopied}
+                activeColor="#1E7A47"
               >
                 <svg
                   width="14"
@@ -490,14 +574,11 @@ export function OutputCard({
                   <rect x="4.5" y="4.5" width="7.5" height="7.5" rx="1.6" />
                   <path d="M9.5 4.5V3a1.5 1.5 0 0 0-1.5-1.5H3A1.5 1.5 0 0 0 1.5 3v5A1.5 1.5 0 0 0 3 9.5h1.5" />
                 </svg>
-                {state.justCopied ? "Copied" : "Copy"}
-              </button>
-              <button
-                type="button"
+              </IconButton>
+              <IconButton
                 onClick={actions.onEdit}
                 disabled={viewingOlder || !roleCanEdit}
-                title={editBlockedReason ?? undefined}
-                className="text-muted hover:bg-canvas flex items-center gap-[6px] rounded-md px-[9px] py-[7px] font-sans text-[12.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                title={editBlockedReason ?? "Edit"}
               >
                 <svg
                   width="14"
@@ -511,14 +592,13 @@ export function OutputCard({
                 >
                   <path d="M9.5 2.5l2 2-6.2 6.2-2.6.6.6-2.6 6.2-6.2z" />
                 </svg>
-                Edit
-              </button>
-              <button
-                type="button"
-                disabled={viewingOlder || !roleCanEdit}
-                title={editBlockedReason ?? undefined}
+              </IconButton>
+              <IconButton
                 onClick={actions.onToggleRegen}
-                className="text-muted hover:bg-canvas flex items-center gap-[6px] rounded-md px-[9px] py-[7px] font-sans text-[12.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={viewingOlder || !roleCanEdit}
+                title={editBlockedReason ?? "Regenerate"}
+                active={state.showRegen}
+                activeColor="var(--color-accent)"
               >
                 <svg
                   width="14"
@@ -532,18 +612,17 @@ export function OutputCard({
                   <path d="M11.5 3.5A5 5 0 1 0 12 8" />
                   <path d="M12 1.5V4H9.5" />
                 </svg>
-                Regenerate
-              </button>
+              </IconButton>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-[6px]">
               {/* Reject (IN_REVIEW only, approver roles). */}
               {inReview && roleCanApprove && (
                 <button
                   type="button"
                   onClick={actions.onReject}
                   disabled={viewingOlder}
-                  className="flex items-center gap-[6px] rounded-[9px] px-[12px] py-2 font-sans text-[12.5px] font-semibold text-[#A06D12] transition-colors hover:bg-[#FBF1DE] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex items-center gap-[6px] rounded-[9px] px-[12px] py-[7px] font-sans text-[12.5px] font-semibold text-[#A06D12] transition-colors hover:bg-[#FBF1DE] disabled:cursor-not-allowed disabled:opacity-40"
                   style={{ border: "1px solid #E6D9B8", background: "#fff" }}
                 >
                   Reject
@@ -558,7 +637,7 @@ export function OutputCard({
                   type="button"
                   onClick={actions.onRequestReview}
                   disabled={viewingOlder}
-                  className="text-accent hover:bg-accent-soft flex items-center gap-[7px] rounded-[9px] px-[15px] py-2 font-sans text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                  className="text-accent hover:bg-accent-soft flex items-center gap-[7px] rounded-[9px] px-[13px] py-[7px] font-sans text-[12.5px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40"
                   style={{ border: "1px solid var(--color-accent-border)", background: "#fff" }}
                 >
                   Request review
@@ -570,7 +649,7 @@ export function OutputCard({
                 onClick={actions.onApprove}
                 disabled={!canApproveStatus || viewingOlder || !roleCanApprove}
                 title={approveBlockedReason ?? undefined}
-                className="flex items-center gap-[7px] rounded-[9px] px-[15px] py-2 font-sans text-[13px] font-semibold"
+                className="flex items-center gap-[7px] rounded-[9px] px-[14px] py-[7px] font-sans text-[12.5px] font-semibold"
                 style={
                   approved
                     ? {
@@ -601,5 +680,40 @@ export function OutputCard({
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Small square icon button used for the card's secondary actions (Copy /
+ * Edit / Regenerate). Text is exposed as a tooltip + aria-label so the
+ * buttons stay accessible without eating card width.
+ */
+function IconButton({
+  children,
+  onClick,
+  title,
+  disabled,
+  active,
+  activeColor,
+}: {
+  children: ReactNode;
+  onClick: () => void;
+  title: string;
+  disabled?: boolean;
+  active?: boolean;
+  activeColor?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-label={title}
+      className="hover:bg-canvas flex h-[30px] w-[30px] items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+      style={{ color: active ? activeColor : "#5A6473" }}
+    >
+      {children}
+    </button>
   );
 }

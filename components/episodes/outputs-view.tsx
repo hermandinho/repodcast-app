@@ -111,6 +111,7 @@ export function OutputsView({
   episode,
   viewerRole = MemberRole.OWNER,
   streamUrl = null,
+  readOnly = false,
 }: {
   client: SampleShow;
   episode: SampleEpisode;
@@ -121,6 +122,15 @@ export function OutputsView({
    * opened — the optimistic ticker is the only driver of progress.
    */
   streamUrl?: string | null;
+  /**
+   * When true, every mutation action is gated at the UI layer. Set by
+   * `page.tsx` from `tenant.impersonation.mode === "read"` — SystemAdmins
+   * browsing a tenant in read-only mode used to see optimistic success on
+   * approve/reject/edit/regen even though the server was rejecting the
+   * request with ForbiddenError. This flag prevents the optimistic flip
+   * and grays out the controls so the truth matches what the server does.
+   */
+  readOnly?: boolean;
 }) {
   const router = useRouter();
   const [outputs, setOutputs] = useState<LiveOutput[]>(() =>
@@ -154,6 +164,7 @@ export function OutputsView({
   // pattern replaces an earlier `useState` + `setGeneratingAll(false)` in
   // an effect, which Next 16's react-hooks/set-state-in-effect rule flags.
   const [generateAllRequested, setGenerateAllRequested] = useState(false);
+  const [railTab, setRailTab] = useState<"voice" | "quality">("voice");
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -173,6 +184,11 @@ export function OutputsView({
   // placeholder rows landing) reaches the page without a hard refresh.
   const awaitingPipeline =
     episode.pipeline?.status === "draft" || episode.pipeline?.status === "processing";
+  // Broader "pipeline is still doing something" flag used to disable
+  // Generate all — a user clicking regen before transcript / import finishes
+  // would race against the initial generation pass.
+  const pipelineRunning = awaitingPipeline || episode.pipeline?.awaitingTranscript === true;
+  const generateAllDisabled = readOnly || generatingAll || pipelineRunning || outputs.length === 0;
 
   // ----------------------------------------------------------------
   // SSE — server-pushed status/content updates during generation.
@@ -338,21 +354,29 @@ export function OutputsView({
   };
 
   const onEdit = (key: string) => {
+    if (readOnly) return;
     const o = outputs.find((x) => x.key === key);
     if (!o) return;
     update(key, { editing: true, draft: o.content, showRegen: false });
   };
 
   const onSaveEdit = (key: string) => {
+    if (readOnly) return;
     const o = outputs.find((x) => x.key === key);
     if (!o) return;
+    const prevContent = o.content;
     setOutputs((prev) =>
       prev.map((p) => (p.key === key ? { ...p, editing: false, content: p.draft } : p)),
     );
     // Fire-and-forget server save. Action is a no-op in sample-data mode.
+    // On server rejection (e.g. read-only impersonation slipping past the UI
+    // gate) we roll back to the pre-edit content so the UI matches truth.
     void updateOutputContentAction({ outputId: o.id, content: o.draft })
       .then((result) => {
-        if (!result.ok) return;
+        if (!result.ok) {
+          update(key, { content: prevContent });
+          return;
+        }
         // Only fire the analytics event when the save actually changed
         // bytes — `delta === 0` means the user "saved" the same content.
         if (result.data.delta > 0) {
@@ -364,12 +388,16 @@ export function OutputsView({
           });
         }
       })
-      .catch((err) => console.error("updateOutputContentAction failed", err));
+      .catch((err) => {
+        console.error("updateOutputContentAction failed", err);
+        update(key, { content: prevContent });
+      });
   };
 
   const onCancelEdit = (key: string) => update(key, { editing: false });
   const onDraftChange = (key: string, next: string) => update(key, { draft: next });
   const onToggleRegen = (key: string) => {
+    if (readOnly) return;
     const o = outputs.find((x) => x.key === key);
     if (!o) return;
     update(key, { showRegen: !o.showRegen, editing: false });
@@ -377,6 +405,7 @@ export function OutputsView({
   const onRegenTextChange = (key: string, next: string) => update(key, { regenText: next });
 
   const regenerate = (key: string, instruction: string) => {
+    if (readOnly) return;
     const o = outputs.find((x) => x.key === key);
     if (!o) return;
     // `regenerate` is an event-handler closure — `Date.now()` is called on
@@ -388,6 +417,14 @@ export function OutputsView({
     // Mirror the server's nextStatus rule in regenerate-output.ts:
     // an instruction routes to IN_REVIEW; a clean retry routes to READY.
     const target: EpisodeStatus = trimmed ? "review" : "ready";
+    // Snapshot state we'd need to restore if the server rejects the write.
+    const snapshot = {
+      status: o.status,
+      version: o.version,
+      versionCount: o.versionCount,
+      lastInstruction: o.lastInstruction,
+      failureReason: o.failureReason ?? null,
+    };
     // Optimistic: bump version + versionCount so the switcher controls
     // appear immediately, even before the server returns the new id.
     update(key, {
@@ -411,9 +448,33 @@ export function OutputsView({
         // subsequent edits/approves/version-history calls hit the right row.
         if (result?.ok) {
           update(key, { id: result.data.outputId });
+        } else {
+          // Server rejected — revert the optimistic status + version bumps.
+          update(key, {
+            status: snapshot.status,
+            version: snapshot.version,
+            versionCount: snapshot.versionCount,
+            lastInstruction: snapshot.lastInstruction,
+            failureReason: snapshot.failureReason,
+            progress: 100,
+            _startAt: undefined,
+            _target: undefined,
+          });
         }
       })
-      .catch((err) => console.error("regenerateOutputAction failed", err));
+      .catch((err) => {
+        console.error("regenerateOutputAction failed", err);
+        update(key, {
+          status: snapshot.status,
+          version: snapshot.version,
+          versionCount: snapshot.versionCount,
+          lastInstruction: snapshot.lastInstruction,
+          failureReason: snapshot.failureReason,
+          progress: 100,
+          _startAt: undefined,
+          _target: undefined,
+        });
+      });
   };
 
   const onApplyRegen = (key: string) => {
@@ -427,9 +488,11 @@ export function OutputsView({
   const onRetry = (key: string) => regenerate(key, "");
 
   const onApprove = (key: string) => {
+    if (readOnly) return;
     const o = outputs.find((x) => x.key === key);
     if (!o) return;
     if (o.status !== "ready" && o.status !== "review") return;
+    const prevStatus = o.status;
     update(key, {
       status: "approved",
       justApproved: true,
@@ -442,9 +505,24 @@ export function OutputsView({
       [o.key]: (ps[o.key as PlatformKey] ?? 0) + 1,
     }));
     window.setTimeout(() => update(key, { justApproved: false }), 1900);
+    // Roll back the optimistic approval if the server rejects (e.g. read-
+    // only impersonation slipping past the UI gate). This is the specific
+    // bug that motivated the readOnly flag — the optimistic UI used to show
+    // "Approved" indefinitely even when the API returned ForbiddenError.
+    const rollback = () => {
+      update(key, { status: prevStatus, justApproved: false });
+      setSamples((s) => Math.max(0, s - 1));
+      setPlatformSamples((ps) => ({
+        ...ps,
+        [o.key]: Math.max(0, (ps[o.key as PlatformKey] ?? 0) - 1),
+      }));
+    };
     void approveOutputAction({ outputId: o.id })
       .then((result) => {
-        if (!result.ok) return;
+        if (!result.ok) {
+          rollback();
+          return;
+        }
         track("output_approved", {
           outputId: result.data.outputId,
           platform: o.key,
@@ -452,28 +530,46 @@ export function OutputsView({
           editDistance: result.data.editDistance,
         });
       })
-      .catch((err) => console.error("approveOutputAction failed", err));
+      .catch((err) => {
+        console.error("approveOutputAction failed", err);
+        rollback();
+      });
   };
 
   const onRequestReview = (key: string) => {
+    if (readOnly) return;
     const o = outputs.find((x) => x.key === key);
     if (!o || o.status !== "ready") return;
+    const prevStatus = o.status;
     update(key, { status: "review", showRegen: false, editing: false });
-    void requestReviewOutputAction({ outputId: o.id }).catch((err) =>
-      console.error("requestReviewOutputAction failed", err),
-    );
+    void requestReviewOutputAction({ outputId: o.id })
+      .then((result) => {
+        if (!result.ok) update(key, { status: prevStatus });
+      })
+      .catch((err) => {
+        console.error("requestReviewOutputAction failed", err);
+        update(key, { status: prevStatus });
+      });
   };
 
   const onReject = (key: string) => {
+    if (readOnly) return;
     const o = outputs.find((x) => x.key === key);
     if (!o || o.status !== "review") return;
+    const prevStatus = o.status;
     update(key, { status: "ready", showRegen: false, editing: false });
-    void rejectOutputAction({ outputId: o.id }).catch((err) =>
-      console.error("rejectOutputAction failed", err),
-    );
+    void rejectOutputAction({ outputId: o.id })
+      .then((result) => {
+        if (!result.ok) update(key, { status: prevStatus });
+      })
+      .catch((err) => {
+        console.error("rejectOutputAction failed", err);
+        update(key, { status: prevStatus });
+      });
   };
 
   const onRegenAll = () => {
+    if (readOnly) return;
     if (generatingAll) return;
     const now = Date.now();
     setOutputs((prev) =>
@@ -537,41 +633,32 @@ export function OutputsView({
           </span>
         </nav>
 
-        {/* Episode header */}
-        <div className="mb-[22px] flex flex-wrap items-start gap-6">
+        {/* Episode header — title row + action buttons */}
+        <div className="mb-[14px] flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-[300px] flex-1">
             <EditableTitle episodeId={episode.id} initial={episode.episode} />
-            <div className="text-muted mt-[7px] text-[13.5px]">
+            <div className="text-muted mt-[6px] text-[13px]">
               {client.name} · {episode.episodeMeta}
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-[14px]">
-            <div className="border-border bg-surface flex items-center gap-[11px] rounded-xl border px-[13px] py-[9px]">
-              <div>
-                <div className="text-muted-2 mb-[3px] font-sans text-[10.5px] font-semibold tracking-[0.06em] uppercase">
-                  Client voice
-                </div>
-                <div className="flex items-center gap-2">
-                  <VoiceStrengthBars samples={samples} size="sm" />
-                  <span
-                    className="font-sans text-[13px] font-semibold"
-                    style={{ color: voiceTextColor(samples) }}
-                  >
-                    {voiceLabel(samples)}
-                  </span>
-                  <span className="text-muted-2 text-[12px]">· {samples} samples</span>
-                </div>
-              </div>
-            </div>
-
+          <div className="flex flex-shrink-0 flex-wrap items-center gap-[10px]">
             <button
               type="button"
               onClick={onRegenAll}
-              disabled={generatingAll}
-              className="shadow-card flex items-center gap-2 rounded-[10px] px-4 py-[11px] font-sans text-[13.5px] font-semibold transition-[filter]"
+              disabled={generateAllDisabled}
+              title={
+                readOnly
+                  ? "Read-only impersonation — writes are disabled"
+                  : pipelineRunning
+                    ? "Waiting for episode to finish importing"
+                    : outputs.length === 0
+                      ? "No outputs to regenerate yet"
+                      : undefined
+              }
+              className="shadow-card flex items-center gap-2 rounded-[10px] px-4 py-[10px] font-sans text-[13px] font-semibold transition-[filter]"
               style={
-                generatingAll
+                generateAllDisabled
                   ? { background: "#EEF1F6", color: "#A6AEBD", border: "1px solid #E6EBF3" }
                   : {
                       background: "var(--color-accent)",
@@ -580,18 +667,22 @@ export function OutputsView({
                     }
               }
             >
-              <span className="text-[11px]">{generatingAll ? "◴" : "▶"}</span>
-              {generatingAll ? "Generating…" : "Generate all"}
+              <span className="text-[11px]">{generatingAll || pipelineRunning ? "◴" : "▶"}</span>
+              {generatingAll
+                ? "Generating…"
+                : pipelineRunning
+                  ? "Waiting for episode…"
+                  : "Generate all"}
             </button>
 
-            {/* Phase 2.5 — branded HTML export. Live mode only (sample-data
-                mode would 503 the route); approved-only — gated on at
-                least one approval so the export isn't an empty receipt. */}
+            {/* Branded HTML export. Live mode only (sample-data mode would
+                503 the route); approved-only — gated on at least one
+                approval so the export isn't an empty receipt. */}
             {streamUrl !== null && approvedCount > 0 && (
               <a
                 href={`/api/episodes/${episode.id}/export`}
                 download
-                className="border-border text-ink hover:bg-canvas shadow-card flex items-center gap-2 rounded-[10px] border bg-white px-4 py-[11px] font-sans text-[13.5px] font-semibold transition-colors"
+                className="border-border text-ink hover:bg-canvas shadow-card flex items-center gap-2 rounded-[10px] border bg-white px-4 py-[10px] font-sans text-[13px] font-semibold transition-colors"
                 title="Download a branded HTML deliverables receipt to send to the client"
               >
                 <svg
@@ -614,23 +705,45 @@ export function OutputsView({
           </div>
         </div>
 
-        {/* Progress strip */}
-        <div className="border-border bg-surface mb-5 flex items-center gap-[14px] rounded-xl border px-4 py-[13px]">
-          <div className="text-muted text-[13px]">
-            <span className="text-ink font-semibold">
-              {approvedCount} of {totalCount}
-            </span>{" "}
-            outputs approved
+        {/* KPI strip — approval progress, avg quality, and voice status all
+            on one line. Replaces the older two-row layout (bordered voice
+            mini-card in the header + a separate progress strip below), which
+            duplicated the rail's AI-voice card and ate vertical space. */}
+        <div className="border-border bg-surface mb-5 flex flex-wrap items-center gap-x-5 gap-y-[10px] rounded-xl border px-4 py-[11px]">
+          <div className="flex min-w-[200px] flex-1 items-center gap-[12px]">
+            <div className="text-[13px] whitespace-nowrap">
+              <span className="text-ink font-semibold">
+                {approvedCount} of {totalCount}
+              </span>{" "}
+              <span className="text-muted-2">approved</span>
+            </div>
+            <div className="h-[6px] min-w-[100px] flex-1 overflow-hidden rounded-md bg-[#EEF1F6]">
+              <div
+                className="h-full rounded-md bg-[#2E9E5B] transition-[width] duration-500 ease-out"
+                style={{ width: `${approvedPct}%` }}
+              />
+            </div>
           </div>
-          <div className="h-[6px] max-w-[340px] flex-1 overflow-hidden rounded-md bg-[#EEF1F6]">
-            <div
-              className="h-full rounded-md bg-[#2E9E5B] transition-[width] duration-500 ease-out"
-              style={{ width: `${approvedPct}%` }}
-            />
+
+          <div className="text-muted-2 flex items-center gap-[6px] text-[12.5px] whitespace-nowrap">
+            <span>Avg quality</span>
+            <span className="text-ink font-semibold">{avgQuality === null ? "—" : avgQuality}</span>
           </div>
-          <div className="text-muted-2 text-[12.5px]">
-            Each approval trains <span className="text-muted">{client.host}&apos;s</span> voice
-            engine
+
+          <div className="flex items-center gap-[8px] whitespace-nowrap">
+            <VoiceStrengthBars samples={samples} size="sm" />
+            <span
+              className="font-sans text-[12.5px] font-semibold"
+              style={{ color: voiceTextColor(samples) }}
+            >
+              {voiceLabel(samples)}
+            </span>
+            <span className="text-muted-2 text-[12px]">· {samples} samples</span>
+          </div>
+
+          <div className="text-muted-2 basis-full text-[11.5px] sm:basis-auto sm:border-l sm:border-[#E6EBF3] sm:pl-5">
+            Each approval trains{" "}
+            <span className="text-muted font-medium">{client.host}&apos;s</span> voice engine
           </div>
         </div>
 
@@ -672,6 +785,7 @@ export function OutputsView({
                 hostName={client.host}
                 state={o}
                 viewerRole={viewerRole}
+                readOnly={readOnly}
                 actions={{
                   onCopy: () => onCopy(o.key),
                   onEdit: () => onEdit(o.key),
@@ -750,72 +864,110 @@ export function OutputsView({
           <div className="text-subtle mt-3 text-[11.5px]">Last trained {episode.lastTrained}</div>
         </div>
 
-        {/* Voice by platform */}
-        <div className="border-border bg-surface mb-[18px] rounded-2xl border p-[18px]">
-          <div className="font-display text-ink text-[14px] font-semibold">Voice by platform</div>
-          <div className="text-muted-2 mt-1 mb-[14px] text-[12px]">
-            Each platform trains independently
-          </div>
-          <div className="flex flex-col gap-[13px]">
-            {platforms.map((p) => {
-              const n = platformSamples[p.key] ?? 0;
-              return (
-                <div key={p.key} className="flex items-center gap-[11px]">
-                  <PlatformBadge platform={p} size="sm" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[12.5px] font-medium text-[#39435A]">
-                      {p.name}
-                    </div>
-                  </div>
-                  <VoiceStrengthBars samples={n} size="sm" />
-                  <span
-                    className="w-[62px] text-right font-sans text-[11px] font-medium"
-                    style={{ color: voiceTextColor(n) }}
-                  >
-                    {voiceLabel(n)}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Output quality */}
+        {/* Per-platform card — merges the old "Voice by platform" + "Output
+            quality" cards into one tabbed panel. Both rendered the same
+            per-platform row shape (badge + label + horizontal bar); tabbing
+            them halves the rail's vertical footprint without losing data. */}
         <div className="border-border bg-surface rounded-2xl border p-[18px]">
-          <div className="font-display text-ink text-[14px] font-semibold">Output quality</div>
-          <div className="text-muted-2 mt-1 mb-[14px] text-[12px]">
-            This episode · avg{" "}
-            <span className="text-muted font-semibold">
-              {avgQuality === null ? "—" : avgQuality}
-            </span>
-          </div>
-          <div className="flex flex-col gap-3">
-            {railRows.map((r) => {
-              const qc = qualityColor(r.quality);
-              return (
-                <div key={r.key} className="flex items-center gap-[11px]">
-                  <PlatformBadge platform={r.platform} size="sm" />
-                  <div className="min-w-0 flex-1">
-                    <div className="mb-[5px] truncate text-[12.5px] font-medium text-[#39435A]">
-                      {r.platform.name}
-                    </div>
-                    <div className="h-[5px] overflow-hidden rounded-md bg-[#EEF1F6]">
-                      <div
-                        className="h-full rounded-md"
-                        style={{ width: `${r.quality}%`, background: qc }}
-                      />
-                    </div>
-                  </div>
-                  <span
-                    className="w-6 text-right font-sans text-[12.5px] font-semibold"
-                    style={{ color: qc }}
+          <div className="mb-[12px] flex items-center justify-between gap-3">
+            <div className="font-display text-ink text-[14px] font-semibold">Per platform</div>
+            <div
+              role="tablist"
+              aria-label="Per-platform metric"
+              className="flex items-center gap-[2px] rounded-[8px] bg-[#F1F4F9] p-[3px]"
+            >
+              {(["voice", "quality"] as const).map((tab) => {
+                const active = railTab === tab;
+                return (
+                  <button
+                    key={tab}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setRailTab(tab)}
+                    className="rounded-[6px] px-[10px] py-[4px] font-sans text-[11.5px] font-semibold capitalize transition-colors"
+                    style={
+                      active
+                        ? {
+                            background: "#fff",
+                            color: "#2A3550",
+                            boxShadow: "0 1px 2px rgba(26,42,74,.08)",
+                          }
+                        : { color: "#7A8496" }
+                    }
                   >
-                    {r.quality}
-                  </span>
-                </div>
-              );
-            })}
+                    {tab}
+                  </button>
+                );
+              })}
+            </div>
           </div>
+
+          <div className="text-muted-2 mb-[14px] text-[12px]">
+            {railTab === "voice" ? (
+              "Each platform trains independently"
+            ) : (
+              <>
+                This episode · avg{" "}
+                <span className="text-muted font-semibold">
+                  {avgQuality === null ? "—" : avgQuality}
+                </span>
+              </>
+            )}
+          </div>
+
+          {railTab === "voice" ? (
+            <div className="flex flex-col gap-[13px]">
+              {platforms.map((p) => {
+                const n = platformSamples[p.key] ?? 0;
+                return (
+                  <div key={p.key} className="flex items-center gap-[11px]">
+                    <PlatformBadge platform={p} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[12.5px] font-medium text-[#39435A]">
+                        {p.name}
+                      </div>
+                    </div>
+                    <VoiceStrengthBars samples={n} size="sm" />
+                    <span
+                      className="w-[62px] text-right font-sans text-[11px] font-medium"
+                      style={{ color: voiceTextColor(n) }}
+                    >
+                      {voiceLabel(n)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {railRows.map((r) => {
+                const qc = qualityColor(r.quality);
+                return (
+                  <div key={r.key} className="flex items-center gap-[11px]">
+                    <PlatformBadge platform={r.platform} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-[5px] truncate text-[12.5px] font-medium text-[#39435A]">
+                        {r.platform.name}
+                      </div>
+                      <div className="h-[5px] overflow-hidden rounded-md bg-[#EEF1F6]">
+                        <div
+                          className="h-full rounded-md"
+                          style={{ width: `${r.quality}%`, background: qc }}
+                        />
+                      </div>
+                    </div>
+                    <span
+                      className="w-6 text-right font-sans text-[12.5px] font-semibold"
+                      style={{ color: qc }}
+                    >
+                      {r.quality}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </aside>
     </div>
