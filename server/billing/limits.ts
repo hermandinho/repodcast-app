@@ -91,6 +91,32 @@ export async function getAgencyPlan(agencyId: string): Promise<Plan> {
 }
 
 /**
+ * Plan tier order. Used by `assertMinPlan` to decide whether the caller's
+ * plan clears a per-feature minimum. Higher rank = more privileged tier.
+ */
+const PLAN_RANK: Record<Plan, number> = {
+  STUDIO: 0,
+  AGENCY: 1,
+  NETWORK: 2,
+};
+
+/**
+ * Throw `ForbiddenError` if the caller's plan is below `minimum`. Used by
+ * plan-gated features (white-label branding, client portals, batch
+ * generation, priority queue) that live above the capacity meters.
+ *
+ * The message names the required plan so callers can surface an upgrade
+ * CTA without a second string in every action.
+ */
+export function assertMinPlan(plan: Plan, minimum: Plan): void {
+  if (PLAN_RANK[plan] < PLAN_RANK[minimum]) {
+    throw new ForbiddenError(
+      `Plan ${plan} doesn't include this feature. Upgrade to ${minimum} or higher.`,
+    );
+  }
+}
+
+/**
  * Shape used by the `<PlanLimitBanner>` UI — bundles plan + resource so the
  * banner can render its own copy without a second DB round-trip. Returns
  * null in sample-data mode (callers pass null through to the banner, which

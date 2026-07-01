@@ -3,6 +3,7 @@ import "server-only";
 import {
   EpisodeStatus,
   MemberRole,
+  Plan,
   Platform,
   type Prisma,
   TranscriptSource,
@@ -11,7 +12,7 @@ import {
 import { z } from "zod";
 import { NotFoundError } from "@/server/auth/errors";
 import { requireRole, type TenantContext } from "@/server/auth/tenant";
-import { assertPlanCapacity, getAgencyPlan } from "@/server/billing/limits";
+import { assertMinPlan, assertPlanCapacity, getAgencyPlan } from "@/server/billing/limits";
 import { prisma } from "./client";
 
 /** Default platform set used by batch-generate when an episode has no
@@ -382,11 +383,16 @@ export async function bulkGenerateEpisodes(
     return { dispatches: [], skippedNotEligible };
   }
 
+  // Batch generation is a Network-tier feature — Studio and Agency users
+  // fire episodes one at a time through the single-episode dispatch path.
+  // Gate here (not just the UI) so a hand-crafted request still bounces.
+  const plan = await getAgencyPlan(ctx.agencyId);
+  assertMinPlan(plan, Plan.NETWORK);
+
   // Plan capacity for the count of NEW episode generations the batch
   // implies. Re-generating a FAILED row is still a generation in cost
   // terms (the prior attempt's UsageLogs were already billed), so we
   // count every eligible episode against the cap.
-  const plan = await getAgencyPlan(ctx.agencyId);
   await assertPlanCapacity(ctx.agencyId, plan, "episodes");
 
   await prisma.episode.updateMany({

@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/server/db/client", () => ({ prisma: mocks.prisma }));
 
 import {
+  assertMinPlan,
   assertPlanCapacity,
   getAgencyPlan,
   loadCapacityForUI,
@@ -191,5 +192,66 @@ describe("loadCapacityForUI", () => {
       plan: Plan.AGENCY,
       resource: "shows",
     });
+  });
+});
+
+// ============================================================
+// assertMinPlan — per-feature plan gates
+// ============================================================
+
+describe("assertMinPlan", () => {
+  it("passes when the caller's plan matches the minimum", () => {
+    expect(() => assertMinPlan(Plan.STUDIO, Plan.STUDIO)).not.toThrow();
+    expect(() => assertMinPlan(Plan.AGENCY, Plan.AGENCY)).not.toThrow();
+    expect(() => assertMinPlan(Plan.NETWORK, Plan.NETWORK)).not.toThrow();
+  });
+
+  it("passes when the caller's plan is above the minimum", () => {
+    expect(() => assertMinPlan(Plan.AGENCY, Plan.STUDIO)).not.toThrow();
+    expect(() => assertMinPlan(Plan.NETWORK, Plan.STUDIO)).not.toThrow();
+    expect(() => assertMinPlan(Plan.NETWORK, Plan.AGENCY)).not.toThrow();
+  });
+
+  it("throws ForbiddenError when the caller's plan is below the minimum", () => {
+    expect(() => assertMinPlan(Plan.STUDIO, Plan.AGENCY)).toThrow(ForbiddenError);
+    expect(() => assertMinPlan(Plan.STUDIO, Plan.NETWORK)).toThrow(ForbiddenError);
+    expect(() => assertMinPlan(Plan.AGENCY, Plan.NETWORK)).toThrow(ForbiddenError);
+  });
+
+  it("message names the required plan so callers can surface an upgrade CTA", () => {
+    try {
+      assertMinPlan(Plan.STUDIO, Plan.AGENCY);
+      throw new Error("expected throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ForbiddenError);
+      const fe = err as ForbiddenError;
+      expect(fe.statusCode).toBe(403);
+      expect(fe.message).toContain("STUDIO");
+      expect(fe.message).toContain("AGENCY");
+    }
+  });
+
+  it("full 3×3 rank matrix matches the marketing tier order", () => {
+    // Studio(0) < Agency(1) < Network(2). Encoded once as truth table so
+    // a future flip in `PLAN_RANK` inside limits.ts trips this instead of
+    // silently reversing gate direction.
+    const cases: Array<{ caller: Plan; minimum: Plan; allowed: boolean }> = [
+      { caller: Plan.STUDIO, minimum: Plan.STUDIO, allowed: true },
+      { caller: Plan.STUDIO, minimum: Plan.AGENCY, allowed: false },
+      { caller: Plan.STUDIO, minimum: Plan.NETWORK, allowed: false },
+      { caller: Plan.AGENCY, minimum: Plan.STUDIO, allowed: true },
+      { caller: Plan.AGENCY, minimum: Plan.AGENCY, allowed: true },
+      { caller: Plan.AGENCY, minimum: Plan.NETWORK, allowed: false },
+      { caller: Plan.NETWORK, minimum: Plan.STUDIO, allowed: true },
+      { caller: Plan.NETWORK, minimum: Plan.AGENCY, allowed: true },
+      { caller: Plan.NETWORK, minimum: Plan.NETWORK, allowed: true },
+    ];
+    for (const { caller, minimum, allowed } of cases) {
+      if (allowed) {
+        expect(() => assertMinPlan(caller, minimum)).not.toThrow();
+      } else {
+        expect(() => assertMinPlan(caller, minimum)).toThrow(ForbiddenError);
+      }
+    }
   });
 });

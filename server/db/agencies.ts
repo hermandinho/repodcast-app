@@ -5,6 +5,7 @@ import { z } from "zod";
 import { NotFoundError } from "@/server/auth/errors";
 import { requireRole, type TenantContext } from "@/server/auth/tenant";
 import { SUPPORTED_CURRENCIES } from "@/lib/currencies";
+import { assertMinPlan, getAgencyPlan } from "@/server/billing/limits";
 import { sendWelcomeEmail } from "@/server/email/send";
 import { prisma } from "./client";
 
@@ -243,16 +244,20 @@ export async function updatePreferredCurrency(
 }
 
 /**
- * Phase 2.5 — agency white-label branding setter. OWNER/ADMIN only;
- * `updateMany` keeps the write tenant-scoped atomically. Empty values
- * are coerced to NULL by the Zod input so a "clear" gesture lands as a
- * real unset (UI falls back to Repodcast defaults on null).
+ * Phase 2.5 — agency white-label branding setter. OWNER/ADMIN only, and
+ * gated to Agency+ plans (Studio is the entry tier; white-label is one of
+ * the AGENCY-and-up differentiators). `updateMany` keeps the write
+ * tenant-scoped atomically. Empty values are coerced to NULL by the Zod
+ * input so a "clear" gesture lands as a real unset (UI falls back to
+ * Repodcast defaults on null).
  */
 export async function updateAgencyBranding(
   ctx: TenantContext,
   patch: UpdateAgencyBrandingInput,
 ): Promise<Agency> {
   requireRole(ctx, WRITE_ROLES);
+  const plan = await getAgencyPlan(ctx.agencyId);
+  assertMinPlan(plan, Plan.AGENCY);
   const { count } = await prisma.agency.updateMany({
     where: { id: ctx.agencyId },
     data: {

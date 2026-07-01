@@ -3,12 +3,14 @@ import "server-only";
 import {
   MemberRole,
   OutputStatus,
+  Plan,
   type ClientPortalLink,
   type GeneratedOutput,
 } from "@prisma/client";
 import { z } from "zod";
 import { NotFoundError } from "@/server/auth/errors";
 import { requireRole, type TenantContext } from "@/server/auth/tenant";
+import { assertMinPlan, getAgencyPlan } from "@/server/billing/limits";
 import { prisma } from "./client";
 
 /**
@@ -71,6 +73,11 @@ export async function createPortalLink(
   createdByMemberId: string,
 ): Promise<ClientPortalLink> {
   requireRole(ctx, WRITE_ROLES);
+  // Client portals are one of the Agency-tier differentiators — Studio agencies
+  // deliver via the branded export instead. Gate at the mint step; existing
+  // links keep working (the public read path doesn't re-check the plan).
+  const plan = await getAgencyPlan(ctx.agencyId);
+  assertMinPlan(plan, Plan.AGENCY);
   await assertClientInTenant(ctx, input.clientId);
   const expiresAt = new Date(Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000);
   return prisma.clientPortalLink.create({

@@ -138,7 +138,6 @@ const COMPARISON: ComparisonRow[] = [
   { section: "Output", label: "Formats per episode", values: ["7", "7", "7"] },
   { label: "Turnaround time", values: ["< 60s", "< 60s", "< 60s"] },
   { label: "Batch processing", values: ["—", "—", "✓"], emphasis: true },
-  { label: "Priority generation queue", values: ["—", "—", "✓"], emphasis: true },
 
   { section: "Team", label: "Client shows", values: ["3", "10", "25"] },
   { label: "Seats", values: ["2", "6", "Unlimited"] },
