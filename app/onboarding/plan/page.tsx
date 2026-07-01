@@ -1,6 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
-import { BillingCadence, Plan } from "@prisma/client";
 import { redirect } from "next/navigation";
+import { BillingCadence, Plan } from "@/lib/enums";
 import { PricingPicker } from "@/components/pricing/pricing-picker";
 import { asSupportedCurrency, DEFAULT_CURRENCY } from "@/lib/currencies";
 import { isLiveDb } from "@/server/data/source";

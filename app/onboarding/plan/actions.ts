@@ -1,6 +1,5 @@
 "use server";
 
-import { BillingCadence, Plan } from "@prisma/client";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -10,6 +9,7 @@ import {
   DEFAULT_CURRENCY,
   SUPPORTED_CURRENCIES,
 } from "@/lib/currencies";
+import { BillingCadence, Plan } from "@/lib/enums";
 import { requireAuthContext } from "@/server/auth/context";
 import { ValidationError } from "@/server/auth/errors";
 import { priceIdFor } from "@/server/billing/prices";

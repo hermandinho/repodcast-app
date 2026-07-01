@@ -1,10 +1,10 @@
 "use server";
 
 import { auth, currentUser } from "@clerk/nextjs/server";
-import { Plan } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { ValidationError } from "@/server/auth/errors";
+import { Plan } from "@/lib/enums";
 import { isLiveDb } from "@/server/data/source";
 import { createAgencyForUser, userHasAnyMembership } from "@/server/db/agencies";
 

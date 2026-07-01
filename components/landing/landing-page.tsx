@@ -978,7 +978,12 @@ function Pricing({ isSignedIn }: { isSignedIn: boolean }) {
           >
             All plans include
           </span>
-          {["7 output formats", "Per-client voice", "White-label", "Approval workflow"].map((t) => (
+          {[
+            "7 output formats",
+            "Per-client voice",
+            "Approval workflow",
+            "Role-based permissions",
+          ].map((t) => (
             <span
               key={t}
               className="rounded-md"
@@ -993,6 +998,24 @@ function Pricing({ isSignedIn }: { isSignedIn: boolean }) {
               {t}
             </span>
           ))}
+        </div>
+
+        <div className="mt-7 flex justify-center">
+          <Link
+            href="/pricing#compare"
+            className="inline-flex items-center gap-[7px] rounded-[9px] text-[14px] font-medium no-underline transition-colors"
+            style={{
+              background: "#FFFFFF",
+              color: "#1A2A4A",
+              padding: "11px 20px",
+              border: "1px solid #DDE2EC",
+            }}
+          >
+            View full plan comparison
+            <span aria-hidden style={{ color: "#3A5BA0" }}>
+              →
+            </span>
+          </Link>
         </div>
 
         {!isSignedIn && (

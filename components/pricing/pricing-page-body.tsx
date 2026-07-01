@@ -180,7 +180,8 @@ function ComparisonTable() {
 
   return (
     <section
-      className="px-7 py-[76px]"
+      id="compare"
+      className="scroll-mt-20 px-7 py-[76px]"
       style={{ background: "#FFFFFF", borderBottom: "1px solid #ECEEF3" }}
     >
       <div className="mx-auto" style={{ maxWidth: 1180 }}>

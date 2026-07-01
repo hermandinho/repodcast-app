@@ -2,8 +2,8 @@
 
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
-import { BillingCadence, Plan } from "@prisma/client";
 import { z } from "zod";
+import { BillingCadence, Plan } from "@/lib/enums";
 import { requireAuthContext } from "@/server/auth/context";
 import { ValidationError } from "@/server/auth/errors";
 import { assertRole } from "@/server/auth/context";
