@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { auth } from "@clerk/nextjs/server";
 import { LandingPage } from "@/components/landing/landing-page";
+import { getLandingTrustedBy } from "@/lib/landing-trusted-by";
 
 export const metadata: Metadata = {
   title: "Repodcast — Sounds exactly like you. Gets better every episode.",
@@ -19,6 +20,6 @@ export const metadata: Metadata = {
 };
 
 export default async function HomePage() {
-  const { userId } = await auth();
-  return <LandingPage isSignedIn={!!userId} />;
+  const [{ userId }, trustedBy] = await Promise.all([auth(), getLandingTrustedBy()]);
+  return <LandingPage isSignedIn={!!userId} trustedBy={trustedBy} />;
 }

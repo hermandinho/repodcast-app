@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PricingPicker } from "@/components/pricing/pricing-picker";
+import { DEFAULT_TRUSTED_BY, type LandingTrustedBy } from "@/lib/landing-trusted-by";
 import { ClientPicker } from "./client-picker";
 import { FAQAccordion } from "./faq-accordion";
 import { LandingFooter } from "./footer";
@@ -18,11 +19,22 @@ import { LandingNav } from "./nav";
  * its own palette and the inline-style pattern matches the dashboard's
  * defensive approach so a stale Tailwind cache can't break the visual.
  */
-export function LandingPage({ isSignedIn = false }: { isSignedIn?: boolean }) {
+export function LandingPage({
+  isSignedIn = false,
+  trustedBy = DEFAULT_TRUSTED_BY,
+}: {
+  isSignedIn?: boolean;
+  /**
+   * Managed from `/root/config` under the `LANDING_TRUSTED_BY` key. Server
+   * fetch + fallback lives in `lib/landing-trusted-by.ts`; the landing page
+   * itself just renders what it's given.
+   */
+  trustedBy?: LandingTrustedBy & { heading: string };
+}) {
   return (
     <div className="w-full overflow-x-hidden">
       <LandingNav isSignedIn={isSignedIn} />
-      <Hero isSignedIn={isSignedIn} />
+      <Hero isSignedIn={isSignedIn} trustedBy={trustedBy} />
       <Problem />
       <HowItWorks />
       <VoiceEngine />
@@ -42,7 +54,13 @@ export function LandingPage({ isSignedIn = false }: { isSignedIn?: boolean }) {
    Hero
    ============================================================ */
 
-function Hero({ isSignedIn }: { isSignedIn: boolean }) {
+function Hero({
+  isSignedIn,
+  trustedBy,
+}: {
+  isSignedIn: boolean;
+  trustedBy: LandingTrustedBy & { heading: string };
+}) {
   return (
     <section
       className="relative overflow-hidden"
@@ -156,40 +174,55 @@ function Hero({ isSignedIn }: { isSignedIn: boolean }) {
         <HeroProductPanel />
       </div>
 
-      {/* Logo strip */}
-      <div style={{ borderTop: "1px solid #ECEEF3" }}>
-        <div
-          className="mx-auto flex flex-wrap items-center gap-10 px-7 py-[22px]"
-          style={{ maxWidth: 1180 }}
-        >
-          <span
-            className="text-[11px] font-medium uppercase"
-            style={{
-              fontFamily: "var(--font-mono)",
-              color: "#A6AEBC",
-              letterSpacing: "0.1em",
-            }}
+      {/* Logo strip — admin sets `studios: []` in the LANDING_TRUSTED_BY
+          SystemConfig row to hide it entirely. */}
+      {trustedBy.studios.length > 0 && (
+        <div style={{ borderTop: "1px solid #ECEEF3" }}>
+          <div
+            className="mx-auto flex flex-wrap items-center gap-10 px-7 py-[22px]"
+            style={{ maxWidth: 1180 }}
           >
-            Trusted by growing studios
-          </span>
-          <div className="flex flex-wrap items-center gap-[34px]" style={{ opacity: 0.65 }}>
-            {["Northwind Audio", "Tightrope", "Frequency Lab", "Open Mic Co.", "Halftone"].map(
-              (n) => (
-                <span
-                  key={n}
-                  className="text-[15px] font-semibold"
-                  style={{
-                    fontFamily: "var(--font-display)",
-                    color: "#7E8799",
-                  }}
-                >
-                  {n}
-                </span>
-              ),
-            )}
+            <span
+              className="text-[11px] font-medium uppercase"
+              style={{
+                fontFamily: "var(--font-mono)",
+                color: "#A6AEBC",
+                letterSpacing: "0.1em",
+              }}
+            >
+              {trustedBy.heading}
+            </span>
+            <div className="flex flex-wrap items-center gap-[34px]" style={{ opacity: 0.65 }}>
+              {trustedBy.studios.map((s) => {
+                const label = (
+                  <span
+                    className="text-[15px] font-semibold"
+                    style={{
+                      fontFamily: "var(--font-display)",
+                      color: "#7E8799",
+                    }}
+                  >
+                    {s.name}
+                  </span>
+                );
+                return s.href ? (
+                  <Link
+                    key={s.name}
+                    href={s.href}
+                    className="no-underline"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {label}
+                  </Link>
+                ) : (
+                  <span key={s.name}>{label}</span>
+                );
+              })}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </section>
   );
 }
