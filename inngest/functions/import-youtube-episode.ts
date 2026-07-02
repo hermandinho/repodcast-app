@@ -1,26 +1,35 @@
 import { EpisodeStatus, TranscriptSource } from "@prisma/client";
 import { NonRetriableError } from "inngest";
 import { prisma } from "@/server/db/client";
-import { fetchYouTubeTranscript, YouTubeImportError } from "@/server/imports/youtube";
+import { putR2Object } from "@/server/storage/r2";
+import {
+  downloadYouTubeAudio,
+  fetchYouTubeMetadata,
+  fetchCaptionText,
+  MAX_DURATION_SEC,
+  parseYouTubeVideoId,
+  pickBestCaptionTrack,
+  YouTubeImportError,
+} from "@/server/imports/youtube";
 import type { Events } from "../events";
 import { inngest } from "../client";
 
 /**
- * Phase 3.2 — YouTube import pipeline.
+ * Phase 3.2 — YouTube import pipeline (yt-dlp-backed).
  *
- * The importer:
- *   1. Loads the Episode + validates it's source=YOUTUBE and doesn't
- *      already have a transcript.
- *   2. Flips to PROCESSING so the UI shows the pipeline stepper.
- *   3. Parses the URL, fetches the captions, picks the best track, and
- *      persists the transcript onto the Episode.
- *   4. Fires `episode/generate.requested` so the rest of the pipeline
- *      runs unchanged.
+ * Two-stage:
+ *   1. Transcript-first — yt-dlp pulls captions (manual > auto, English
+ *      preferred). If we get ≥ MIN_TRANSCRIPT_CHARS of prose, we persist
+ *      it and fire `episode/generate.requested`.
+ *   2. Audio-fallback — no captions (or too short). yt-dlp downloads
+ *      the audio-only stream, we upload to R2, then hand off to
+ *      `episode/transcribe.requested` (Deepgram). Mirrors the RSS
+ *      audio-fallback path so the downstream pipeline is identical.
  *
- * No audio-download fallback in v1 (see `server/imports/youtube.ts`
- * header for the reasoning). When a video has no captions, we surface
- * that as a `no_captions` failure with actionable copy so the episode
- * page can nudge the user to enable auto-captions or upload a transcript.
+ * onFailure flips the Episode to FAILED with actionable copy on the
+ * `failureReason` column so the episode page can render a banner.
+ * `NonRetriableError` codes (invalid_url / not_found / no_audio /
+ * too_long / parse_failed) skip Inngest's retry budget.
  */
 
 const MIN_TRANSCRIPT_CHARS = 500;
@@ -31,10 +40,14 @@ function truncateReason(message: string): string {
   return trimmed.length > 500 ? `${trimmed.slice(0, 497)}...` : trimmed;
 }
 
-/** These import failures are terminal from the user's POV — retries don't
- *  help until the underlying situation changes (they turn captions on,
- *  fix the URL, unblock the video, etc.). */
-const NON_RETRYABLE_CODES = new Set(["invalid_url", "not_found", "no_captions", "parse_failed"]);
+/** These YouTubeImportError codes are terminal from the user's POV. */
+const NON_RETRYABLE_YT_CODES = new Set([
+  "invalid_url",
+  "not_found",
+  "no_audio",
+  "parse_failed",
+  "too_long",
+]);
 
 export const importYoutubeEpisode = inngest.createFunction(
   {
@@ -70,6 +83,8 @@ export const importYoutubeEpisode = inngest.createFunction(
         id: true,
         source: true,
         transcript: true,
+        showId: true,
+        show: { select: { client: { select: { agencyId: true } } } },
       },
     });
     if (!episode) {
@@ -81,73 +96,160 @@ export const importYoutubeEpisode = inngest.createFunction(
       );
     }
     if (episode.transcript.trim().length >= MIN_TRANSCRIPT_CHARS) {
-      // Idempotent re-fire — transcript already filled. Skip straight to
-      // generate so the dispatcher's retry still wakes up the pipeline.
+      // Idempotent re-fire — transcript already filled. Skip to generate.
       await step.sendEvent("emit-generate", {
         name: "episode/generate.requested",
         data: { episodeId, platforms },
       });
       return { episodeId, skipped: true };
     }
+    const agencyId = episode.show.client.agencyId;
 
-    // ---- 2. Status → PROCESSING ----
-    await step.run("mark-processing", () =>
-      prisma.episode.update({
-        where: { id: episodeId },
-        data: { status: EpisodeStatus.PROCESSING },
-      }),
-    );
-
-    // ---- 3. Fetch captions ----
-    // Deliberately runs OUTSIDE step.run — we don't want the ISO-string-
-    // through-JSON round-trip Inngest does to `step.run` return values,
-    // and the whole thing is idempotent anyway (re-fetching captions is
-    // cheap and lands the same text).
-    let result: Awaited<ReturnType<typeof fetchYouTubeTranscript>>;
-    try {
-      result = await fetchYouTubeTranscript(videoUrl);
-    } catch (err) {
-      if (err instanceof YouTubeImportError && NON_RETRYABLE_CODES.has(err.code)) {
-        // Rewrap as NonRetriable so Inngest doesn't burn its budget on a
-        // failure that won't fix itself.
-        throw new NonRetriableError(err.message);
-      }
-      throw err;
-    }
-
-    if (result.transcript.trim().length < MIN_TRANSCRIPT_CHARS) {
+    // ---- 2. Parse URL + fetch metadata ----
+    const videoId = parseYouTubeVideoId(videoUrl);
+    if (!videoId) {
       throw new NonRetriableError(
-        `YouTube captions were too short (${result.transcript.trim().length} chars) — Claude needs at least ${MIN_TRANSCRIPT_CHARS} to generate outputs. Try a longer video, or upload a manual transcript.`,
+        `Couldn't parse a YouTube video id from ${videoUrl}. Paste a watch, youtu.be, embed, or shorts URL.`,
       );
     }
 
-    // ---- 4. Persist transcript + optional external URL ----
-    await step.run("persist-transcript", () =>
+    // ---- 3. Status → PROCESSING ----
+    await step.run("mark-processing", () =>
       prisma.episode.update({
         where: { id: episodeId },
         data: {
-          transcript: result.transcript,
-          // `externalUrl` didn't exist yet on the row when the wizard
-          // created the episode (source=YOUTUBE + audioUrl=null path).
-          // Stash the canonical youtube.com URL so the episode page can
-          // show a "watch source" link.
-          externalUrl: `https://www.youtube.com/watch?v=${result.videoId}`,
+          status: EpisodeStatus.PROCESSING,
+          // Overwrite externalUrl with the canonical watch URL — the
+          // wizard put the raw user paste here; we prefer the yt-dlp-
+          // parsed canonical form so the episode page's "watch source"
+          // link always works.
+          externalUrl: `https://www.youtube.com/watch?v=${videoId}`,
         },
       }),
     );
 
-    // ---- 5. Hand off to the generation pipeline ----
-    await step.sendEvent("emit-generate", {
-      name: "episode/generate.requested",
+    let metadata;
+    try {
+      metadata = await fetchYouTubeMetadata(videoId);
+    } catch (err) {
+      throw rewrapYouTubeError(err);
+    }
+    if (metadata.durationSec !== null && metadata.durationSec > MAX_DURATION_SEC) {
+      const hours = Math.round(metadata.durationSec / 3600);
+      throw new NonRetriableError(
+        `Video is ${hours}h long — beyond the ${MAX_DURATION_SEC / 3600}h import cap. Try RSS or paste a manual transcript.`,
+      );
+    }
+
+    // ---- 4a. Transcript-first path ----
+    const track = pickBestCaptionTrack(metadata.captionLanguages, metadata.autoCaptionLanguages);
+    if (track) {
+      let transcript = "";
+      try {
+        transcript = await fetchCaptionText(videoId, track);
+      } catch (err) {
+        // Downgrade caption fetch failures to a soft signal — we'll
+        // still try the audio-fallback path below rather than fail
+        // outright. Log the reason for debugging.
+        console.warn(
+          `[import-youtube-episode] caption fetch failed for ${videoId}, falling through to audio: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+
+      if (transcript.trim().length >= MIN_TRANSCRIPT_CHARS) {
+        await step.run("persist-transcript", () =>
+          prisma.episode.update({
+            where: { id: episodeId },
+            data: {
+              transcript,
+              durationSec: metadata.durationSec ?? undefined,
+              // If the wizard didn't get a title from the user, use YouTube's.
+              // Skip empty rewrites so we don't clobber a real title.
+              ...(metadata.title ? { title: metadata.title } : {}),
+            },
+          }),
+        );
+        await step.sendEvent("emit-generate", {
+          name: "episode/generate.requested",
+          data: { episodeId, platforms },
+        });
+        return {
+          episodeId,
+          via: "captions" as const,
+          transcriptChars: transcript.length,
+          trackLanguage: track.languageCode,
+          trackAuto: track.isGenerated,
+        };
+      }
+      // Fall through to audio-fallback below.
+    }
+
+    // ---- 4b. Audio-fallback path ----
+    const audioKey = await step.run("download-audio-to-r2", async () => {
+      let audio;
+      try {
+        audio = await downloadYouTubeAudio(videoId);
+      } catch (err) {
+        throw rewrapYouTubeError(err);
+      }
+      const key = `audio/${agencyId}/${episode.showId}/${episodeId}.${extForContentType(audio.contentType)}`;
+      await putR2Object(key, audio.buffer, audio.contentType);
+      return key;
+    });
+
+    await step.run("persist-audio-key", () =>
+      prisma.episode.update({
+        where: { id: episodeId },
+        data: {
+          audioUrl: audioKey,
+          durationSec: metadata.durationSec ?? undefined,
+          ...(metadata.title ? { title: metadata.title } : {}),
+        },
+      }),
+    );
+
+    // Hand off to the existing audio pipeline. `transcribe-episode` accepts
+    // YOUTUBE as a valid source (alongside UPLOAD + RSS), so the
+    // Episode.source stays YOUTUBE — no source-flip like the earlier RSS
+    // bug we squashed.
+    await step.sendEvent("emit-transcribe", {
+      name: "episode/transcribe.requested",
       data: { episodeId, platforms },
     });
 
     return {
       episodeId,
-      transcriptChars: result.transcript.length,
-      videoId: result.videoId,
-      trackLanguage: result.track.languageCode,
-      trackAuto: result.track.isGenerated,
+      via: "audio-fallback" as const,
+      audioKey,
     };
   },
 );
+
+/**
+ * Turn a YouTubeImportError into a NonRetriableError when the code is
+ * terminal (user-fault, permanent, or bounded by our own limits). Other
+ * errors bubble up so Inngest's retry budget picks them up.
+ */
+function rewrapYouTubeError(err: unknown): Error {
+  if (err instanceof YouTubeImportError && NON_RETRYABLE_YT_CODES.has(err.code)) {
+    return new NonRetriableError(err.message);
+  }
+  return err instanceof Error ? err : new Error(String(err));
+}
+
+function extForContentType(ct: string): string {
+  switch (ct) {
+    case "audio/mp4":
+      return "m4a";
+    case "audio/webm":
+      return "webm";
+    case "audio/ogg":
+      return "opus";
+    case "audio/mpeg":
+      return "mp3";
+    default:
+      return "bin";
+  }
+}

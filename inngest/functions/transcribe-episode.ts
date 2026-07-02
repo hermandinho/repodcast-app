@@ -10,13 +10,15 @@ import { inngest } from "../client";
  * Phase 2.7 — audio → transcript pipeline.
  *
  * Inputs: an Episode row with `audioUrl` holding the R2 object key (NOT
- * a URL — we sign one on demand). Source is either UPLOAD (direct
- * upload flow) or RSS (audio-fallback path from `import-rss-episode`
- * when the publisher didn't ship a transcript).
+ * a URL — we sign one on demand). Source is UPLOAD (direct upload),
+ * RSS (audio-fallback path from `import-rss-episode` when the publisher
+ * didn't ship a transcript), or YOUTUBE (audio-fallback path from
+ * `import-youtube-episode` when the video didn't have usable captions).
  *
  * Steps:
- *   1. Load + validate (source must be UPLOAD or RSS, audioUrl must be
- *      set, transcript must be empty so reruns don't clobber edits).
+ *   1. Load + validate (source must be UPLOAD / RSS / YOUTUBE, audioUrl
+ *      must be set, transcript must be empty so reruns don't clobber
+ *      edits).
  *   2. Flip Episode → PROCESSING so the UI knows work is happening.
  *   3. Sign a 30-minute R2 GET URL — Deepgram fetches the audio itself.
  *   4. POST to Deepgram; persist the resulting transcript onto Episode.
@@ -59,9 +61,13 @@ export const transcribeEpisode = inngest.createFunction(
     if (!episode) {
       throw new NonRetriableError(`Episode ${episodeId} not found`);
     }
-    if (episode.source !== TranscriptSource.UPLOAD && episode.source !== TranscriptSource.RSS) {
+    if (
+      episode.source !== TranscriptSource.UPLOAD &&
+      episode.source !== TranscriptSource.RSS &&
+      episode.source !== TranscriptSource.YOUTUBE
+    ) {
       throw new NonRetriableError(
-        `Episode ${episodeId} source is ${episode.source}, not UPLOAD or RSS — refusing to transcribe`,
+        `Episode ${episodeId} source is ${episode.source}, not UPLOAD/RSS/YOUTUBE — refusing to transcribe`,
       );
     }
     if (!episode.audioUrl) {

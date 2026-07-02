@@ -783,8 +783,24 @@ Three forward-only steps: **Workspace → Teammates → First client**. The trai
 
 ## 3.2 YouTube import
 
-- [x] **YouTube caption import** — landed. Transcript-first pipeline mirrors the RSS import: `episode/youtube.import.requested` fires from the wizard's server action, `inngest/functions/import-youtube-episode.ts` fetches the video page, extracts the embedded `ytInitialPlayerResponse`, walks `captions.playerCaptionsTracklistRenderer.captionTracks`, picks the best track (manual English → any manual → auto English → any auto), fetches the timedtext XML, parses `<text>` nodes into a flat transcript, persists it onto the Episode, and emits `episode/generate.requested`. No audio-download fallback — YouTube fights the tools that scrape audio streams, so a missing-captions video fails cleanly with actionable copy ("turn captions on in YouTube Studio and retry") instead of a brittle scrape. Non-retryable failure codes (`invalid_url`, `not_found`, `no_captions`, `parse_failed`) skip Inngest's retry budget; network/5xx errors retry up to 3×. 28 tests cover URL parsing (watch / youtu.be / embed / shorts / bare id / no-scheme / rejects), caption XML parsing (entity decoding, whitespace collapse, empty inputs, attribute order variants), track selection preferences, and the `YouTubeImportError` shape. Wizard step 2 gates on a plausible-URL client-side check; the pipeline stepper's YouTube path is `[import, generate]` (no transcribe step). External URL persisted onto `Episode.externalUrl` so the episode page can link back to the source video.
-- [ ] **Audio-fallback follow-up** — deferred to Phase 4. When Buffer/YouTube-caption miss rate hurts enough, wire a caption-less fallback via `youtubei.js` or `ytdl-core`, with a big warning about fragility.
+- [x] **YouTube import via yt-dlp** — landed. `episode/youtube.import.requested` fires from the wizard's server action; `inngest/functions/import-youtube-episode.ts` runs a two-stage pipeline:
+  1. **Transcript-first** — `yt-dlp --dump-single-json` pulls video metadata (title, duration, caption inventory), then `yt-dlp --write-subs / --write-auto-subs --sub-format=vtt/srv3/best -o -` fetches the winning caption track (manual English → any manual → auto English → any auto) and streams the VTT to stdout. `parseCaptionVtt` collapses cues into a flat transcript, strips `<c>` progressive-highlight tags, and de-dupes YouTube's double-emission pattern. If we get ≥ 500 chars, persist + emit `episode/generate.requested`.
+  2. **Audio-fallback** — no usable captions, or the transcript came out too short. `yt-dlp -f "bestaudio[ext=m4a]/bestaudio" -o -` streams the audio-only container (m4a / webm / opus / mp3 — sniffed from magic bytes) to a Buffer, uploads to R2 at `audio/<agencyId>/<showId>/<episodeId>.<ext>`, then fires `episode/transcribe.requested`. `transcribe-episode` now accepts YOUTUBE alongside UPLOAD + RSS.
+
+  Why yt-dlp: the previous HTML-scrape approach broke every few months as YouTube shipped player-response schema changes. yt-dlp is maintained weekly by a large community and handles anti-scraping evolutions, age-gated videos, region blocks, and live streams.
+
+  **Failure codes** (`YouTubeImportError.code`):
+  - `invalid_url` / `not_found` / `no_audio` / `parse_failed` / `too_long` → `NonRetriableError` (skips Inngest's retry budget).
+  - `no_captions` triggers the audio-fallback branch rather than failing.
+  - `fetch_failed` retries up to 3× (network / 5xx / rate limit).
+
+  **Limits**: 4-hour duration cap (Vercel Pro's 300s timeout is comfortable for typical podcasts; longer videos fail with a pointer to RSS or manual transcript). 500MB audio ceiling. No ffmpeg dep — we always request a pre-existing audio-only container so yt-dlp never merges streams.
+
+  **Deploy on Vercel**: `next.config.ts#outputFileTracingIncludes` force-includes `node_modules/yt-dlp-exec/bin/**` in the `/api/inngest` bundle so the binary ships with the deployment. Local dev picks up the same `yt-dlp-exec`-shipped binary (Windows/Linux/macOS resolved at install time).
+
+  31 tests cover URL parsing (watch / youtu.be / embed / shorts / bare id / rejects), VTT parsing (numeric-cue stripping, timing-tag removal, double-emission de-dupe, whitespace collapse, empty-body handling), track selection preferences across manual/auto splits, and the `YouTubeImportError` shape. Wizard step 2 client-side gates on plausible-URL check; the pipeline stepper's YouTube path is `[import, transcribe, generate]` — the transcribe step marks done instantly on the caption-only exit.
+
+- [ ] **Bandwidth cost tracking** — audio-fallback pulls MB of YouTube data per import. Not billed to the user in v1; if this becomes material, wire it through `UsageLog` alongside AI spend.
 
 ## 3.3 Scheduling
 

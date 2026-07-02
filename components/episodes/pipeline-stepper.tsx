@@ -17,8 +17,11 @@ const ALL_STEPS: Record<PipelineStep, StepDef> = {
 
 const SOURCE_STEPS: Record<"RSS" | "YOUTUBE" | "UPLOAD" | "PASTE", PipelineStep[]> = {
   RSS: ["import", "transcribe", "generate"],
-  // YouTube v1 is transcript-only — no audio download / Deepgram step.
-  YOUTUBE: ["import", "generate"],
+  // YouTube can end after import (captions win) or continue through
+  // transcribe (audio fallback via Deepgram). We show the full three-step
+  // path so users see both possibilities upfront — the middle step gets
+  // marked "done" instantly on the transcript-first exit.
+  YOUTUBE: ["import", "transcribe", "generate"],
   UPLOAD: ["transcribe", "generate"],
   PASTE: ["generate"],
 };

@@ -1,79 +1,92 @@
 import "server-only";
 
+import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
+
 /**
- * Phase 3.2 — YouTube caption import.
+ * Phase 3.2 — YouTube import via yt-dlp.
  *
- * Strategy: no third-party dep. We fetch the video's public watch page,
- * extract the embedded `ytInitialPlayerResponse` JSON blob, pull the list
- * of caption tracks (`playerCaptionsTracklistRenderer.captionTracks`),
- * and fetch the winning track's `baseUrl` for its timedtext XML.
+ * Two paths, tried in order:
+ *   1. Transcript path — pull the auto or manual captions via
+ *      `yt-dlp --write-subs --write-auto-subs --skip-download --sub-format=vtt`.
+ *      Fast (a few seconds), no bandwidth cost.
+ *   2. Audio-fallback path — download the audio-only stream via
+ *      `yt-dlp -f "bestaudio[ext=m4a]/bestaudio" -o - URL`, buffer it in
+ *      memory, and hand off to the caller (who uploads to R2 + fires
+ *      Deepgram). No ffmpeg needed — we always request a pre-existing
+ *      audio-only stream, never a merged output.
  *
- * Track preference order:
- *   1. Manually uploaded English (best signal — publisher-curated).
- *   2. Manually uploaded, any language.
- *   3. Auto-generated English.
- *   4. Any auto-generated track.
+ * Why yt-dlp and not the HTML scrape the previous version used: YouTube
+ * ships player-response schema changes every few months and quietly
+ * breaks HTML-parsing implementations. yt-dlp is maintained weekly by
+ * a large community and handles every anti-scraping evolution (client
+ * hint headers, decipher signatures, live streams, age-gated content).
  *
- * Failure modes surface as `YouTubeImportError` with a machine-readable
- * `code`:
- *   - "invalid_url"      — couldn't extract a video id from the input.
- *   - "not_found"        — video page 404s (removed, private, region-blocked).
- *   - "no_captions"      — video exists but has no caption tracks. Actionable:
- *                          "turn on captions in YouTube Studio and retry".
- *   - "fetch_failed"     — network / 5xx / rate limit fetching the page or
- *                          caption baseUrl. Retryable.
- *   - "parse_failed"     — YouTube shipped a schema change we don't
- *                          understand. Non-retryable; we ship a fix instead.
- *
- * We deliberately avoid audio-fallback in v1: extracting audio from
- * YouTube requires scraping stream URLs, which YouTube actively fights.
- * That's a fragile path we'd rather not put on the hot path.
+ * `YouTubeImportError` codes:
+ *   - "invalid_url"      — video id parse failed.
+ *   - "not_found"        — video removed / private / region-blocked.
+ *   - "no_captions"      — captions absent (caller falls back to audio).
+ *   - "no_audio"         — no downloadable audio stream (deleted or
+ *                          protected by DRM).
+ *   - "fetch_failed"     — yt-dlp crashed or errored on a retryable
+ *                          reason (network, rate limit). Retryable.
+ *   - "parse_failed"     — captions returned but the VTT wasn't
+ *                          parseable. Non-retryable.
+ *   - "too_long"         — video exceeds `MAX_DURATION_SEC`. Non-retryable.
  */
 
-const YT_WATCH_URL_BASE = "https://www.youtube.com/watch?v=";
-const FETCH_TIMEOUT_MS = 15_000;
+// Resolve the binary path at runtime via the package's own constants
+// export — it handles Windows/Linux differences for us. Using
+// `createRequire` avoids a `require` at the module top level, which the
+// project's ESLint config would flag.
+const require_ = createRequire(import.meta.url);
+const YT_DLP_PATH: string = (require_("yt-dlp-exec/src/constants") as { YOUTUBE_DL_PATH: string })
+  .YOUTUBE_DL_PATH;
 
-/** Chrome UA — using a bot-shaped UA gets YouTube to return a stripped
- * page without the player response we need. */
-const FETCH_UA =
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const SPAWN_TIMEOUT_MS = 60_000;
+const AUDIO_SPAWN_TIMEOUT_MS = 240_000; // 4 min — audio downloads are the long tail.
+const MAX_AUDIO_BYTES = 500 * 1024 * 1024;
+/** Cap video length at 4 hours — anything longer risks Vercel's 5-min timeout
+ *  even for a fast CDN and hurts Deepgram cost too. Users get a clean error
+ *  pointing them at an RSS or manual-transcript workaround. */
+const MAX_DURATION_SEC = 4 * 60 * 60;
 
 export type YouTubeImportErrorCode =
-  "invalid_url" | "not_found" | "no_captions" | "fetch_failed" | "parse_failed";
+  | "invalid_url"
+  | "not_found"
+  | "no_captions"
+  | "no_audio"
+  | "fetch_failed"
+  | "parse_failed"
+  | "too_long";
 
 export class YouTubeImportError extends Error {
   readonly code: YouTubeImportErrorCode;
-  readonly status?: number;
-  constructor(code: YouTubeImportErrorCode, message: string, status?: number) {
+  readonly stderr?: string;
+  constructor(code: YouTubeImportErrorCode, message: string, stderr?: string) {
     super(message);
     this.name = "YouTubeImportError";
     this.code = code;
-    this.status = status;
+    this.stderr = stderr;
   }
 }
 
+// ============================================================
+// URL parsing (unchanged from the scrape era — pure, still relevant)
+// ============================================================
+
 /**
  * Extract the YouTube video id from any of the common URL shapes users
- * paste:
- *   https://www.youtube.com/watch?v=abc123
- *   https://youtube.com/watch?v=abc123&list=xyz
- *   https://youtu.be/abc123
- *   https://youtu.be/abc123?si=tracking
- *   https://www.youtube.com/embed/abc123
- *   https://www.youtube.com/shorts/abc123
- *   https://m.youtube.com/watch?v=abc123
- *   Bare id: abc123 (11 chars, base64url)
+ * paste. Duplicated in the wizard (`isPlausibleYouTubeUrl`) for
+ * client-side gating; keep the two in sync when new shapes emerge.
  */
 export function parseYouTubeVideoId(input: string): string | null {
   const trimmed = input.trim();
   if (trimmed.length === 0) return null;
-
-  // Bare video id — 11 chars, base64url alphabet.
   if (/^[A-Za-z0-9_-]{11}$/.test(trimmed)) return trimmed;
 
   let url: URL;
   try {
-    // Prepend https:// so `youtu.be/xyz` parses (rare but happens).
     const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
     url = new URL(withScheme);
   } catch {
@@ -85,253 +98,428 @@ export function parseYouTubeVideoId(input: string): string | null {
   const searchV = url.searchParams.get("v");
 
   if (host === "youtu.be") {
-    // youtu.be/<id>
     const seg = path.replace(/^\//, "").split("/")[0];
     if (seg && /^[A-Za-z0-9_-]{11}$/.test(seg)) return seg;
     return null;
   }
   if (host === "youtube.com" || host === "music.youtube.com") {
     if (searchV && /^[A-Za-z0-9_-]{11}$/.test(searchV)) return searchV;
-    // /embed/<id> or /shorts/<id> or /live/<id>
     const embedMatch = path.match(/^\/(?:embed|shorts|live|v)\/([A-Za-z0-9_-]{11})/);
     if (embedMatch) return embedMatch[1]!;
   }
   return null;
 }
 
-export type YouTubeCaptionTrack = {
-  /** Language code (e.g. "en", "es") from YouTube. */
-  languageCode: string;
-  /** Human-readable name YouTube returns. */
-  name: string;
-  /** True when this track is auto-generated ASR, not publisher-provided. */
-  isGenerated: boolean;
-  /** Full URL to fetch the timedtext XML for this track. */
-  baseUrl: string;
-};
+// ============================================================
+// yt-dlp subprocess helpers
+// ============================================================
 
-async function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    return await fetch(url, {
-      ...init,
-      headers: {
-        "User-Agent": FETCH_UA,
-        "Accept-Language": "en-US,en;q=0.9",
-        ...(init.headers ?? {}),
-      },
-      signal: controller.signal,
+type YtDlpTextResult = { stdout: string; stderr: string; code: number };
+type YtDlpBinaryResult = { stdout: Buffer; stderr: string; code: number };
+
+async function ytDlpText(args: string[], timeoutMs = SPAWN_TIMEOUT_MS): Promise<YtDlpTextResult> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(YT_DLP_PATH, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    const timer = setTimeout(() => {
+      proc.kill("SIGKILL");
+      reject(new YouTubeImportError("fetch_failed", `yt-dlp timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    proc.stdout.on("data", (chunk) => stdout.push(Buffer.from(chunk)));
+    proc.stderr.on("data", (chunk) => stderr.push(Buffer.from(chunk)));
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      // ENOENT means the binary is missing — happens on Vercel if the
+      // outputFileTracingIncludes didn't pick it up.
+      reject(
+        new YouTubeImportError(
+          "fetch_failed",
+          `Couldn't spawn yt-dlp at ${YT_DLP_PATH}: ${err.message}`,
+        ),
+      );
     });
-  } finally {
-    clearTimeout(timer);
-  }
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({
+        stdout: Buffer.concat(stdout).toString("utf8"),
+        stderr: Buffer.concat(stderr).toString("utf8"),
+        code: code ?? -1,
+      });
+    });
+  });
+}
+
+async function ytDlpBinary(
+  args: string[],
+  { timeoutMs = AUDIO_SPAWN_TIMEOUT_MS, maxBytes = MAX_AUDIO_BYTES } = {},
+): Promise<YtDlpBinaryResult> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(YT_DLP_PATH, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    let byteCount = 0;
+    const timer = setTimeout(() => {
+      proc.kill("SIGKILL");
+      reject(new YouTubeImportError("fetch_failed", `yt-dlp timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    proc.stdout.on("data", (chunk: Buffer) => {
+      byteCount += chunk.byteLength;
+      if (byteCount > maxBytes) {
+        proc.kill("SIGKILL");
+        clearTimeout(timer);
+        reject(
+          new YouTubeImportError(
+            "fetch_failed",
+            `Audio stream exceeds ${maxBytes} bytes — refusing to buffer further.`,
+          ),
+        );
+        return;
+      }
+      stdoutChunks.push(chunk);
+    });
+    proc.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      reject(
+        new YouTubeImportError(
+          "fetch_failed",
+          `Couldn't spawn yt-dlp at ${YT_DLP_PATH}: ${err.message}`,
+        ),
+      );
+    });
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({
+        stdout: Buffer.concat(stdoutChunks),
+        stderr: Buffer.concat(stderrChunks).toString("utf8"),
+        code: code ?? -1,
+      });
+    });
+  });
 }
 
 /**
- * Extract the JSON payload YouTube embeds as
- * `ytInitialPlayerResponse = { ... };` inside the watch page HTML. The
- * pattern has been stable for years but we defensively try two shapes.
+ * Map yt-dlp's stderr fragments to structured error codes. yt-dlp's
+ * error prose is stable enough to substring-match, and its exit code
+ * alone doesn't distinguish "video removed" from "captions missing" —
+ * both surface as code 1.
  */
-function extractPlayerResponse(html: string): unknown {
-  // Shape 1: `var ytInitialPlayerResponse = {...};` (older pages).
-  const m1 = html.match(/var\s+ytInitialPlayerResponse\s*=\s*(\{[\s\S]*?\});/);
-  if (m1) {
-    try {
-      return JSON.parse(m1[1]!);
-    } catch {
-      // fall through
-    }
+function classifyYtDlpError(stderr: string): YouTubeImportErrorCode {
+  const lower = stderr.toLowerCase();
+  if (
+    lower.includes("video unavailable") ||
+    lower.includes("private video") ||
+    lower.includes("has been removed") ||
+    lower.includes("not available in your country")
+  ) {
+    return "not_found";
   }
-  // Shape 2: `ytInitialPlayerResponse":<json>,"` (embedded in ytcfg blob).
-  const m2 = html.match(/"ytInitialPlayerResponse"\s*:\s*(\{.+?\})\s*,\s*"ytcfg/);
-  if (m2) {
-    try {
-      return JSON.parse(m2[1]!);
-    } catch {
-      // fall through
-    }
+  if (
+    lower.includes("no subtitles") ||
+    lower.includes("no automatic captions") ||
+    lower.includes("there are no subtitles")
+  ) {
+    return "no_captions";
+  }
+  if (lower.includes("requested format is not available")) {
+    return "no_audio";
+  }
+  return "fetch_failed";
+}
+
+// ============================================================
+// Video metadata + duration guard
+// ============================================================
+
+export type VideoMetadata = {
+  id: string;
+  title: string | null;
+  durationSec: number | null;
+  uploader: string | null;
+  captionLanguages: readonly string[];
+  autoCaptionLanguages: readonly string[];
+};
+
+/**
+ * `yt-dlp --dump-json --no-download` returns everything about a video
+ * without touching the actual media stream. We pull it before any real
+ * work so we can (a) enforce `MAX_DURATION_SEC` up front and (b) know
+ * up-front whether captions exist so the transcript-first path doesn't
+ * have to guess.
+ */
+export async function fetchYouTubeMetadata(videoId: string): Promise<VideoMetadata> {
+  const args = [
+    "--dump-single-json",
+    "--no-warnings",
+    "--no-playlist",
+    "--skip-download",
+    `https://www.youtube.com/watch?v=${videoId}`,
+  ];
+  const result = await ytDlpText(args);
+  if (result.code !== 0) {
+    throw new YouTubeImportError(
+      classifyYtDlpError(result.stderr),
+      `yt-dlp metadata fetch failed (code ${result.code}): ${result.stderr.slice(0, 300)}`,
+      result.stderr,
+    );
+  }
+  let json: {
+    id: string;
+    title?: string;
+    duration?: number;
+    uploader?: string;
+    subtitles?: Record<string, unknown>;
+    automatic_captions?: Record<string, unknown>;
+  };
+  try {
+    json = JSON.parse(result.stdout);
+  } catch {
+    throw new YouTubeImportError(
+      "parse_failed",
+      `yt-dlp returned non-JSON metadata: ${result.stdout.slice(0, 200)}`,
+      result.stderr,
+    );
+  }
+  return {
+    id: json.id,
+    title: json.title ?? null,
+    durationSec: typeof json.duration === "number" ? Math.round(json.duration) : null,
+    uploader: json.uploader ?? null,
+    captionLanguages: json.subtitles ? Object.keys(json.subtitles) : [],
+    autoCaptionLanguages: json.automatic_captions ? Object.keys(json.automatic_captions) : [],
+  };
+}
+
+// ============================================================
+// Caption path
+// ============================================================
+
+export type YouTubeCaptionTrack = {
+  languageCode: string;
+  name: string;
+  isGenerated: boolean;
+};
+
+/**
+ * Combine the metadata's manual + auto caption lists into a preference
+ * ladder that matches what the old HTML scraper picked. Exported for
+ * tests + so callers can log which track won.
+ */
+export function pickBestCaptionTrack(
+  manual: readonly string[],
+  auto: readonly string[],
+): YouTubeCaptionTrack | null {
+  // Manual English first.
+  const manualEn = manual.find((c) => c.startsWith("en"));
+  if (manualEn) return { languageCode: manualEn, name: manualEn, isGenerated: false };
+  // Any manual.
+  if (manual.length > 0) {
+    return { languageCode: manual[0]!, name: manual[0]!, isGenerated: false };
+  }
+  // Auto English.
+  const autoEn = auto.find((c) => c.startsWith("en"));
+  if (autoEn) return { languageCode: autoEn, name: autoEn, isGenerated: true };
+  // Any auto.
+  if (auto.length > 0) {
+    return { languageCode: auto[0]!, name: auto[0]!, isGenerated: true };
   }
   return null;
 }
 
 /**
- * List every caption track available on the video. Empty result means the
- * video has no captions — callers treat that as `no_captions`.
+ * Fetch the selected caption track's VTT content by asking yt-dlp for
+ * the raw subtitle text. `--skip-download` keeps us off the media
+ * stream; `--sub-format=vtt/ttml/srv3/best` requests VTT with fallbacks.
+ * The result comes back on stdout as multi-line VTT which we parse into
+ * a flat transcript.
  */
-export async function listCaptionTracks(videoId: string): Promise<YouTubeCaptionTrack[]> {
-  let res: Response;
-  try {
-    res = await fetchWithTimeout(`${YT_WATCH_URL_BASE}${encodeURIComponent(videoId)}`);
-  } catch (err) {
+export async function fetchCaptionText(
+  videoId: string,
+  track: YouTubeCaptionTrack,
+): Promise<string> {
+  // We use --skip-download + --write-subs / --write-auto-subs but
+  // redirect the output to `-` (stdout) so we don't have to touch the
+  // filesystem. `--print` can pull the actual subtitle URL, then we
+  // curl it — but yt-dlp's own subtitle fetcher handles retries + rate
+  // limits better than a raw fetch would.
+  const args = [
+    "--skip-download",
+    "--no-warnings",
+    "--no-playlist",
+    track.isGenerated ? "--write-auto-subs" : "--write-subs",
+    "--sub-lang",
+    track.languageCode,
+    "--sub-format",
+    "vtt/srv3/best",
+    "-o",
+    "-", // "output to stdout"
+    "--quiet",
+    `https://www.youtube.com/watch?v=${videoId}`,
+  ];
+  const result = await ytDlpText(args);
+  if (result.code !== 0) {
     throw new YouTubeImportError(
-      "fetch_failed",
-      `Couldn't reach YouTube: ${err instanceof Error ? err.message : String(err)}`,
+      classifyYtDlpError(result.stderr),
+      `Caption fetch failed (code ${result.code}): ${result.stderr.slice(0, 300)}`,
+      result.stderr,
     );
   }
-  if (res.status === 404) {
-    throw new YouTubeImportError("not_found", "Video not found (404).", 404);
-  }
-  if (!res.ok) {
-    throw new YouTubeImportError(
-      "fetch_failed",
-      `YouTube returned ${res.status} ${res.statusText}`,
-      res.status,
-    );
-  }
-  const html = await res.text();
-  const playerResponse = extractPlayerResponse(html);
-  if (!playerResponse || typeof playerResponse !== "object") {
-    // Common cause: age-restricted or region-blocked video returns a
-    // stripped page.
+  const transcript = parseCaptionVtt(result.stdout);
+  if (transcript.trim().length === 0) {
     throw new YouTubeImportError(
       "parse_failed",
-      "Couldn't extract player response from the video page. The video may be age-restricted, private, or region-blocked.",
+      "yt-dlp returned an empty caption body.",
+      result.stderr,
     );
   }
-  const pr = playerResponse as {
-    playabilityStatus?: { status?: string; reason?: string };
-    captions?: {
-      playerCaptionsTracklistRenderer?: {
-        captionTracks?: Array<{
-          baseUrl?: string;
-          name?: { simpleText?: string; runs?: Array<{ text?: string }> };
-          languageCode?: string;
-          kind?: string;
-          vssId?: string;
-        }>;
-      };
-    };
-  };
-  if (pr.playabilityStatus?.status && pr.playabilityStatus.status !== "OK") {
+  return transcript;
+}
+
+/**
+ * Turn a WebVTT body into a plain transcript. We ignore cue timings
+ * entirely — Repodcast doesn't need alignment, just the text — and
+ * collapse repeated whitespace so the result is one clean run of prose.
+ *
+ * VTT auto-caption output includes progressive-word-highlight tags
+ * like `<00:00:03.360><c> hello</c>` inside a cue line. We strip
+ * everything inside `<...>` and their `</c>` closers before de-duping.
+ */
+export function parseCaptionVtt(body: string): string {
+  const lines = body.split(/\r?\n/);
+  const out: string[] = [];
+  let prev = "";
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (line.length === 0) continue;
+    if (line.startsWith("WEBVTT")) continue;
+    if (line.startsWith("NOTE")) continue;
+    if (line.startsWith("Kind:") || line.startsWith("Language:")) continue;
+    // Cue timings: "00:00:00.000 --> 00:00:04.000 align:start ..."
+    if (line.includes("-->")) continue;
+    // Numeric cue id lines.
+    if (/^\d+$/.test(line)) continue;
+    const cleaned = line
+      // Strip `<00:00:03.360>` timing tags and their `<c>...</c>` wrappers.
+      .replace(/<[^>]*>/g, "")
+      .trim();
+    if (cleaned.length === 0) continue;
+    // YouTube auto-captions repeat each phrase — once as a bare line and
+    // once inside a `<c>...</c>` wrapper on the next cue. De-dupe adjacent
+    // identical lines.
+    if (cleaned === prev) continue;
+    out.push(cleaned);
+    prev = cleaned;
+  }
+  return out.join(" ").replace(/\s+/g, " ").trim();
+}
+
+// ============================================================
+// Audio-fallback path
+// ============================================================
+
+export type YouTubeAudioResult = {
+  buffer: Buffer;
+  contentType: string;
+  filename: string;
+};
+
+/**
+ * Download the video's audio-only stream. We deliberately request
+ * `bestaudio[ext=m4a]/bestaudio` — a pre-existing audio-only container —
+ * so yt-dlp never needs ffmpeg to merge streams. Deepgram accepts m4a
+ * and webm/opus natively so the raw stream can go straight to
+ * transcription.
+ *
+ * Streams to a Buffer in memory (capped at 500MB, same ceiling the RSS
+ * import uses). For a typical 60-min podcast the audio is 30-50MB and
+ * the whole call finishes in 30-60 seconds on Vercel's Pro tier.
+ */
+export async function downloadYouTubeAudio(videoId: string): Promise<YouTubeAudioResult> {
+  const args = [
+    "-f",
+    "bestaudio[ext=m4a]/bestaudio",
+    "-o",
+    "-", // pipe to stdout
+    "--no-warnings",
+    "--no-playlist",
+    "--quiet",
+    `https://www.youtube.com/watch?v=${videoId}`,
+  ];
+  const result = await ytDlpBinary(args);
+  if (result.code !== 0 || result.stdout.byteLength === 0) {
     throw new YouTubeImportError(
-      "not_found",
-      `YouTube reports the video as ${pr.playabilityStatus.status}: ${pr.playabilityStatus.reason ?? "no reason given"}.`,
+      classifyYtDlpError(result.stderr),
+      `Audio download failed (code ${result.code}): ${result.stderr.slice(0, 300)}`,
+      result.stderr,
     );
   }
-  const rawTracks = pr.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-  if (!rawTracks || rawTracks.length === 0) {
-    return [];
+  // Sniff the container from the first few bytes to pick the right
+  // content-type. Deepgram is content-type-tolerant but R2 sends it
+  // through when the object is later fetched, so labeling correctly
+  // saves a header round-trip.
+  const contentType = sniffAudioContentType(result.stdout);
+  const filename = `youtube-${videoId}.${contentTypeExt(contentType)}`;
+  return { buffer: result.stdout, contentType, filename };
+}
+
+function sniffAudioContentType(buf: Buffer): string {
+  // m4a / mp4: bytes 4-8 are "ftyp"
+  if (buf.length >= 8 && buf.subarray(4, 8).toString("ascii") === "ftyp") {
+    return "audio/mp4";
   }
-  return rawTracks
-    .filter(
-      (
-        t,
-      ): t is {
-        baseUrl: string;
-        languageCode: string;
-        name?: { simpleText?: string; runs?: Array<{ text?: string }> };
-        kind?: string;
-      } => typeof t.baseUrl === "string" && typeof t.languageCode === "string",
-    )
-    .map((t) => {
-      const name =
-        t.name?.simpleText ?? t.name?.runs?.map((r) => r.text ?? "").join("") ?? t.languageCode;
-      // `kind: "asr"` is YouTube's marker for auto-speech-recognition tracks.
-      return {
-        languageCode: t.languageCode,
-        name,
-        isGenerated: t.kind === "asr",
-        baseUrl: t.baseUrl,
-      };
-    });
-}
-
-/**
- * Given a list of caption tracks, pick the best one:
- *   1. Manual English.
- *   2. Any manual track.
- *   3. Auto English.
- *   4. First auto track.
- */
-export function pickBestCaptionTrack(
-  tracks: readonly YouTubeCaptionTrack[],
-): YouTubeCaptionTrack | null {
-  if (tracks.length === 0) return null;
-  const manual = tracks.filter((t) => !t.isGenerated);
-  const manualEn = manual.find((t) => t.languageCode.startsWith("en"));
-  if (manualEn) return manualEn;
-  if (manual.length > 0) return manual[0]!;
-  const autoEn = tracks.find((t) => t.isGenerated && t.languageCode.startsWith("en"));
-  if (autoEn) return autoEn;
-  return tracks[0] ?? null;
-}
-
-/**
- * Fetch and normalize the captions for a given track. YouTube's default
- * response format is XML with a series of `<text start="..." dur="...">
- * escaped-text</text>` entries. We concatenate the text in order,
- * unescape HTML entities, and collapse whitespace.
- */
-export async function fetchCaptionText(track: YouTubeCaptionTrack): Promise<string> {
-  let res: Response;
-  try {
-    res = await fetchWithTimeout(track.baseUrl);
-  } catch (err) {
-    throw new YouTubeImportError(
-      "fetch_failed",
-      `Couldn't fetch caption track: ${err instanceof Error ? err.message : String(err)}`,
-    );
+  // webm / matroska: starts with 0x1A45DFA3
+  if (buf.length >= 4 && buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) {
+    return "audio/webm";
   }
-  if (!res.ok) {
-    throw new YouTubeImportError(
-      "fetch_failed",
-      `Caption track fetch returned ${res.status}`,
-      res.status,
-    );
+  // opus in OGG container: starts with "OggS"
+  if (buf.length >= 4 && buf.subarray(0, 4).toString("ascii") === "OggS") {
+    return "audio/ogg";
   }
-  const xml = await res.text();
-  return parseCaptionXml(xml);
-}
-
-/**
- * Parse the timedtext XML into a plain-text transcript. We don't need a
- * proper XML parser — the format is a flat list of `<text ...>...</text>`
- * elements, no nesting.
- */
-export function parseCaptionXml(xml: string): string {
-  const parts: string[] = [];
-  // Match every <text ...>...</text> block; be permissive about the
-  // attribute order + optional trailing space.
-  const re = /<text\b[^>]*>([\s\S]*?)<\/text>/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(xml)) !== null) {
-    const raw = m[1] ?? "";
-    parts.push(unescapeXmlEntities(raw));
+  // mp3: starts with "ID3" or 0xFF 0xFB
+  if (
+    (buf.length >= 3 && buf.subarray(0, 3).toString("ascii") === "ID3") ||
+    (buf.length >= 2 && buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0)
+  ) {
+    return "audio/mpeg";
   }
-  return parts.join(" ").replace(/\s+/g, " ").trim();
+  return "application/octet-stream";
 }
 
-/**
- * Decode the handful of HTML entities YouTube emits in caption text.
- * Deliberately narrow — we don't run untrusted HTML through an entity
- * decoder that could pull in named entity tables etc.
- */
-function unescapeXmlEntities(s: string): string {
-  return s
-    .replace(/&#39;/g, "'")
-    .replace(/&#34;/g, '"')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&#(\d+);/g, (_, code) => {
-      const n = Number.parseInt(String(code), 10);
-      return Number.isFinite(n) ? String.fromCodePoint(n) : _;
-    });
+function contentTypeExt(contentType: string): string {
+  switch (contentType) {
+    case "audio/mp4":
+      return "m4a";
+    case "audio/webm":
+      return "webm";
+    case "audio/ogg":
+      return "opus";
+    case "audio/mpeg":
+      return "mp3";
+    default:
+      return "bin";
+  }
 }
 
-/**
- * High-level convenience: parse a URL, fetch tracks, pick the best,
- * fetch + return the text. Throws `YouTubeImportError` on every failure
- * path. This is what the Inngest function calls.
- */
-export async function fetchYouTubeTranscript(input: string): Promise<{
+// ============================================================
+// High-level convenience
+// ============================================================
+
+export type FetchYouTubeTranscriptResult = {
   videoId: string;
+  metadata: VideoMetadata;
   track: YouTubeCaptionTrack;
   transcript: string;
-}> {
+};
+
+/**
+ * End-to-end: parse URL → metadata → transcript. Throws
+ * `YouTubeImportError { code: "no_captions" }` when no track exists so
+ * the Inngest fn can fall through to the audio path.
+ */
+export async function fetchYouTubeTranscript(input: string): Promise<FetchYouTubeTranscriptResult> {
   const videoId = parseYouTubeVideoId(input);
   if (!videoId) {
     throw new YouTubeImportError(
@@ -339,14 +527,23 @@ export async function fetchYouTubeTranscript(input: string): Promise<{
       "Couldn't recognize this as a YouTube URL. Paste a link like https://www.youtube.com/watch?v=… or https://youtu.be/…",
     );
   }
-  const tracks = await listCaptionTracks(videoId);
-  const track = pickBestCaptionTrack(tracks);
+  const metadata = await fetchYouTubeMetadata(videoId);
+  if (metadata.durationSec !== null && metadata.durationSec > MAX_DURATION_SEC) {
+    const hours = Math.round(metadata.durationSec / 3600);
+    throw new YouTubeImportError(
+      "too_long",
+      `Video is ${hours}h long — beyond the ${MAX_DURATION_SEC / 3600}h import cap. Use the RSS import or paste the transcript manually.`,
+    );
+  }
+  const track = pickBestCaptionTrack(metadata.captionLanguages, metadata.autoCaptionLanguages);
   if (!track) {
     throw new YouTubeImportError(
       "no_captions",
-      "This video doesn't have any captions. Turn them on in YouTube Studio (or wait for auto-captions to generate) and try again.",
+      "This video has no captions. Turn them on in YouTube Studio (or wait for auto-captions) and try again — or Repodcast can transcribe the audio directly.",
     );
   }
-  const transcript = await fetchCaptionText(track);
-  return { videoId, track, transcript };
+  const transcript = await fetchCaptionText(videoId, track);
+  return { videoId, metadata, track, transcript };
 }
+
+export { MAX_DURATION_SEC, MAX_AUDIO_BYTES, YT_DLP_PATH };
