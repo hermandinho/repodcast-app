@@ -1094,9 +1094,10 @@ Single screen, KPI-dense, no scrolling for the must-see numbers.
 
 ### 3.6.9 Cross-agency user search (`/root/users`)
 
-- [ ] Search by email / name / `clerkUserId`. Returns every `Member` row matching.
-- [ ] Click → opens a side-panel with: full identity card, all agency memberships (joined dates, roles), Clerk last-sign-in, ROOT actions: resend welcome / reset password (via Clerk SDK) / open impersonation modal for any of their memberships.
-- [ ] Useful for: support ticket "what agencies am I in?", abuse triage (track a bad actor across tenants), GDPR data-export requests.
+- [x] **Search** — landed. `searchMembersForRoot` groups every `Member` row by `clerkUserId` and returns one row per distinct person with the full list of agency memberships. Substring match on email/name (case-insensitive) + exact-match on any `user_…` id the operator pastes. Empty search short-circuits to zero rows (no accidental "download every member" traffic). Read-open to every system role. 10 tests cover the role gate, empty-search short-circuit, where-clause shape, and per-clerk-user aggregation.
+- [x] **Drilldown at `/root/users/[clerkUserId]`** — landed. Full identity card with avatar (from Clerk), primary email, canonical last-active, and a Clerk-metadata strip (last-sign-in, 2FA enrolled, banned/active state) fetched via `clerkClient.users.getUser` on the single drilldown call. Failure to reach Clerk downgrades to DB-only with a visible amber notice. All agency memberships listed with role / plan / joined date / last-active + per-membership impersonation + resend-welcome buttons.
+- [x] **ROOT support actions** — landed. `resetPasswordAction` mints a one-hour Clerk sign-in-token (`clerkClient.signInTokens.createSignInToken`) and emails the `signInUrl` to the user's primary email via a new `PasswordResetEmail` React Email template. `resendWelcomeAction` re-emits the existing `WelcomeEmail` for one specific agency membership. Both gated to ROOT + OPERATOR (`SYSTEM_WRITE_ROLES`), and both land a `SystemAuditLog` row (`SUPPORT_RESET_PASSWORD` + `SUPPORT_RESEND_WELCOME`) via `withSystemAudit` — external side-effects run BEFORE the audit call so a failed Clerk / Resend dispatch doesn't leave a lying "we did X" audit row.
+- [x] **Sidebar entry** — `/root/users` was already linked in `components/root/root-sidebar.tsx` from the initial ROOT scaffold.
 
 ### 3.6.10 Quality, abuse, and moderation (`/root/quality`)
 

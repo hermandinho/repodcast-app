@@ -208,6 +208,14 @@ function UserCard({ row, canImpersonate }: { row: MemberSearchRow; canImpersonat
               <MembershipRow key={m.memberId} membership={m} canImpersonate={canImpersonate} />
             ))}
           </ul>
+          <div className="flex justify-end border-t border-zinc-800 px-4 py-2">
+            <Link
+              href={`/root/users/${encodeURIComponent(row.clerkUserId)}`}
+              className="text-[11.5px] font-semibold text-zinc-400 hover:text-zinc-100"
+            >
+              Full details + support actions →
+            </Link>
+          </div>
         </div>
       </details>
     </li>

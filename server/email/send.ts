@@ -19,6 +19,7 @@ import {
   OnboardingFirstClientEmail,
   type OnboardingFirstClientEmailProps,
 } from "./templates/onboarding-first-client";
+import { PasswordResetEmail, type PasswordResetEmailProps } from "./templates/password-reset";
 import { WelcomeEmail, type WelcomeEmailProps } from "./templates/welcome";
 
 type SendResult = { ok: true; id: string } | { ok: false; reason: string };
@@ -66,6 +67,23 @@ export async function sendWelcomeEmail(to: string, props: WelcomeEmailProps): Pr
   return send({
     to,
     subject: `Welcome to Repodcast, ${props.firstName}`,
+    html,
+  });
+}
+
+/**
+ * Phase 3.6.9 — support-initiated one-click sign-in link. Fired only
+ * from `/root/users` by ROOT/OPERATOR; every send lands a
+ * `SUPPORT_RESET_PASSWORD` audit row.
+ */
+export async function sendPasswordResetEmail(
+  to: string,
+  props: PasswordResetEmailProps,
+): Promise<SendResult> {
+  const html = await render(PasswordResetEmail(props));
+  return send({
+    to,
+    subject: `Sign back in to Repodcast, ${props.firstName}`,
     html,
   });
 }

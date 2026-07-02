@@ -39,6 +39,7 @@ export const SYSTEM_AUDIT_ACTIONS = {
   CONFIG_AGENCY_LIMIT_OVERRIDE: "config.agency_limit_override",
 
   SUPPORT_RESEND_WELCOME: "support.resend_welcome",
+  SUPPORT_RESET_PASSWORD: "support.reset_password",
   SUPPORT_REGENERATE_PORTAL_LINK: "support.regenerate_portal_link",
   SUPPORT_REFIRE_INNGEST_RUN: "support.refire_inngest_run",
 

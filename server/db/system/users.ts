@@ -1,7 +1,9 @@
 import "server-only";
 
+import { clerkClient } from "@clerk/nextjs/server";
 import { type MemberRole, type Plan, type Prisma } from "@prisma/client";
 import { z } from "zod";
+import { NotFoundError } from "@/server/auth/errors";
 import { prisma } from "@/server/db/client";
 import { assertSystemRole, SYSTEM_READ_ROLES, type SystemAdminContext } from "@/server/auth/system";
 
@@ -211,3 +213,98 @@ const MEMBER_ROLE_RANK: Record<MemberRole, number> = {
   EDITOR: 2,
   REVIEWER: 3,
 };
+
+// ============================================================
+// Drilldown — identity card with Clerk metadata
+// ============================================================
+
+export type ClerkMetadata = {
+  primaryEmail: string | null;
+  lastSignInAt: Date | null;
+  twoFactorEnabled: boolean;
+  banned: boolean;
+  createdAt: Date | null;
+  imageUrl: string | null;
+} | null; // null when we couldn't reach Clerk
+
+export type MemberIdentityDetail = MemberSearchRow & {
+  clerk: ClerkMetadata;
+};
+
+/**
+ * Full identity card for one Clerk user across every agency. Adds a
+ * single `clerkClient.users.getUser` round-trip on top of the search
+ * query — okay for a drilldown (one call per opened row), never call
+ * from a list view.
+ *
+ * Clerk lookup failures downgrade to `clerk: null` rather than throwing
+ * so the surface still renders. The audit log is where we'd notice a
+ * persistent Clerk outage.
+ */
+export async function getMemberIdentityDetail(
+  ctx: SystemAdminContext,
+  clerkUserId: string,
+): Promise<MemberIdentityDetail> {
+  assertSystemRole(ctx, SYSTEM_READ_ROLES);
+
+  const memberRows = await prisma.member.findMany({
+    where: { clerkUserId },
+    select: {
+      id: true,
+      clerkUserId: true,
+      email: true,
+      name: true,
+      role: true,
+      createdAt: true,
+      updatedAt: true,
+      agency: {
+        select: { id: true, name: true, plan: true },
+      },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+  if (memberRows.length === 0) {
+    throw new NotFoundError(`No Member row with clerkUserId=${clerkUserId}`);
+  }
+
+  const canonical = memberRows[0]!;
+  const row: MemberSearchRow = {
+    clerkUserId: canonical.clerkUserId,
+    email: canonical.email,
+    name: canonical.name,
+    lastActiveAt: canonical.updatedAt,
+    memberships: memberRows.map(toMembership).sort((a, b) => {
+      const ranked = MEMBER_ROLE_RANK[a.role] - MEMBER_ROLE_RANK[b.role];
+      if (ranked !== 0) return ranked;
+      return b.lastActiveAt.getTime() - a.lastActiveAt.getTime();
+    }),
+  };
+
+  const clerk = await fetchClerkMetadata(clerkUserId);
+  return { ...row, clerk };
+}
+
+async function fetchClerkMetadata(clerkUserId: string): Promise<ClerkMetadata> {
+  try {
+    const client = await clerkClient();
+    const user = await client.users.getUser(clerkUserId);
+    const primary =
+      user.emailAddresses.find((e) => e.id === user.primaryEmailAddressId) ??
+      user.emailAddresses[0];
+    return {
+      primaryEmail: primary?.emailAddress ?? null,
+      lastSignInAt: user.lastSignInAt ? new Date(user.lastSignInAt) : null,
+      twoFactorEnabled: Boolean(user.twoFactorEnabled),
+      banned: Boolean(user.banned),
+      createdAt: user.createdAt ? new Date(user.createdAt) : null,
+      imageUrl: user.imageUrl ?? null,
+    };
+  } catch (err) {
+    console.warn(
+      `[users] Clerk getUser failed for ${clerkUserId}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    return null;
+  }
+}
