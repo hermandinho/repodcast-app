@@ -15,7 +15,12 @@ import {
   isTokenVaultAvailable,
   TokenVaultDecryptError,
 } from "@/server/crypto/token-vault";
-import { listOrganizationsAndChannels } from "@/server/integrations/buffer";
+import {
+  BufferError,
+  listOrganizationsAndChannels,
+  refreshAccessToken,
+  type BufferAuthRefresher,
+} from "@/server/integrations/buffer";
 import { prisma } from "./client";
 
 /**
@@ -117,10 +122,184 @@ export async function listIntegrationsForAgency(ctx: TenantContext): Promise<Int
 }
 
 /**
+ * How close to `expiresAt` we start refreshing. 60 s gives enough runway for
+ * a subsequent Buffer call to complete before Buffer's own clock rolls the
+ * token over on us.
+ */
+const REFRESH_SKEW_MS = 60_000;
+
+/**
+ * Given a raw `AgencyIntegration` row (with the `accessToken` still
+ * encrypted), return a usable plaintext access token — proactively
+ * refreshing via `refreshAccessToken` when the stored expiry is within
+ * `REFRESH_SKEW_MS`. Persists the rotated tokens on success.
+ *
+ * Returns `null` for any state that means "this integration can't service a
+ * request right now" — vault unavailable, decrypt failure, refresh rejected
+ * by Buffer (i.e. reconnect required). On refresh rejection we stamp
+ * `lastSyncError` so the settings UI can nudge the OWNER/ADMIN. Callers
+ * treat `null` identically to "no integration row" — schedule surfaces fall
+ * through to MANUAL mode, the sync cron downgrades in-flight rows.
+ *
+ * Concurrency caveat: parallel callers within the skew window will each
+ * attempt a refresh. Buffer may reject the second one if it treats refresh
+ * tokens as single-use — one request errors, the other succeeds. Adding a
+ * per-agency lock is out of scope for the current bug fix; the failing
+ * caller surfaces the standard "reconnect Buffer" nudge, which corrects on
+ * the next request once the winning refresh has persisted new tokens.
+ */
+async function resolveFreshAccessToken(row: {
+  agencyId: string;
+  accessToken: string;
+  refreshToken: string | null;
+  expiresAt: Date | null;
+}): Promise<string | null> {
+  let currentToken: string;
+  try {
+    currentToken = decryptToken(row.accessToken);
+  } catch (err) {
+    if (err instanceof TokenVaultDecryptError) return null;
+    throw err;
+  }
+
+  // Not close to expiring → use as-is. Rows created before we started
+  // persisting `expiresAt` land here too (Buffer sends `expires_in` on every
+  // token response, so any post-fix connect will populate it).
+  if (!row.expiresAt || row.expiresAt.getTime() - Date.now() > REFRESH_SKEW_MS) {
+    return currentToken;
+  }
+
+  // Expired but no refresh token on file → nothing we can do. Old rows
+  // written before the OAuth 2 rollout may fall through here. Return the
+  // stale token and let the downstream 401 nudge the reconnect.
+  if (!row.refreshToken) return currentToken;
+
+  const clientId = process.env.BUFFER_CLIENT_ID;
+  const clientSecret = process.env.BUFFER_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    // Dev/misconfigured env — we can't refresh without the OAuth client
+    // creds. Return the stale token so at least sample-data-mode flows and
+    // tests don't blow up on missing env.
+    return currentToken;
+  }
+
+  try {
+    const fresh = await refreshAccessToken({
+      refreshToken: row.refreshToken,
+      clientId,
+      clientSecret,
+    });
+    await prisma.agencyIntegration.update({
+      where: {
+        agencyId_provider: { agencyId: row.agencyId, provider: ExternalScheduler.BUFFER },
+      },
+      data: {
+        accessToken: encryptToken(fresh.accessToken),
+        // Buffer may rotate the refresh token or leave it stable. When
+        // present, replace; when absent, keep the existing one.
+        ...(fresh.refreshToken ? { refreshToken: fresh.refreshToken } : {}),
+        expiresAt: fresh.expiresAt,
+        lastSyncError: null,
+      },
+    });
+    return fresh.accessToken;
+  } catch (err) {
+    // Refresh rejected — refresh token was revoked, rotated past, or the
+    // OAuth app was disabled on Buffer's side. Stamp so the UI can prompt a
+    // reconnect. Fire-and-forget so a follow-up write failure never masks
+    // the underlying refresh error in the caller.
+    const message =
+      err instanceof BufferError
+        ? `Buffer token refresh failed (${err.status}). Disconnect and reconnect Buffer in Settings › Integrations.`
+        : err instanceof Error
+          ? `Buffer token refresh failed: ${err.message}. Reconnect Buffer to continue.`
+          : "Buffer token refresh failed. Reconnect Buffer to continue.";
+    void prisma.agencyIntegration
+      .updateMany({
+        where: { agencyId: row.agencyId, provider: ExternalScheduler.BUFFER },
+        data: { lastSyncError: message },
+      })
+      .catch(() => undefined);
+    return null;
+  }
+}
+
+/**
+ * Reactive companion to `resolveFreshAccessToken`. When Buffer 401s at
+ * request time — either an HTTP 401 or a `code: UNAUTHENTICATED` GraphQL
+ * error on a 200 — the API helpers in `server/integrations/buffer.ts` call
+ * this to get a fresh access token, then retry once. Covers the failure
+ * mode the proactive path can't reach: rows where `expiresAt` is `null`
+ * (Buffer didn't emit `expires_in`, or the row predates OAuth 2), an
+ * externally-revoked token, or a wall-clock drift between us and Buffer.
+ *
+ * Reads the DB row fresh on every call so parallel requests each see the
+ * latest refresh_token — a concurrent winner has already rotated it.
+ *
+ * Returns `null` when a refresh is impossible (no refresh_token, missing
+ * OAuth client creds, or Buffer rejected the refresh grant). On rejection
+ * we stamp `lastSyncError` for the settings UI, matching `resolveFreshAccessToken`.
+ */
+export function makeBufferAuthRefresher(agencyId: string): BufferAuthRefresher {
+  return {
+    onUnauthenticated: async () => {
+      if (!isTokenVaultAvailable()) return null;
+      const row = await prisma.agencyIntegration.findUnique({
+        where: {
+          agencyId_provider: { agencyId, provider: ExternalScheduler.BUFFER },
+        },
+        select: { refreshToken: true },
+      });
+      if (!row?.refreshToken) return null;
+      const clientId = process.env.BUFFER_CLIENT_ID;
+      const clientSecret = process.env.BUFFER_CLIENT_SECRET;
+      if (!clientId || !clientSecret) return null;
+      try {
+        const fresh = await refreshAccessToken({
+          refreshToken: row.refreshToken,
+          clientId,
+          clientSecret,
+        });
+        await prisma.agencyIntegration.update({
+          where: {
+            agencyId_provider: { agencyId, provider: ExternalScheduler.BUFFER },
+          },
+          data: {
+            accessToken: encryptToken(fresh.accessToken),
+            ...(fresh.refreshToken ? { refreshToken: fresh.refreshToken } : {}),
+            expiresAt: fresh.expiresAt,
+            lastSyncError: null,
+          },
+        });
+        return fresh.accessToken;
+      } catch (err) {
+        const message =
+          err instanceof BufferError
+            ? `Buffer token refresh failed (${err.status}). Disconnect and reconnect Buffer in Settings › Integrations.`
+            : err instanceof Error
+              ? `Buffer token refresh failed: ${err.message}. Reconnect Buffer to continue.`
+              : "Buffer token refresh failed. Reconnect Buffer to continue.";
+        void prisma.agencyIntegration
+          .updateMany({
+            where: { agencyId, provider: ExternalScheduler.BUFFER },
+            data: { lastSyncError: message },
+          })
+          .catch(() => undefined);
+        return null;
+      }
+    },
+  };
+}
+
+/**
  * Resolve the Buffer integration for the current agency — decrypts the
  * token, returns `null` if there's no row OR if the vault can't decrypt
  * (missing key, ciphertext tampered, key rotated). Missing key = feature
  * disabled; callers fall through to MANUAL mode.
+ *
+ * Proactively refreshes the OAuth 2 access token via `resolveFreshAccessToken`
+ * when it's within `REFRESH_SKEW_MS` of expiry — without this, Buffer's
+ * ~1-hour token TTL bricks every downstream surface until a manual reconnect.
  */
 export async function getBufferIntegrationForAgency(
   ctx: TenantContext,
@@ -133,13 +312,13 @@ export async function getBufferIntegrationForAgency(
     },
   });
   if (!row) return null;
-  let accessToken: string;
-  try {
-    accessToken = decryptToken(row.accessToken);
-  } catch (err) {
-    if (err instanceof TokenVaultDecryptError) return null;
-    throw err;
-  }
+  const accessToken = await resolveFreshAccessToken({
+    agencyId: row.agencyId,
+    accessToken: row.accessToken,
+    refreshToken: row.refreshToken,
+    expiresAt: row.expiresAt,
+  });
+  if (!accessToken) return null;
   return {
     id: row.id,
     accessToken,
@@ -265,7 +444,10 @@ export async function refreshBufferChannels(ctx: TenantContext): Promise<{
     platform: Platform | null;
   }>;
   try {
-    const result = await listOrganizationsAndChannels(integration.accessToken);
+    const result = await listOrganizationsAndChannels(
+      integration.accessToken,
+      makeBufferAuthRefresher(ctx.agencyId),
+    );
     organizations = result.organizations;
     channels = result.channels;
   } catch (err) {
@@ -337,6 +519,9 @@ export async function stampIntegrationSync(
 /**
  * Non-tenant-scoped read used by the sync cron. Decrypts the token, or
  * returns null if the vault can't decrypt (which the cron logs + skips).
+ * Same proactive-refresh path as the tenant-scoped getter — the cron
+ * consumes tokens at 5-minute cadence, so many polls fall inside the
+ * refresh skew window.
  */
 export async function getBufferIntegrationForAgencyRaw(
   agencyId: string,
@@ -348,13 +533,13 @@ export async function getBufferIntegrationForAgencyRaw(
     },
   });
   if (!row) return null;
-  let accessToken: string;
-  try {
-    accessToken = decryptToken(row.accessToken);
-  } catch (err) {
-    if (err instanceof TokenVaultDecryptError) return null;
-    throw err;
-  }
+  const accessToken = await resolveFreshAccessToken({
+    agencyId: row.agencyId,
+    accessToken: row.accessToken,
+    refreshToken: row.refreshToken,
+    expiresAt: row.expiresAt,
+  });
+  if (!accessToken) return null;
   return {
     id: row.id,
     accessToken,

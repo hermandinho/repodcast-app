@@ -163,6 +163,17 @@ export function OutputDrawer({
       try {
         const res = await unscheduleOutputAction({ outputId: state.id });
         if (!res.ok) {
+          // `stale_state` = the row already progressed past SCHEDULED
+          // (Buffer confirmed publish while this tab still showed the
+          // Unschedule button). Refresh so the prop-sync effect in
+          // OutputsView pulls the current status, and close the drawer —
+          // the fresh render will show the PUBLISHED pill and drop the
+          // Unschedule affordance.
+          if (res.errorCode === "stale_state") {
+            router.refresh();
+            onClose();
+            return;
+          }
           setError(res.error);
           return;
         }

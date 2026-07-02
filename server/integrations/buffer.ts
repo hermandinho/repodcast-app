@@ -80,6 +80,12 @@ export type ExchangeCodeResult = {
   expiresAt: Date | null;
 };
 
+/**
+ * Result shape shared by `exchangeCode` and `refreshAccessToken` — Buffer's
+ * token endpoint returns the same JSON envelope for both grant types.
+ */
+export type RefreshAccessTokenResult = ExchangeCodeResult;
+
 // ============================================================
 // OAuth token exchange
 // ============================================================
@@ -139,16 +145,111 @@ export async function exchangeCode(params: {
   };
 }
 
+/**
+ * Exchange a refresh token for a fresh access token. Buffer OAuth 2 access
+ * tokens expire (~1 hour); without this call the stored token 401s and every
+ * downstream Buffer surface (schedule, sync, channel refresh) breaks until
+ * an OWNER/ADMIN manually disconnects and reconnects.
+ *
+ * Buffer may rotate the refresh token as part of the response — when
+ * `refresh_token` is present in the payload it supersedes the old one; when
+ * absent, callers should keep the original.
+ *
+ * Errors surface as `BufferError` so callers can distinguish "reconnect
+ * required" (4xx from the token endpoint) from transport blips.
+ */
+export async function refreshAccessToken(params: {
+  refreshToken: string;
+  clientId: string;
+  clientSecret: string;
+}): Promise<RefreshAccessTokenResult> {
+  const form = new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token: params.refreshToken,
+    client_id: params.clientId,
+    client_secret: params.clientSecret,
+  });
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(BUFFER_TOKEN_URL, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: form.toString(),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const bodyText = await res.text();
+  if (!res.ok) throw new BufferError(res.status, bodyText);
+  let data: { access_token?: string; refresh_token?: string; expires_in?: number };
+  try {
+    data = JSON.parse(bodyText);
+  } catch {
+    throw new BufferError(res.status, `Non-JSON refresh response: ${bodyText.slice(0, 200)}`);
+  }
+  if (!data.access_token) {
+    throw new BufferError(500, "Buffer refresh endpoint returned no access_token");
+  }
+  const expiresAt =
+    typeof data.expires_in === "number" && data.expires_in > 0
+      ? new Date(Date.now() + data.expires_in * 1000)
+      : null;
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token ?? null,
+    expiresAt,
+  };
+}
+
 // ============================================================
 // GraphQL transport
 // ============================================================
+
+/**
+ * Optional hook passed alongside a Buffer API call. When the request 401s
+ * (either HTTP 401 or a GraphQL `code: UNAUTHENTICATED` error on a 200
+ * response), `bufferGraphQL` invokes this once. Returning a fresh access
+ * token retries the same request; returning `null` propagates the 401 as
+ * usual. Bound to a specific agencyId by callers in `server/db/integrations`.
+ */
+export type BufferAuthRefresher = {
+  onUnauthenticated?: () => Promise<string | null>;
+};
+
+/**
+ * True when the parsed GraphQL body carries a Buffer "not authenticated"
+ * signal. Buffer sometimes returns HTTP 200 with an error whose extensions
+ * carry `code: UNAUTHENTICATED` instead of a top-level 401 — treat the two
+ * as equivalent for retry purposes.
+ */
+function isUnauthenticatedGraphQLError(json: {
+  errors?: Array<{ message?: string; extensions?: { code?: string } }>;
+}): boolean {
+  if (!json.errors) return false;
+  return json.errors.some(
+    (e) =>
+      e.extensions?.code === "UNAUTHENTICATED" ||
+      (typeof e.message === "string" && /access token is not valid/i.test(e.message)),
+  );
+}
 
 async function bufferGraphQL<T>(
   accessToken: string,
   query: string,
   variables?: Record<string, unknown>,
+  auth?: BufferAuthRefresher,
 ): Promise<T> {
   let attempt = 0;
+  let currentToken = accessToken;
+  let refreshed = false;
   while (true) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -157,7 +258,7 @@ async function bufferGraphQL<T>(
       res = await fetch(BUFFER_GRAPHQL_URL, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${currentToken}`,
           "Content-Type": "application/json",
           Accept: "application/json",
         },
@@ -176,6 +277,19 @@ async function bufferGraphQL<T>(
 
     const text = await res.text();
     if (!res.ok) {
+      // 401: one-shot refresh + retry when a refresher is wired. This is
+      // the failure mode `resolveFreshAccessToken` misses when the stored
+      // row has `expiresAt = null` (Buffer didn't emit `expires_in`, or
+      // the row predates the OAuth 2 rollout) — the proactive path never
+      // fires, so we lean on the reactive one here.
+      if (res.status === 401 && !refreshed && auth?.onUnauthenticated) {
+        const fresh = await auth.onUnauthenticated();
+        if (fresh) {
+          currentToken = fresh;
+          refreshed = true;
+          continue;
+        }
+      }
       if (res.status >= 500 && attempt < RETRY_DELAYS_MS.length) {
         await sleep(RETRY_DELAYS_MS[attempt]!);
         attempt += 1;
@@ -183,17 +297,27 @@ async function bufferGraphQL<T>(
       }
       throw new BufferError(res.status, text);
     }
-    let json: { data?: T; errors?: Array<{ message: string }> };
+    let json: { data?: T; errors?: Array<{ message?: string; extensions?: { code?: string } }> };
     try {
       json = JSON.parse(text);
     } catch {
       throw new BufferError(res.status, `Non-JSON GraphQL response: ${text.slice(0, 200)}`);
     }
     if (json.errors && json.errors.length > 0) {
+      // Buffer surfaces auth failures as HTTP 200 + GraphQL error too —
+      // apply the same one-shot refresh path we use for HTTP 401.
+      if (!refreshed && auth?.onUnauthenticated && isUnauthenticatedGraphQLError(json)) {
+        const fresh = await auth.onUnauthenticated();
+        if (fresh) {
+          currentToken = fresh;
+          refreshed = true;
+          continue;
+        }
+      }
       // Buffer surfaces GraphQL validation + runtime errors here even on a
       // 200. Treat as a 4xx from our side so callers get a `BufferError`
       // they can catch and surface to the UI.
-      throw new BufferError(400, json.errors.map((e) => e.message).join(" | "));
+      throw new BufferError(400, json.errors.map((e) => e.message ?? "unknown").join(" | "));
     }
     if (!json.data) {
       throw new BufferError(500, "Buffer GraphQL returned no data");
@@ -217,11 +341,12 @@ function sleep(ms: number): Promise<void> {
  */
 export async function listOrganizationsAndChannels(
   accessToken: string,
+  auth?: BufferAuthRefresher,
 ): Promise<{ organizations: BufferOrganization[]; channels: BufferChannel[] }> {
   // Step 1: enumerate orgs. Buffer's schema puts them under `account`.
   const orgsData = await bufferGraphQL<{
     account: { organizations: Array<{ id: string; name: string }> } | null;
-  }>(accessToken, `query { account { organizations { id name } } }`);
+  }>(accessToken, `query { account { organizations { id name } } }`, undefined, auth);
 
   const organizations = orgsData.account?.organizations ?? [];
   if (organizations.length === 0) {
@@ -242,6 +367,7 @@ export async function listOrganizationsAndChannels(
         channels(input: { organizationId: $orgId }) { id name service }
       }`,
       { orgId: org.id },
+      auth,
     );
     for (const c of chData.channels ?? []) {
       channels.push({
@@ -266,12 +392,15 @@ export async function listOrganizationsAndChannels(
  * `mode: customScheduled` so `dueAt` is respected. Buffer returns a
  * union — success carries `post.id`, error carries `message`.
  */
-export async function createPost(params: {
-  accessToken: string;
-  channelId: string;
-  text: string;
-  dueAt: Date;
-}): Promise<{ id: string; publicUrl: string | null }> {
+export async function createPost(
+  params: {
+    accessToken: string;
+    channelId: string;
+    text: string;
+    dueAt: Date;
+  },
+  auth?: BufferAuthRefresher,
+): Promise<{ id: string; publicUrl: string | null }> {
   const data = await bufferGraphQL<{
     createPost:
       | { __typename: "PostActionSuccess"; post: { id: string; externalLink: string | null } }
@@ -294,6 +423,7 @@ export async function createPost(params: {
         dueAt: params.dueAt.toISOString(),
       },
     },
+    auth,
   );
   const result = data.createPost;
   if (result.__typename !== "PostActionSuccess") {
@@ -313,10 +443,13 @@ export async function createPost(params: {
  * returns a union; 404-style "not found" surfaces as a MutationError
  * which we swallow (already-gone == success from our side).
  */
-export async function deletePost(params: {
-  accessToken: string;
-  id: string;
-}): Promise<{ deleted: boolean }> {
+export async function deletePost(
+  params: {
+    accessToken: string;
+    id: string;
+  },
+  auth?: BufferAuthRefresher,
+): Promise<{ deleted: boolean }> {
   try {
     await bufferGraphQL<{
       deletePost:
@@ -332,6 +465,7 @@ export async function deletePost(params: {
         }
       }`,
       { input: { id: params.id } },
+      auth,
     );
     return { deleted: true };
   } catch (err) {
@@ -350,12 +484,15 @@ export async function deletePost(params: {
  * per agency is low, so a 100-item recent list covers well beyond one
  * cron interval's worth of activity.
  */
-export async function listRecentPostsForOrg(params: {
-  accessToken: string;
-  organizationId: string;
-  channelIds?: string[];
-  first?: number;
-}): Promise<BufferPost[]> {
+export async function listRecentPostsForOrg(
+  params: {
+    accessToken: string;
+    organizationId: string;
+    channelIds?: string[];
+    first?: number;
+  },
+  auth?: BufferAuthRefresher,
+): Promise<BufferPost[]> {
   const first = params.first ?? 100;
   const data = await bufferGraphQL<{
     posts: {
@@ -386,6 +523,7 @@ export async function listRecentPostsForOrg(params: {
         filter: params.channelIds ? { channelIds: params.channelIds } : {},
       },
     },
+    auth,
   );
   return data.posts.edges.map(({ node }) => ({
     id: node.id,

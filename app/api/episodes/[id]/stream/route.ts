@@ -55,7 +55,7 @@ const STATUS_TO_UI: Record<OutputStatus, string> = {
   IN_REVIEW: "review",
   APPROVED: "approved",
   SCHEDULED: "scheduled",
-  PUBLISHED: "approved",
+  PUBLISHED: "published",
   FAILED: "failed",
 };
 

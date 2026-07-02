@@ -8,7 +8,11 @@ import { ValidationError } from "@/server/auth/errors";
 import { toTenantContext } from "@/server/auth/tenant";
 import { isLiveDb } from "@/server/data/source";
 import { prisma } from "@/server/db/client";
-import { getBufferIntegrationForAgency, isBufferSupportedPlatform } from "@/server/db/integrations";
+import {
+  getBufferIntegrationForAgency,
+  isBufferSupportedPlatform,
+  makeBufferAuthRefresher,
+} from "@/server/db/integrations";
 import { markOutputPublished, scheduleOutput, unscheduleOutput } from "@/server/db/outputs";
 import {
   createPost as bufferCreatePost,
@@ -130,12 +134,15 @@ export async function scheduleOutputAction(raw: unknown): Promise<
       };
     }
     try {
-      const created = await bufferCreatePost({
-        accessToken: integration.accessToken,
-        channelId: profileId,
-        text: output.content,
-        dueAt: scheduledFor,
-      });
+      const created = await bufferCreatePost(
+        {
+          accessToken: integration.accessToken,
+          channelId: profileId,
+          text: output.content,
+          dueAt: scheduledFor,
+        },
+        makeBufferAuthRefresher(ctx.agencyId),
+      );
       externalPostId = created.id;
       externalPostUrl = created.publicUrl ?? undefined;
     } catch (err) {
@@ -203,10 +210,13 @@ export async function unscheduleOutputAction(
     const integration = await getBufferIntegrationForAgency(ctx);
     if (integration) {
       try {
-        await bufferDeletePost({
-          accessToken: integration.accessToken,
-          id: output.externalPostId,
-        });
+        await bufferDeletePost(
+          {
+            accessToken: integration.accessToken,
+            id: output.externalPostId,
+          },
+          makeBufferAuthRefresher(ctx.agencyId),
+        );
       } catch (err) {
         // Log + continue — local downgrade is still correct even if Buffer
         // is unreachable. Worst case the post fires on Buffer's side and
@@ -217,7 +227,28 @@ export async function unscheduleOutputAction(
     }
   }
 
-  const updated = await unscheduleOutput(ctx, outputId, auth.member.id);
+  let updated;
+  try {
+    updated = await unscheduleOutput(ctx, outputId, auth.member.id);
+  } catch (err) {
+    // Race with the sync cron: the row moved past SCHEDULED (Buffer
+    // published it, or an operator manually flipped it) between the UI's
+    // last read and this action. Instead of surfacing the raw
+    // ValidationError we revalidate the episode page so the client picks
+    // up the current truth, and hand back a `stale_state` errorCode the
+    // drawer can render as a friendly "already published — refreshing"
+    // message with `router.refresh()`.
+    if (err instanceof ValidationError && /can't be unscheduled from status/i.test(err.message)) {
+      revalidatePath(`/episodes/${output.episodeId}`);
+      revalidatePath("/schedule");
+      return {
+        ok: false,
+        error: "This post has already been published — refreshing.",
+        errorCode: "stale_state",
+      };
+    }
+    throw err;
+  }
 
   revalidatePath("/schedule");
   revalidatePath(`/episodes/${updated.episodeId}`);

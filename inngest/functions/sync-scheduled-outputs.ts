@@ -1,6 +1,10 @@
 import { ExternalScheduler, OutputStatus } from "@prisma/client";
 import { prisma } from "@/server/db/client";
-import { getBufferIntegrationForAgencyRaw, stampIntegrationSync } from "@/server/db/integrations";
+import {
+  getBufferIntegrationForAgencyRaw,
+  makeBufferAuthRefresher,
+  stampIntegrationSync,
+} from "@/server/db/integrations";
 import { listInFlightScheduledOutputs } from "@/server/db/outputs";
 import { listRecentPostsForOrg } from "@/server/integrations/buffer";
 import { inngest } from "../client";
@@ -125,12 +129,15 @@ export const syncScheduledOutputs = inngest.createFunction(
           );
           let recentPosts;
           try {
-            recentPosts = await listRecentPostsForOrg({
-              accessToken: integration.accessToken,
-              organizationId: orgId,
-              channelIds: channelIds.length > 0 ? channelIds : undefined,
-              first: 100,
-            });
+            recentPosts = await listRecentPostsForOrg(
+              {
+                accessToken: integration.accessToken,
+                organizationId: orgId,
+                channelIds: channelIds.length > 0 ? channelIds : undefined,
+                first: 100,
+              },
+              makeBufferAuthRefresher(agencyId),
+            );
           } catch (err) {
             errors += 1;
             console.error(`sync-scheduled-outputs: Buffer poll failed for org ${orgId}`, err);

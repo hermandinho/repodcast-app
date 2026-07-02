@@ -85,6 +85,66 @@ function mergeOutput(prev: LiveOutput, payload: StreamOutputPayload): LiveOutput
   };
 }
 
+/**
+ * Reconcile a fresh server `SampleOutput` prop into an existing local row.
+ * Runs from the prop-sync effect below whenever `episode.outputs` gets a
+ * new reference — i.e. after a `router.refresh()` following schedule /
+ * unschedule / approve / etc. Server-authoritative fields (status,
+ * scheduledForIso, publishedAtIso, externalScheduler, externalPostUrl,
+ * quality, version, versionCount, failureReason) overwrite local; editing
+ * drafts and other transient UI state are preserved so a stale refresh
+ * doesn't blow away in-progress work.
+ */
+function mergeOutputFromProp(
+  prev: LiveOutput,
+  incoming: SampleEpisode["outputs"][number],
+): LiveOutput {
+  const stillGenerating = incoming.status === "generating";
+  return {
+    ...prev,
+    id: incoming.id,
+    status: incoming.status,
+    quality: incoming.quality,
+    content: prev.editing ? prev.content : incoming.content,
+    version: incoming.version,
+    versionCount: incoming.versionCount,
+    failureReason: incoming.failureReason ?? null,
+    scheduledForIso: incoming.scheduledForIso ?? null,
+    publishedAtIso: incoming.publishedAtIso ?? null,
+    externalScheduler: incoming.externalScheduler ?? null,
+    externalPostUrl: incoming.externalPostUrl ?? null,
+    progress: stillGenerating ? prev.progress : 100,
+    _startAt: stillGenerating ? prev._startAt : undefined,
+    _target: stillGenerating ? prev._target : undefined,
+  };
+}
+
+function buildNewRowFromProp(incoming: SampleEpisode["outputs"][number]): LiveOutput {
+  return {
+    key: incoming.key,
+    id: incoming.id,
+    status: incoming.status,
+    quality: incoming.quality,
+    content: incoming.content,
+    meta: incoming.meta,
+    version: incoming.version,
+    versionCount: incoming.versionCount,
+    editing: false,
+    draft: "",
+    showRegen: false,
+    regenText: "",
+    lastInstruction: "",
+    progress: incoming.status === "generating" ? 0 : 100,
+    justCopied: false,
+    justApproved: false,
+    failureReason: incoming.failureReason ?? null,
+    scheduledForIso: incoming.scheduledForIso ?? null,
+    publishedAtIso: incoming.publishedAtIso ?? null,
+    externalScheduler: incoming.externalScheduler ?? null,
+    externalPostUrl: incoming.externalPostUrl ?? null,
+  };
+}
+
 function buildNewRowFromPayload(payload: StreamOutputPayload): LiveOutput {
   return {
     key: payload.key,
@@ -191,6 +251,70 @@ export function OutputsView({
   const [drawerKey, setDrawerKey] = useState<string | null>(null);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Prop-sync: when the parent RSC re-renders (e.g. after a `router.refresh()`
+  // following schedule / unschedule / mark-published), `episode.outputs`
+  // arrives as a new reference with the fresh server truth. `useState`'s
+  // initializer only ran on mount, so without this the local `outputs`
+  // state stays stale — the UI keeps showing the pre-schedule state and
+  // lets the user re-schedule a post that's already booked. We reconcile
+  // server-authoritative fields (status, scheduling metadata, quality,
+  // version, etc.) into local rows via `mergeOutputFromProp`, preserving
+  // transient UI state (drafts, drawer, optimistic tickers).
+  const lastSyncedOutputsRef = useRef(episode.outputs);
+  useEffect(() => {
+    if (lastSyncedOutputsRef.current === episode.outputs) return;
+    lastSyncedOutputsRef.current = episode.outputs;
+    setOutputs((prev) => {
+      const byKey = new Map(prev.map((o) => [o.key, o]));
+      return episode.outputs.map((incoming) => {
+        const local = byKey.get(incoming.key);
+        return local ? mergeOutputFromProp(local, incoming) : buildNewRowFromProp(incoming);
+      });
+    });
+  }, [episode.outputs]);
+
+  // Background refresh for SCHEDULED rows. Once a row is scheduled the SSE
+  // stream terminates (no ticker) — but the sync cron will later flip the
+  // status to PUBLISHED (or FAILED) via a Buffer poll. Nothing on the page
+  // observes that transition, so without this the UI stays on SCHEDULED
+  // and lets the user click Unschedule on a post Buffer has already sent,
+  // producing the "can't be unscheduled from status PUBLISHED" error from
+  // `unscheduleOutput`. We fix it by nudging `router.refresh()` on tab
+  // return (immediate) and every SCHEDULED_POLL_MS while the tab is
+  // visible. `router.refresh()` re-fetches the RSC tree; the prop-sync
+  // effect above then reconciles the new statuses into local state.
+  const hasScheduled = outputs.some((o) => o.status === "scheduled");
+  useEffect(() => {
+    if (!hasScheduled) return;
+    const SCHEDULED_POLL_MS = 30_000;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    const startInterval = () => {
+      if (intervalId !== null) return;
+      intervalId = setInterval(() => {
+        if (document.visibilityState === "visible") router.refresh();
+      }, SCHEDULED_POLL_MS);
+    };
+    const stopInterval = () => {
+      if (intervalId === null) return;
+      clearInterval(intervalId);
+      intervalId = null;
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        router.refresh();
+        startInterval();
+      } else {
+        stopInterval();
+      }
+    };
+    if (document.visibilityState === "visible") startInterval();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      stopInterval();
+    };
+  }, [hasScheduled, router]);
 
   const tickerActive = outputs.some((o) => o.status === "generating");
   // True whenever the user just kicked off a regen/generation that the
