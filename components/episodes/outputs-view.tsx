@@ -11,6 +11,7 @@ import { EditableTitle } from "@/components/episodes/editable-title";
 import { ImportFailedPanel } from "@/components/episodes/import-failed-panel";
 import { ImportingPanel } from "@/components/episodes/importing-panel";
 import { OutputCard, type OutputState } from "@/components/episodes/output-card";
+import { OutputDrawer } from "@/components/episodes/output-drawer";
 import { TranscribingPanel } from "@/components/episodes/transcribing-panel";
 import type { SampleShow } from "@/lib/sample-data/shows";
 import type { SampleEpisode } from "@/lib/sample-data/episode-outputs";
@@ -186,6 +187,8 @@ export function OutputsView({
   // an effect, which Next 16's react-hooks/set-state-in-effect rule flags.
   const [generateAllRequested, setGenerateAllRequested] = useState(false);
   const [railTab, setRailTab] = useState<"voice" | "quality">("voice");
+  /** Which output's drawer is open. `null` = closed. */
+  const [drawerKey, setDrawerKey] = useState<string | null>(null);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -792,13 +795,30 @@ export function OutputsView({
         {/* Clip moments — null/empty rendering handled inside the panel */}
         <ClipMomentsPanel moments={episode.keyMoments} />
 
-        {/* Output grid */}
+        {/* Output grid — tighter tiles per ref/card1.png. `minmax(240px)`
+             hits 4 columns at ≥1024px main width and gracefully collapses
+             to 3/2/1 columns below. */}
         <div
-          className="grid gap-[18px]"
-          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))" }}
+          className="grid gap-[14px]"
+          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}
         >
           {outputs.map((o) => {
             const platform = platformByKey.get(o.key)!;
+            const cardActions = {
+              onCopy: () => onCopy(o.key),
+              onEdit: () => onEdit(o.key),
+              onSaveEdit: () => onSaveEdit(o.key),
+              onCancelEdit: () => onCancelEdit(o.key),
+              onDraftChange: (next: string) => onDraftChange(o.key, next),
+              onToggleRegen: () => onToggleRegen(o.key),
+              onRegenTextChange: (next: string) => onRegenTextChange(o.key, next),
+              onApplyRegen: () => onApplyRegen(o.key),
+              onQuickRegen: (inst: string) => onQuickRegen(o.key, inst),
+              onApprove: () => onApprove(o.key),
+              onRequestReview: () => onRequestReview(o.key),
+              onReject: () => onReject(o.key),
+              onRetry: () => onRetry(o.key),
+            };
             return (
               <OutputCard
                 key={o.key}
@@ -810,25 +830,51 @@ export function OutputsView({
                 readOnly={readOnly}
                 bufferConnected={bufferConnected}
                 bufferConnectedPlatforms={bufferConnectedPlatforms}
-                actions={{
-                  onCopy: () => onCopy(o.key),
-                  onEdit: () => onEdit(o.key),
-                  onSaveEdit: () => onSaveEdit(o.key),
-                  onCancelEdit: () => onCancelEdit(o.key),
-                  onDraftChange: (next) => onDraftChange(o.key, next),
-                  onToggleRegen: () => onToggleRegen(o.key),
-                  onRegenTextChange: (next) => onRegenTextChange(o.key, next),
-                  onApplyRegen: () => onApplyRegen(o.key),
-                  onQuickRegen: (inst) => onQuickRegen(o.key, inst),
-                  onApprove: () => onApprove(o.key),
-                  onRequestReview: () => onRequestReview(o.key),
-                  onReject: () => onReject(o.key),
-                  onRetry: () => onRetry(o.key),
-                }}
+                onOpen={() => setDrawerKey(o.key)}
+                actions={cardActions}
               />
             );
           })}
         </div>
+
+        {/* Details drawer — one instance across all cards; opened via
+             `setDrawerKey`. Renders `null` when nothing is open so it
+             stays out of the a11y tree. */}
+        {(() => {
+          if (drawerKey === null) return null;
+          const o = outputs.find((row) => row.key === drawerKey);
+          if (!o) return null;
+          const platform = platformByKey.get(o.key)!;
+          const drawerActions = {
+            onCopy: () => onCopy(o.key),
+            onEdit: () => onEdit(o.key),
+            onSaveEdit: () => onSaveEdit(o.key),
+            onCancelEdit: () => onCancelEdit(o.key),
+            onDraftChange: (next: string) => onDraftChange(o.key, next),
+            onToggleRegen: () => onToggleRegen(o.key),
+            onRegenTextChange: (next: string) => onRegenTextChange(o.key, next),
+            onApplyRegen: () => onApplyRegen(o.key),
+            onQuickRegen: (inst: string) => onQuickRegen(o.key, inst),
+            onApprove: () => onApprove(o.key),
+            onRequestReview: () => onRequestReview(o.key),
+            onReject: () => onReject(o.key),
+            onRetry: () => onRetry(o.key),
+          };
+          return (
+            <OutputDrawer
+              platform={platform}
+              hostName={client.host}
+              state={o}
+              episodeId={episode.id}
+              viewerRole={viewerRole}
+              readOnly={readOnly}
+              bufferConnected={bufferConnected}
+              bufferConnectedPlatforms={bufferConnectedPlatforms}
+              onClose={() => setDrawerKey(null)}
+              actions={drawerActions}
+            />
+          );
+        })()}
       </div>
 
       {/* RIGHT RAIL */}
