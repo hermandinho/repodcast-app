@@ -93,6 +93,12 @@ export default async function PortalPage({ params }: { params: Promise<{ token: 
 
   const summary = summarize(deliverables);
 
+  // Belt-and-braces: `optionalUrl` in the billing repo already rejects
+  // non-http(s) URLs on write, but a row saved before that guard shipped
+  // could still contain `javascript:` / `data:`. Re-verify at render time.
+  const rawPayLink = link.client.billingProfile?.paymentLinkUrl ?? null;
+  const payLinkUrl = rawPayLink && /^https?:\/\//i.test(rawPayLink) ? rawPayLink : null;
+
   return (
     <div className="mx-auto max-w-[920px] px-6 py-10">
       {/* Branded header. Logo (or accent initials) + client name +
@@ -126,6 +132,20 @@ export default async function PortalPage({ params }: { params: Promise<{ token: 
             Link active through {DATE_FMT.format(link.expiresAt)}
           </div>
         </div>
+        {/* Money CTA — hands off to whatever payment URL the agency
+            configured (Stripe payment-link, custom checkout, etc.).
+            `rel="noopener"` because the hop is off-domain. */}
+        {payLinkUrl && (
+          <a
+            href={payLinkUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-shrink-0 rounded-lg px-4 py-[10px] font-sans text-[13px] font-semibold text-white no-underline transition-[filter] hover:brightness-95"
+            style={{ background: accent }}
+          >
+            Make a payment ↗
+          </a>
+        )}
       </header>
 
       {/* Summary strip — three counters covering the full lifecycle.

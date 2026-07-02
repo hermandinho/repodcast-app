@@ -153,6 +153,13 @@ export type PortalLinkWithAgency = ClientPortalLink & {
   client: {
     id: string;
     name: string;
+    /**
+     * Optional client-level billing extras surfaced on the portal. Currently
+     * only `paymentLinkUrl` — an external URL (Stripe payment-link, custom
+     * checkout, etc.) the agency configured on the client billing tab.
+     * Repodcast doesn't process the payment; the button just hands off.
+     */
+    billingProfile: { paymentLinkUrl: string | null } | null;
     agency: {
       id: string;
       name: string;
@@ -179,6 +186,7 @@ export async function getPortalLinkByToken(token: string): Promise<PortalLinkWit
         select: {
           id: true,
           name: true,
+          billingProfile: { select: { paymentLinkUrl: true } },
           agency: {
             select: {
               id: true,
