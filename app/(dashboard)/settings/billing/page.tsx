@@ -3,7 +3,12 @@ import { MemberRole, Plan } from "@prisma/client";
 import { PLAN_DISPLAY, PLAN_ORDER, planLimitsFor, priceFor } from "@/lib/plans";
 import { asSupportedCurrency, DEFAULT_CURRENCY, formatPlanPrice } from "@/lib/currencies";
 import { planCapacity } from "@/server/billing/limits";
-import { costByClient, type ClientCostRollupRow } from "@/server/db/client-cost";
+import {
+  costByClient,
+  getAgencyUsageTrend,
+  type ClientCostRollupRow,
+  type UsageTrendBucket,
+} from "@/server/db/client-cost";
 import { isLiveDb } from "@/server/data/source";
 import { resolveTenantContext } from "@/server/data/tenant";
 import { prisma } from "@/server/db/client";
@@ -62,6 +67,10 @@ export default async function BillingPage() {
   const isAdminOrOwner = tenant.role === MemberRole.OWNER || tenant.role === MemberRole.ADMIN;
   const costRollup: ClientCostRollupRow[] =
     live && isAdminOrOwner ? await costByClient(tenant) : [];
+  // Phase 3.7 — 30-day trend for the cost + generations sparkline. Same
+  // OWNER/ADMIN gate as the cost rollup below it.
+  const usageTrend: UsageTrendBucket[] =
+    live && isAdminOrOwner ? await getAgencyUsageTrend(tenant, 30) : [];
   const monthLabel = new Intl.DateTimeFormat("en-US", {
     month: "long",
     year: "numeric",
@@ -148,6 +157,25 @@ export default async function BillingPage() {
           })}
         </div>
       </div>
+
+      {/* 30-day trend (3.7) — OWNER/ADMIN only. Two inline SVG rows:
+          top row is cost/day, bottom row is generation count/day.
+          Zero-filled by getAgencyUsageTrend so empty days render as
+          flat baselines instead of gaps. */}
+      {isAdminOrOwner && (
+        <div className="border-border bg-surface shadow-card mb-[18px] rounded-3xl border p-5">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
+            <div>
+              <div className="font-display text-ink text-[15px] font-semibold">Last 30 days</div>
+              <div className="text-muted-2 mt-[3px] text-[12.5px]">
+                Daily AI spend + generations across every client. Empty days flatten to zero — the
+                trendline tells you when demand actually ramped, not just when it existed.
+              </div>
+            </div>
+          </div>
+          <UsageTrendGraph buckets={usageTrend} />
+        </div>
+      )}
 
       {/* Cost-to-serve rollup (2.13.5) — OWNER/ADMIN only. */}
       {isAdminOrOwner && (
@@ -303,6 +331,153 @@ function formatUsd(cents: number): string {
     currency: "USD",
     minimumFractionDigits: 2,
   }).format(cents / 100);
+}
+
+function UsageTrendGraph({ buckets }: { buckets: UsageTrendBucket[] }) {
+  if (buckets.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-[#E6EBF3] bg-[#FBFCFE] p-8 text-center text-[12.5px] text-zinc-500">
+        No AI spend yet — generate an episode to start populating this chart.
+      </div>
+    );
+  }
+
+  const totalCost = buckets.reduce((acc, b) => acc + b.costCents, 0);
+  const totalGens = buckets.reduce((acc, b) => acc + b.generations, 0);
+  const maxCost = Math.max(1, ...buckets.map((b) => b.costCents));
+  const maxGens = Math.max(1, ...buckets.map((b) => b.generations));
+
+  const width = 720;
+  const height = 96;
+  const padX = 8;
+  const barAreaWidth = width - padX * 2;
+  const slotWidth = barAreaWidth / buckets.length;
+  const barWidth = Math.max(2, Math.min(slotWidth * 0.72, 20));
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <TrendStat label="Cost, 30 days" value={formatUsd(totalCost)} />
+        <TrendStat label="Generations" value={totalGens.toLocaleString()} />
+        <TrendStat
+          label="Avg cost / day"
+          value={formatUsd(Math.round(totalCost / buckets.length))}
+        />
+        <TrendStat
+          label="Avg cost / generation"
+          value={totalGens > 0 ? formatUsd(Math.round(totalCost / totalGens)) : "—"}
+        />
+      </div>
+
+      <TrendBars
+        buckets={buckets}
+        max={maxCost}
+        valueFor={(b) => b.costCents}
+        width={width}
+        height={height}
+        padX={padX}
+        slotWidth={slotWidth}
+        barWidth={barWidth}
+        color="#3A5BA0"
+        label="Cost / day"
+      />
+      <TrendBars
+        buckets={buckets}
+        max={maxGens}
+        valueFor={(b) => b.generations}
+        width={width}
+        height={height}
+        padX={padX}
+        slotWidth={slotWidth}
+        barWidth={barWidth}
+        color="#2E9E5B"
+        label="Generations / day"
+      />
+    </div>
+  );
+}
+
+function TrendStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-[#E6EBF3] bg-[#FBFCFE] p-3">
+      <div className="font-mono text-[10.5px] tracking-[0.05em] text-zinc-500 uppercase">
+        {label}
+      </div>
+      <div className="text-ink mt-1 font-sans text-[15px] font-semibold tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+function TrendBars({
+  buckets,
+  max,
+  valueFor,
+  width,
+  height,
+  padX,
+  slotWidth,
+  barWidth,
+  color,
+  label,
+}: {
+  buckets: UsageTrendBucket[];
+  max: number;
+  valueFor: (b: UsageTrendBucket) => number;
+  width: number;
+  height: number;
+  padX: number;
+  slotWidth: number;
+  barWidth: number;
+  color: string;
+  label: string;
+}) {
+  return (
+    <div>
+      <div className="mb-1 flex items-baseline justify-between">
+        <span className="text-muted-2 font-mono text-[10.5px] tracking-[0.05em] uppercase">
+          {label}
+        </span>
+        <span className="text-muted-2 font-mono text-[10.5px]">
+          {buckets[0]!.dateIso} → {buckets[buckets.length - 1]!.dateIso}
+        </span>
+      </div>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="h-[80px] w-full"
+        role="img"
+        aria-label={label}
+      >
+        {/* Baseline */}
+        <line
+          x1={padX}
+          x2={width - padX}
+          y1={height - 4}
+          y2={height - 4}
+          stroke="#E6EBF3"
+          strokeWidth={1}
+        />
+        {buckets.map((b, i) => {
+          const value = valueFor(b);
+          const h = value === 0 ? 2 : Math.round((value / max) * (height - 12));
+          const cx = padX + slotWidth * i + slotWidth / 2;
+          return (
+            <rect
+              key={b.dateIso}
+              x={cx - barWidth / 2}
+              y={height - 4 - h}
+              width={barWidth}
+              height={h}
+              rx={2}
+              fill={color}
+              opacity={value === 0 ? 0.15 : 0.85}
+            >
+              <title>{`${b.dateIso}: ${value === 0 ? "no activity" : label.replace(" / day", "")} ${label.startsWith("Cost") ? formatUsd(value) : value}`}</title>
+            </rect>
+          );
+        })}
+      </svg>
+    </div>
+  );
 }
 
 function UsageMeter({ label, used, limit }: { label: string; used: number; limit: number }) {

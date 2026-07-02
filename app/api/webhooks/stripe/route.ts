@@ -1,9 +1,11 @@
 import { type BillingCadence, InvoiceStatus, type Plan } from "@prisma/client";
 import { headers } from "next/headers";
+import { trackServer } from "@/server/analytics/track";
 import { planAndCadenceForPriceId } from "@/server/billing/prices";
 import { Stripe, requireStripeClient } from "@/server/billing/stripe";
 import { prisma } from "@/server/db/client";
 import { markWebhookProcessed, unmarkWebhookProcessed } from "@/server/db/webhook-deliveries";
+import { captureWebhookFailure } from "@/server/observability/sentry";
 
 // Webhook handlers must never be cached.
 export const dynamic = "force-dynamic";
@@ -45,6 +47,7 @@ export async function POST(req: Request) {
       type: event.type,
       err,
     });
+    captureWebhookFailure("stripe_webhook", err, { eventType: event.type, eventId: event.id });
     // Roll the ledger row back so Stripe's next retry re-processes — the
     // transient failure shouldn't permanently de-dupe a legitimate event.
     await unmarkWebhookProcessed("stripe", event.id);
@@ -57,8 +60,14 @@ export async function POST(req: Request) {
 async function dispatch(event: Stripe.Event): Promise<void> {
   switch (event.type) {
     case "customer.subscription.created":
+      await syncSubscription(event.data.object as Stripe.Subscription, {
+        fireUpgradeCompleted: true,
+      });
+      return;
     case "customer.subscription.updated":
-      await syncSubscription(event.data.object as Stripe.Subscription);
+      await syncSubscription(event.data.object as Stripe.Subscription, {
+        fireUpgradeCompleted: false,
+      });
       return;
 
     case "customer.subscription.deleted":
@@ -80,7 +89,10 @@ async function dispatch(event: Stripe.Event): Promise<void> {
 // Subscription handlers
 // ============================================================
 
-async function syncSubscription(sub: Stripe.Subscription): Promise<void> {
+async function syncSubscription(
+  sub: Stripe.Subscription,
+  { fireUpgradeCompleted }: { fireUpgradeCompleted: boolean },
+): Promise<void> {
   const agencyId = sub.metadata?.agencyId;
   if (!agencyId) {
     console.warn("[stripe-webhook] subscription has no agencyId metadata", {
@@ -112,6 +124,24 @@ async function syncSubscription(sub: Stripe.Subscription): Promise<void> {
       stripeSubscriptionId: sub.id,
     },
   });
+
+  // Phase 3.7 — upgrade funnel completion. Only fires on
+  // `customer.subscription.created` (not on updates) so the funnel
+  // metric doesn't double-count every subscription mutation. The
+  // webhook is the authoritative signal: client redirects lie
+  // (users close the tab, Stripe retries, etc.).
+  if (fireUpgradeCompleted) {
+    await trackServer(
+      "upgrade_completed",
+      {
+        agencyId,
+        plan,
+        cadence: billingCadence,
+        stripeSubscriptionId: sub.id,
+      },
+      { distinctId: `agency:${agencyId}`, agencyId },
+    );
+  }
 }
 
 async function handleSubscriptionDeleted(sub: Stripe.Subscription): Promise<void> {

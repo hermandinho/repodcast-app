@@ -2,6 +2,7 @@ import { EpisodeStatus, TranscriptSource } from "@prisma/client";
 import { NonRetriableError } from "inngest";
 import { audioExtensionFor } from "@/lib/audio";
 import { prisma } from "@/server/db/client";
+import { captureInngestFailure } from "@/server/observability/sentry";
 import { putR2Object } from "@/server/storage/r2";
 import {
   listEpisodesByFeedId,
@@ -57,6 +58,7 @@ export const importRssEpisode = inngest.createFunction(
      */
     onFailure: async ({ event, error }) => {
       const { episodeId } = event.data.event.data as Events["episode/rss.import.requested"]["data"];
+      captureInngestFailure("rss_import", error, { episodeId });
       try {
         await prisma.episode.update({
           where: { id: episodeId },

@@ -227,3 +227,91 @@ export async function costByClient(
     };
   });
 }
+
+// ============================================================
+// Agency-wide daily trend (Phase 3.7)
+// ============================================================
+
+export type UsageTrendBucket = {
+  /** UTC-midnight-anchored ISO date, `YYYY-MM-DD`. Sorted ascending. */
+  dateIso: string;
+  /** Sum of `UsageLog.costCents` in this UTC day. */
+  costCents: number;
+  /** Number of GeneratedOutput rows persisted in this UTC day (any status).
+   *  Uses current-version rows only so regens don't double-count. */
+  generations: number;
+};
+
+/**
+ * Daily-bucketed cost + generation series for the tenant, over the last
+ * `windowDays` including today. Same OWNER/ADMIN gate as the other
+ * cost helpers — financial data.
+ *
+ * Zero-filled: every day in the window shows up in the return array,
+ * even days with no activity. Callers can chart directly without
+ * gap-filling.
+ *
+ * Implementation: two Prisma finds + in-memory bucketing. Cheaper than
+ * a raw SQL GROUP BY DATE_TRUNC since Prisma doesn't expose that
+ * portably across pg/sqlite, and the row volume is bounded by plan
+ * limits (~few thousand UsageLog rows per agency per 90d at NETWORK).
+ */
+export async function getAgencyUsageTrend(
+  ctx: TenantContext,
+  windowDays = 30,
+): Promise<UsageTrendBucket[]> {
+  requireRole(ctx, ADMIN_ROLES);
+  if (!Number.isFinite(windowDays) || windowDays < 1) windowDays = 30;
+  if (windowDays > 365) windowDays = 365;
+
+  const now = new Date();
+  // Anchor "today" at UTC midnight so bucketing lines up across daylight-
+  // saving boundaries + operator timezones.
+  const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const from = new Date(todayUtc.getTime() - (windowDays - 1) * 24 * 60 * 60 * 1000);
+  // End of today (exclusive upper bound for the window).
+  const to = new Date(todayUtc.getTime() + 24 * 60 * 60 * 1000);
+
+  const [usageRows, outputRows] = await Promise.all([
+    prisma.usageLog.findMany({
+      where: {
+        agencyId: ctx.agencyId,
+        createdAt: { gte: from, lt: to },
+      },
+      select: { createdAt: true, costCents: true },
+    }),
+    prisma.generatedOutput.findMany({
+      where: {
+        supersededAt: null,
+        createdAt: { gte: from, lt: to },
+        episode: { show: { client: { agencyId: ctx.agencyId } } },
+      },
+      select: { createdAt: true },
+    }),
+  ]);
+
+  // Pre-fill every day in the window with zeros so charts render straight
+  // lines through quiet days instead of missing data points.
+  const buckets = new Map<string, UsageTrendBucket>();
+  for (let d = 0; d < windowDays; d += 1) {
+    const anchor = new Date(from.getTime() + d * 24 * 60 * 60 * 1000);
+    const key = utcDayKey(anchor);
+    buckets.set(key, { dateIso: key, costCents: 0, generations: 0 });
+  }
+  for (const row of usageRows) {
+    const b = buckets.get(utcDayKey(row.createdAt));
+    if (b) b.costCents += row.costCents;
+  }
+  for (const row of outputRows) {
+    const b = buckets.get(utcDayKey(row.createdAt));
+    if (b) b.generations += 1;
+  }
+
+  return [...buckets.values()].sort((a, b) => (a.dateIso < b.dateIso ? -1 : 1));
+}
+
+function utcDayKey(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(
+    d.getUTCDate(),
+  ).padStart(2, "0")}`;
+}

@@ -1198,10 +1198,17 @@ Tests: 20 in `tests/server/db/system-config.test.ts` covering enum bidirectional
 
 > Scoped to **tenant-facing** observability — what an agency OWNER sees about their own data. Platform-wide visibility for the Repodcast team lives in 3.6.
 
-- [ ] Full PostHog funnel: register → first generation → approve → upgrade
-- [ ] Sentry alerts on pipeline + webhook failures
-- [ ] Per-agency cost/usage dashboard (already partially live via `/settings/billing` usage meters; this finishes the picture with monthly + 90-day trends)
-- [ ] Feature flags (PostHog) for gradual rollouts
+- [x] **Full PostHog funnel** — the four core signup-through-monetization events all fire:
+  - `onboarding_started` → `agency_created` → `first_client_added` → `first_episode_generated` (landed earlier, in `lib/analytics/events.ts`).
+  - `generation_completed` + `output_approved` + `output_edited` per platform-slot (also earlier).
+  - Phase 3.7 additions: `upgrade_started` fires server-side from `createCheckoutSessionAction` right before we return the hosted-checkout URL (carries `fromPlan`, `toPlan`, `cadence`, `currency`). `upgrade_completed` fires from the Stripe webhook on `customer.subscription.created` (not on updates — otherwise every subscription mutation double-counts). The webhook is authoritative; client redirects can't be trusted (users close the tab, Stripe retries the webhook independently).
+- [x] **Sentry alerts on pipeline + webhook failures** — `server/observability/sentry.ts` exposes `captureInngestFailure(scope, err, extra?)` + `captureWebhookFailure(scope, err, extra?)`. Wired into every `onFailure` handler (`import-rss-episode`, `import-youtube-episode`, `regenerate-output`) so captures fire only after Inngest exhausts retries (dedupe by design — Sentry's own fingerprinting groups repeated captures anyway, but firing per-retry would still spam). Also wired into `/api/webhooks/stripe` + `/api/webhooks/clerk` catch paths so provider retry loops surface as a single Sentry issue with a bumped event count. Alert rules live in the Sentry UI keyed off `tags.scope`. Remaining Inngest functions without an `onFailure` handler yet (`generate-episode`, `transcribe-episode`, `sync-scheduled-outputs`, etc.) auto-capture via Sentry's built-in Node instrumentation but lack the tagged scope — follow-up to add `onFailure` where the pipeline surface warrants a dedicated alert rule.
+- [x] **Per-agency cost/usage dashboard** — `/settings/billing` gains a 30-day trend section between the usage meters and cost-to-serve rollup: four summary tiles (total cost / total generations / avg cost per day / avg cost per generation) + two inline-SVG bar charts (cost/day + generations/day, zero-filled). Data comes from `getAgencyUsageTrend(ctx, windowDays)` in `server/db/client-cost.ts` — UTC-day-bucketed, OWNER/ADMIN gate, bounded at 365 days. Days with no activity flatten to a 2px baseline so quiet periods are visible without gap-filling.
+- [x] **Feature flags (PostHog) for gradual rollouts** — thin wrappers around the SDK:
+  - `lib/analytics/feature-flag.ts` — client `useFeatureFlag(key)` hook. Subscribes to `posthog.onFeatureFlags` so a toolbar override or a background refresh from `/decide` rerenders the caller. Fails open (returns `false`) when the SDK isn't initialised.
+  - `server/analytics/feature-flag.ts` — server `getServerFeatureFlag(distinctId, key, { agencyId? })`. POSTs `/decide?v=3` with a 2s AbortController timeout, treats booleans + non-empty variant strings as "on", never throws.
+
+Not tested with automated cases — the PostHog + Sentry surfaces are I/O against external providers and better validated via a smoke run + Sentry / PostHog dashboard sanity check.
 
 ## 3.8 Launch assets
 

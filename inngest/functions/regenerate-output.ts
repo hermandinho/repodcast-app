@@ -4,6 +4,7 @@ import { CLAUDE_MODEL, requireClaudeClient } from "@/server/ai/claude";
 import { buildMessages, extractText, type VoiceContext } from "@/server/ai/prompt-builder";
 import { scoreOutput } from "@/server/ai/quality-score";
 import { prisma } from "@/server/db/client";
+import { captureInngestFailure } from "@/server/observability/sentry";
 import type { Events } from "../events";
 import { inngest } from "../client";
 
@@ -43,6 +44,7 @@ export const regenerateOutput = inngest.createFunction(
     onFailure: async ({ event, error }) => {
       const { outputId } = event.data.event
         .data as Events["episode/regenerate.output.requested"]["data"];
+      captureInngestFailure("regenerate_output", error, { outputId });
       const output = await prisma.generatedOutput.findUnique({
         where: { id: outputId },
         select: {

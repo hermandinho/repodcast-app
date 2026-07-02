@@ -1,6 +1,7 @@
 import { EpisodeStatus, TranscriptSource } from "@prisma/client";
 import { NonRetriableError } from "inngest";
 import { prisma } from "@/server/db/client";
+import { captureInngestFailure } from "@/server/observability/sentry";
 import { putR2Object } from "@/server/storage/r2";
 import {
   downloadYouTubeAudio,
@@ -57,6 +58,7 @@ export const importYoutubeEpisode = inngest.createFunction(
     onFailure: async ({ event, error }) => {
       const { episodeId } = event.data.event
         .data as Events["episode/youtube.import.requested"]["data"];
+      captureInngestFailure("youtube_import", error, { episodeId });
       try {
         await prisma.episode.update({
           where: { id: episodeId },

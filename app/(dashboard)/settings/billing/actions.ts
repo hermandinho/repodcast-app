@@ -18,6 +18,7 @@ import { prisma } from "@/server/db/client";
 import { updatePreferredCurrency, updatePreferredCurrencyInput } from "@/server/db/agencies";
 import { priceIdFor } from "@/server/billing/prices";
 import { requireStripeClient } from "@/server/billing/stripe";
+import { trackServer } from "@/server/analytics/track";
 
 const checkoutInput = z.object({
   plan: z.nativeEnum(Plan),
@@ -67,7 +68,7 @@ export async function createCheckoutSessionAction(
   // the one we pass via the `currency` param.
   const agency = await prisma.agency.findUnique({
     where: { id: auth.agency.id },
-    select: { preferredCurrency: true },
+    select: { preferredCurrency: true, plan: true },
   });
   const resolvedCurrency =
     parsed.data.currency ?? asSupportedCurrency(agency?.preferredCurrency) ?? DEFAULT_CURRENCY;
@@ -103,6 +104,22 @@ export async function createCheckoutSessionAction(
   if (!session.url) {
     return { ok: false, error: "Stripe did not return a checkout URL." };
   }
+
+  // Phase 3.7 — funnel signal. Fired synchronously so it lands before we
+  // redirect the user to Stripe's hosted page; `trackServer` bounds itself
+  // to 2s so a PostHog outage can't slow the checkout kick-off.
+  await trackServer(
+    "upgrade_started",
+    {
+      agencyId: auth.agency.id,
+      fromPlan: agency?.plan ?? Plan.STUDIO,
+      toPlan: plan,
+      cadence,
+      currency: resolvedCurrency,
+    },
+    { distinctId: `agency:${auth.agency.id}`, agencyId: auth.agency.id },
+  );
+
   return { ok: true, data: { url: session.url } };
 }
 

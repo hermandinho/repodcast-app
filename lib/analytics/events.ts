@@ -76,6 +76,37 @@ export type EventMap = {
     delta: number;
     totalEditDistance: number;
   };
+
+  /**
+   * Phase 3.7 — upgrade funnel. Two events:
+   *   - `upgrade_started` fires server-side from
+   *     `createCheckoutSessionAction` right before we return the hosted-
+   *     checkout URL. `fromPlan` is the current plan on the agency,
+   *     `toPlan` is what the user picked. `cadence` distinguishes monthly
+   *     vs annual upgrades — different acquisition/retention profiles.
+   *   - `upgrade_completed` fires server-side from the Stripe webhook
+   *     when `checkout.session.completed` lands with a subscription id.
+   *     We can't rely on client redirects (users close the tab, Stripe
+   *     retries webhooks, etc.), so the webhook is the authoritative
+   *     completion signal.
+   *
+   * Together with `agency_created`, the funnel is:
+   *   agency_created → upgrade_started → upgrade_completed
+   * which the PostHog dashboard can chart directly.
+   */
+  upgrade_started: {
+    agencyId: string;
+    fromPlan: Plan;
+    toPlan: Plan;
+    cadence: "MONTHLY" | "ANNUAL";
+    currency: string;
+  };
+  upgrade_completed: {
+    agencyId: string;
+    plan: Plan;
+    cadence: "MONTHLY" | "ANNUAL";
+    stripeSubscriptionId: string;
+  };
 };
 
 export type EventName = keyof EventMap;
