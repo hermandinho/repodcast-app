@@ -64,6 +64,16 @@ enum OutputStatus {
   FAILED
 }
 
+/// Phase 3.3 — where a scheduled output actually publishes. BUFFER = the
+/// agency has connected their own Buffer account and we POST to Buffer's
+/// API. MANUAL = we track the intent in Repodcast; the user posts elsewhere
+/// (or Buffer doesn't support the platform — e.g. SHOW_NOTES / BLOG /
+/// NEWSLETTER) and flips PUBLISHED themselves.
+enum ExternalScheduler {
+  BUFFER
+  MANUAL
+}
+
 enum TranscriptSource {
   PASTE
   UPLOAD
@@ -177,6 +187,7 @@ model Agency {
   onboardingNudgesSent OnboardingNudgeSent[]
   usageSnapshots       AgencyUsageSnapshot[]
   limitOverrides       AgencyLimitOverride[]
+  integrations         AgencyIntegration[]
 
   /// Same hot-path index as declared inline in the migration — mirrored here
   /// so `prisma migrate diff` stays clean on the next migration boundary.
@@ -207,6 +218,10 @@ model Member {
   authoredStatements        ClientStatement[]  @relation("StatementAuthor")
   /// Phase 2.13 — client-portal links this member minted.
   authoredPortalLinks       ClientPortalLink[] @relation("PortalLinkAuthor")
+  /// Phase 3.3 — outputs this member queued for publishing.
+  scheduledOutputs          GeneratedOutput[]  @relation("OutputScheduler")
+  /// Phase 3.3 — integrations this member connected (Buffer OAuth, etc.).
+  connectedIntegrations     AgencyIntegration[] @relation("IntegrationConnector")
 
   @@unique([agencyId, clerkUserId])
   @@index([agencyId])
@@ -387,11 +402,23 @@ model GeneratedOutput {
   flagReason         String?
   flaggedByMemberId  String?
   flaggedAt          DateTime?
+  /// Phase 3.3 — scheduling surface. All four are populated together when
+  /// APPROVED → SCHEDULED, cleared on unschedule, and `publishedAt` stamps
+  /// on the terminal transition to PUBLISHED. `externalPostId` is Buffer's
+  /// update id (or a Typefully draft id in a future provider). Null for
+  /// MANUAL rows — the user is publishing elsewhere; we only track intent.
+  scheduledFor        DateTime?
+  scheduledByMemberId String?
+  externalScheduler   ExternalScheduler?
+  externalPostId      String?
+  externalPostUrl     String?
+  publishedAt         DateTime?
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
   episode          Episode            @relation(fields: [episodeId], references: [id], onDelete: Cascade)
   approvedByMember Member?            @relation("OutputApprover", fields: [approvedByMemberId], references: [id], onDelete: SetNull)
+  scheduledByMember Member?           @relation("OutputScheduler", fields: [scheduledByMemberId], references: [id], onDelete: SetNull)
   previousVersion  GeneratedOutput?   @relation("OutputVersionHistory", fields: [previousVersionId], references: [id], onDelete: SetNull)
   nextVersions     GeneratedOutput[]  @relation("OutputVersionHistory")
   voiceSamples     VoiceSample[]
@@ -402,9 +429,14 @@ model GeneratedOutput {
   @@index([platform])
   @@index([status])
   @@index([approvedByMemberId])
+  @@index([scheduledByMemberId])
   @@index([previousVersionId])
   /// Hot path: "list all unresolved flagged outputs" on `/root/quality`.
   @@index([flaggedAt])
+  /// Phase 3.3 — powers the /schedule calendar range query + the
+  /// sync-scheduled-outputs cron scan.
+  @@index([scheduledFor])
+  @@index([status, scheduledFor])
 }
 
 /// Append-only log of status changes on `GeneratedOutput`. Powers the
@@ -1057,4 +1089,40 @@ model AbuseReport {
   @@index([assignedToSystemAdminId, status])
   @@index([targetAgencyId, createdAt])
   @@index([category, status])
+}
+
+/// Phase 3.3 — per-agency scheduling-provider connection. Currently only
+/// Buffer, but the shape is provider-generic so Typefully or a future
+/// first-party integration slots in without a migration. `accessToken` is
+/// AES-256-GCM encrypted at the app layer (see `server/crypto/token-vault.ts`)
+/// — nothing else in this table is secret. `meta` holds provider-specific
+/// bookkeeping such as Buffer profile ids keyed by our `Platform` enum.
+model AgencyIntegration {
+  id                  String            @id @default(cuid())
+  agencyId            String
+  provider            ExternalScheduler
+  /// Encrypted, opaque to callers — always route through the token vault.
+  accessToken         String
+  /// Only populated on providers with refreshable tokens (Buffer v2 / OAuth 2).
+  refreshToken        String?
+  expiresAt           DateTime?
+  /// Provider-specific bag. For Buffer: `{ profiles: { TWITTER: "abc123", ... } }`.
+  meta                Json?
+  /// Per-agency setting: auto-flip SCHEDULED → PUBLISHED for MANUAL rows
+  /// whose `scheduledFor` is past. Buffer-backed rows always sync from the
+  /// provider regardless of this flag.
+  autoMarkPublished   Boolean           @default(true)
+  connectedByMemberId String?
+  lastSyncedAt        DateTime?
+  lastSyncError       String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  agency        Agency  @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  connectedBy   Member? @relation("IntegrationConnector", fields: [connectedByMemberId], references: [id], onDelete: SetNull)
+
+  /// One row per (agency, provider) — a second connect from the same agency
+  /// overwrites the token via upsert rather than creating a duplicate row.
+  @@unique([agencyId, provider])
+  @@index([agencyId])
 }

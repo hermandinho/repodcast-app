@@ -1,4 +1,5 @@
-export type EpisodeStatus = "generating" | "ready" | "review" | "scheduled" | "approved" | "failed";
+export type EpisodeStatus =
+  "generating" | "ready" | "review" | "scheduled" | "approved" | "published" | "failed";
 
 export type StatusMeta = {
   label: string;
@@ -20,6 +21,8 @@ export function statusMeta(status: EpisodeStatus): StatusMeta {
       return { label: "Scheduled", bg: "#F1F4F9", color: "#7A8496", cardBorder: "#E6EBF3" };
     case "approved":
       return { label: "Approved", bg: "#E7F4EC", color: "#1E7A47", cardBorder: "#CFE8DA" };
+    case "published":
+      return { label: "Published", bg: "#DBEDD9", color: "#166534", cardBorder: "#BEDDBA" };
     case "failed":
       return { label: "Failed", bg: "#FBEDEC", color: "#C0392B", cardBorder: "#F0CCC9" };
   }

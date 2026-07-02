@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AgencyActionsPanel } from "@/components/root/agency-actions-panel";
 import { AgencyMembersPanel } from "@/components/root/agency-members-panel";
-import { AgencyTabNav } from "@/components/root/agency-tab-nav";
 import { NotFoundError } from "@/server/auth/errors";
 import { requireSystemAdminContext } from "@/server/auth/system";
 import { prisma } from "@/server/db/client";
@@ -132,8 +131,6 @@ export default async function RootAgencyDrilldownPage({
           </div>
         </div>
       </header>
-
-      <AgencyTabNav agencyId={agency.id} />
 
       {sp.impersonate_error ? (
         <div className="rounded-lg border border-red-700/60 bg-red-950/40 px-4 py-3 text-sm text-red-200">

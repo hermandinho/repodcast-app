@@ -22,6 +22,11 @@ export type SampleOutput = {
   versionCount: number;
   /** Set when status is "failed" — the underlying error from the pipeline. */
   failureReason?: string | null;
+  /** Phase 3.3 — populated when status ∈ {"scheduled", "published"}. */
+  scheduledForIso?: string | null;
+  publishedAtIso?: string | null;
+  externalScheduler?: "BUFFER" | "MANUAL" | null;
+  externalPostUrl?: string | null;
 };
 
 export type SampleEpisode = {

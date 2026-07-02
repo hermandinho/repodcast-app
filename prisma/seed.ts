@@ -51,6 +51,8 @@ function mapOutputStatus(status: UiEpisodeStatus): OutputStatus {
       return OutputStatus.APPROVED;
     case "scheduled":
       return OutputStatus.SCHEDULED;
+    case "published":
+      return OutputStatus.PUBLISHED;
     case "failed":
       return OutputStatus.FAILED;
   }

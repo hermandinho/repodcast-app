@@ -77,6 +77,7 @@ const STATUS_TO_KEY: Record<string, UiEpisodeStatus> = {
   IN_REVIEW: "review",
   APPROVED: "approved",
   SCHEDULED: "scheduled",
+  PUBLISHED: "published",
   FAILED: "failed",
 };
 
@@ -507,6 +508,10 @@ export async function getEpisodeForUI(
       version: o.version,
       versionCount: versionCountByPlatform.get(o.platform) ?? 1,
       failureReason: reasonByOutputId.get(o.id) ?? null,
+      scheduledForIso: o.scheduledFor?.toISOString() ?? null,
+      publishedAtIso: o.publishedAt?.toISOString() ?? null,
+      externalScheduler: o.externalScheduler ?? null,
+      externalPostUrl: o.externalPostUrl ?? null,
     })),
   };
 

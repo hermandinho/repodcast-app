@@ -7,6 +7,7 @@ import { importRssEpisode } from "./functions/import-rss-episode";
 import { backfillUsageRollup, nightlyUsageRollup } from "./functions/nightly-usage-rollup";
 import { refreshVoiceDescription } from "./functions/refresh-voice-description";
 import { regenerateOutput } from "./functions/regenerate-output";
+import { syncScheduledOutputs } from "./functions/sync-scheduled-outputs";
 import { transcribeEpisode } from "./functions/transcribe-episode";
 
 /**
@@ -38,4 +39,5 @@ export const functions = [
   cleanupOrphanAudio,
   nightlyUsageRollup,
   backfillUsageRollup,
+  syncScheduledOutputs,
 ];

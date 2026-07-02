@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
 
-const nextConfig: NextConfig = {/* config options here */};
+const nextConfig: NextConfig = {
+  allowedDevOrigins: ["charming-creative-sunbird.ngrok-free.app"],
+};
 
 // Only wrap with Sentry if a DSN is configured — otherwise the plugin warns
 // about missing source-map upload credentials on every build.

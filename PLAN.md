@@ -787,9 +787,158 @@ Three forward-only steps: **Workspace → Teammates → First client**. The trai
 
 ## 3.3 Scheduling
 
-- [ ] **Schedule screen** (`/schedule`): calendar of queued posts
-- [ ] Typefully/Buffer integration for scheduling threads/posts
-- [ ] Status sync (`SCHEDULED → PUBLISHED`)
+> **Premise:** Approved outputs today are dead-ends — nothing takes them from the episode grid to a published post. §3.3 closes that gap with a **calendar-first scheduling surface** and an **optional Buffer integration** each agency can BYO. Agencies without a Buffer account still get native scheduling — the date/time is tracked in Repodcast and a "Mark published" affordance flips the status when the post goes live externally.
+>
+> **Hard scope boundary:** Repodcast never posts directly to Twitter/X/LinkedIn/Instagram/TikTok. Publishing happens through Buffer (when connected) or manually (when not). Going fully native — first-party OAuth + posting on each social API — is documented at the bottom of this section and deferred to Phase 4.
+
+### 3.3.1 Two modes: BUFFER and MANUAL
+
+Every `GeneratedOutput` scheduled from the UI is tagged with an `ExternalScheduler`:
+
+- **`BUFFER`** — agency has connected their own Buffer account; we POST to Buffer's `/updates/create` and store the resulting `externalPostId`. Buffer handles the actual publishing at the scheduled time. Our cron polls Buffer for status confirmation and flips `SCHEDULED → PUBLISHED` when Buffer confirms delivery. This mode is only offered for social platforms Buffer supports (`TWITTER`, `LINKEDIN`, `INSTAGRAM`, `TIKTOK`).
+- **`MANUAL`** — no Buffer connection, OR platform is `SHOW_NOTES` / `BLOG` / `NEWSLETTER` (Buffer doesn't publish those). We record `scheduledFor` and let the user click "Mark published" after they've posted it themselves. A cron auto-flips `SCHEDULED → PUBLISHED` when `scheduledFor < now()` **and** an operator hasn't opted out via an `autoMarkPublished` per-agency flag (default true — agencies who dispute this can turn it off in settings).
+
+### 3.3.2 Schema additions (single migration)
+
+- [ ] **Enum `ExternalScheduler`** — `BUFFER | MANUAL`. Extensible: future providers (Typefully, Hootsuite, first-party) land as new enum values without breaking existing rows.
+- [ ] **`GeneratedOutput` additions:**
+  - `scheduledFor DateTime?` — when the post should go live (or when it was published for MANUAL rows with `autoMarkPublished`).
+  - `scheduledByMemberId String?` (FK → `Member`, `onDelete: SetNull`) — who queued it. Nullable so member deletion doesn't cascade-wipe the schedule.
+  - `externalScheduler ExternalScheduler?` — set when status transitions to `SCHEDULED`.
+  - `externalPostId String?` — Buffer's update id, or null for MANUAL.
+  - `externalPostUrl String?` — Buffer/Typefully "view your post" deep link, or the live post URL if the user pasted one on "Mark published".
+  - `publishedAt DateTime?` — stamped when status flips to `PUBLISHED`.
+  - Indices: `@@index([scheduledFor])`, `@@index([status, scheduledFor])` — powers the calendar range query + the cron scan.
+- [ ] **`AgencyIntegration` model** — one row per (agency, provider). Fields: `id`, `agencyId`, `provider ExternalScheduler`, `accessToken` (encrypted at the app layer — see 3.3.3), `refreshToken?`, `expiresAt?`, `meta Json?` (Buffer profile ids per platform, keyed by `Platform`), `autoMarkPublished Boolean @default(true)`, `connectedByMemberId?`, `lastSyncedAt?`, `lastSyncError String?`, `createdAt`, `updatedAt`. `@@unique([agencyId, provider])`.
+- [ ] **OutputTransition** — no schema change; the existing status log captures every `APPROVED → SCHEDULED` / `SCHEDULED → PUBLISHED` transition with the `byMemberId` set to the actor (or null for cron-driven flips).
+
+### 3.3.3 Token storage & encryption
+
+- [ ] **`server/crypto/token-vault.ts`** — thin AES-256-GCM helper (`encrypt`/`decrypt`) keyed by `INTEGRATION_ENCRYPTION_KEY` (32 raw bytes, base64-encoded in env). Storage format: `<iv_b64>.<ciphertext_b64>.<authTag_b64>`. Reasoning: Buffer OAuth tokens grant post-authoring rights on a customer's social graph — a plaintext leak from a DB dump would be far worse than the ergonomics cost. Same key rotates for future providers.
+- [ ] **Missing key = feature disabled** — `getBufferIntegrationForAgency()` returns `null` when the vault can't decrypt; the connect flow fails closed with a clear error banner in settings.
+
+### 3.3.4 Buffer OAuth flow
+
+- [ ] **Env**: `BUFFER_CLIENT_ID`, `BUFFER_CLIENT_SECRET`, `BUFFER_REDIRECT_URI` (set to `${APP_URL}/api/integrations/buffer/callback`).
+- [ ] **Kickoff**: `GET /api/integrations/buffer/connect` — server route, tenant-gated (OWNER/ADMIN only), redirects to `https://bufferapp.com/oauth2/authorize?client_id=...&redirect_uri=...&response_type=code&state=<hmac(agencyId+nonce)>`. State cookie holds the raw nonce; the HMAC prevents CSRF pinning.
+- [ ] **Callback**: `GET /api/integrations/buffer/callback?code=...&state=...` — verifies state, exchanges the code for a Bearer token (`POST https://api.bufferapp.com/1/oauth2/token.json`), fetches `GET /1/profiles.json` to enumerate the connected social profiles, encrypts the token, upserts `AgencyIntegration` with `meta.profiles` keyed by our `Platform` enum (Buffer's `service` string maps to our enum). Redirects to `/settings/integrations?buffer=connected`.
+- [ ] **Disconnect**: `POST /api/integrations/buffer/disconnect` — hard-deletes the `AgencyIntegration` row + writes a `SystemAuditLog` breadcrumb (agency-side action, but audit-worthy). Any outputs still in SCHEDULED with `externalScheduler=BUFFER` are downgraded to MANUAL by the same server action — they can't be synced anymore, so we surface a "verify posted" banner on the calendar for those rows.
+
+### 3.3.5 DB helpers (`server/db/outputs.ts` + new `server/db/integrations.ts`)
+
+- [ ] `scheduleOutput(ctx, outputId, { scheduledFor, memberId, externalScheduler })` — `APPROVED → SCHEDULED`, writes `OutputTransition`. Validates `scheduledFor > now()` (unless status is being back-dated on a MANUAL "already posted" flow — separate helper).
+- [ ] `unscheduleOutput(ctx, outputId, byMemberId)` — `SCHEDULED → APPROVED`, clears `scheduledFor`/`externalScheduler`/`externalPostId`. If Buffer-backed, the server action separately calls `deleteUpdate` on Buffer before this DB helper runs (best-effort — a 404 on Buffer is treated as already-deleted).
+- [ ] `markOutputPublished(ctx, outputId, { publishedAt, externalPostUrl?, byMemberId? })` — `SCHEDULED → PUBLISHED`. Called by cron (`byMemberId: null`) OR by a user hitting "Mark published" (`byMemberId: authed member`).
+- [ ] `listScheduledOutputsForAgency(ctx, { fromIso, toIso, clientId?, showId?, platform? })` — powers the calendar. Includes `PUBLISHED` in the window (past) + `SCHEDULED` (future). Bounded window enforcement (max 90 days) so a naive `?fromIso=1970-01-01` doesn't scan the world.
+- [ ] `server/db/integrations.ts`:
+  - `getBufferIntegrationForAgency(ctx)` — returns `{ accessToken, meta, autoMarkPublished }` after decryption or `null`.
+  - `connectAgencyIntegration(ctx, { provider, tokens, meta, memberId })` — upserts + writes an audit-worthy transition (via a new `IntegrationTransition` log? Or fold into `OutputTransition`? Decision: new `IntegrationConnection` log OR skip in favor of `SystemAuditLog` since this is an agency-scoped op that platform admins may also want visibility on — **choose: `SystemAuditLog` write only for platform-admin visibility; no per-tenant table**).
+  - `disconnectAgencyIntegration(ctx)` — deletes the row + downgrades in-flight SCHEDULED outputs to MANUAL.
+
+### 3.3.6 Buffer API client (`server/integrations/buffer.ts`)
+
+- [ ] `createUpdate({ accessToken, profileId, text, scheduledAt, media? })` → `{ id, service, dueAt }`. Wraps `POST /1/updates/create.json` (form-encoded — Buffer's API is v1 legacy). Retries on 5xx, throws `BufferError { status, body }` on 4xx.
+- [ ] `getUpdate({ accessToken, id })` → `{ id, status: "buffer" | "sent" | "failed", sentAt?, publicUrl? }` — powers the sync cron.
+- [ ] `deleteUpdate({ accessToken, id })` — used by `unscheduleOutput` before the DB write. 404 is a non-error.
+- [ ] `listProfiles({ accessToken })` — enumerate connected social profiles + service (twitter, linkedin, instagram, tiktok) so the connect flow can map them into our `Platform` enum.
+- [ ] All calls use a 15 s timeout via `AbortController`. Rate-limit backoff is baked into the retry policy (Buffer returns `X-RateLimit-Remaining`; when 0, sleep to `X-RateLimit-Reset`).
+
+### 3.3.7 Server actions (`app/(dashboard)/schedule/actions.ts`)
+
+- [ ] `scheduleOutputAction({ outputId, scheduledForIso, mode: "auto" | "buffer" | "manual" })` — `EDITOR+` role gate. Flow:
+  1. Load output, verify tenant, verify status `APPROVED`, verify `scheduledForIso > now()`.
+  2. Resolve mode: `"auto"` = Buffer if connected AND platform supported, else Manual. `"buffer"` = force Buffer (fail if not connected or platform unsupported). `"manual"` = never touch Buffer.
+  3. If Buffer: fetch the integration, resolve the Buffer profile id for the platform from `meta.profiles`, call `createUpdate`, capture `externalPostId` + `publicUrl`.
+  4. Call `scheduleOutput` DB helper with the resolved values.
+  5. Revalidate `/schedule` + the episode page.
+- [ ] `unscheduleOutputAction({ outputId })` — reverse. Deletes Buffer update first, then DB flip.
+- [ ] `markOutputPublishedAction({ outputId, publishedAtIso?, externalPostUrl? })` — MANUAL only (Buffer path is cron-driven). Editor+ role.
+- [ ] `bulkScheduleOutputsAction({ outputIds, scheduledForIso, mode })` — powers a "Schedule 8 posts" affordance on the episode grid. Same tenancy checks; per-output failure isolates (returns per-id ok/error map).
+
+### 3.3.8 Inngest functions
+
+- [ ] **`push-to-buffer`** (event `output/schedule.push.requested`) — used by the scheduling action when Buffer mode is chosen. Retries: 3, `onFailure` writes `AgencyIntegration.lastSyncError` and downgrades the row to MANUAL so the user can retry manually. Not co-invoked from the action synchronously because Buffer's API can be slow (~1–2 s) and blocking the action hurts UX — action returns immediately with `SCHEDULED` state + `externalScheduler: null` until push completes.
+  - Wait, this creates a race: user reloads and sees a MANUAL-looking SCHEDULED row before push completes. Decision: run push **synchronously** in the action for now (Buffer p95 is fast enough) and only fall back to Inngest for retry on transient failures. Keeps the UX truthful.
+- [ ] **`sync-scheduled-outputs`** (cron every 5 min) — scans `GeneratedOutput` where `status = SCHEDULED`:
+  - Buffer-backed rows: batch-load each row's agency integration, call `getUpdate`, flip to `PUBLISHED` when Buffer reports `sent`. Skip rows created < 60 s ago (Buffer's `buffer` state is our expected mid-flight state).
+  - Manual rows: if `scheduledFor < now()` and the agency's `autoMarkPublished` is true, flip to `PUBLISHED` (audit as cron-driven).
+  - Missing integration (agency disconnected mid-flight): downgrade to MANUAL, surface banner.
+- [ ] **`refresh-buffer-tokens`** (cron daily at 03:00 UTC) — Buffer OAuth tokens don't expire in v1's model (Buffer honors long-lived tokens), but if we upgrade to v2 or add Typefully, this hook is where refresh lives. Stub for now.
+
+### 3.3.9 UI — `/schedule` page
+
+- [ ] **Layout**: month calendar grid (7 columns × 5–6 rows). Header shows the month + prev/next arrows + "Today" + filter chips (client, show, platform, mode).
+- [ ] **Day cell**: shows up to 3 post pills stacked (platform icon + client host); "+N more" chip when the day has more. Empty days render dimmed.
+- [ ] **Day drawer**: clicking a day opens a right-hand drawer showing every scheduled/published post that day, grouped by client. Each item is a slimmed-down OutputCard variant (`ScheduledOutputCard`) with unschedule + edit-content + reschedule affordances.
+- [ ] **Empty state**: "Nothing scheduled this month" + link back to episodes.
+- [ ] **Server component** — `page.tsx` awaits `listScheduledOutputsForAgency` for the current month; drawer opens are client-side.
+- [ ] **URL state** — `?month=YYYY-MM&client=<id>&platform=<enum>` so the calendar is deep-linkable and back-button friendly.
+
+### 3.3.10 UI — episode page & OutputCard CTA
+
+- [ ] **APPROVED card** gains a "Schedule…" button next to "Regenerate". Opens a small popover with:
+  - Date + time picker (default: next weekday 09:00 in agency's preferred timezone).
+  - Mode radio: `Auto` (default) / `Force Buffer` / `Manual only`. Disabled options are grayed out with a hint (e.g. "Connect Buffer in settings" when no integration).
+  - Submit fires `scheduleOutputAction`.
+- [ ] **SCHEDULED card** shows the scheduled date + platform + "View in Buffer ↗" link (if Buffer-backed) + "Unschedule" + "Reschedule…".
+- [ ] **PUBLISHED card** shows the published-at date + "View post ↗" link (external URL from Buffer or user-provided).
+- [ ] **Bulk schedule** on the episode header — "Schedule 8 approved posts…" opens a similar popover; auto mode assigns per-platform staggered times (e.g. one every 2 hours across a weekday).
+
+### 3.3.11 UI — Settings › Integrations
+
+- [ ] New route `/settings/integrations`. Cards for each provider:
+  - **Buffer** — shows connected state, connected-by member, connected-at date, list of enumerated profiles per platform, `autoMarkPublished` toggle, disconnect button (requires typing "disconnect" to prevent accidents — 30d worth of scheduled posts get downgraded).
+  - **Typefully / Native platforms** — "Coming soon" stubs so the layout is future-proof.
+- [ ] Role gate: OWNER/ADMIN only for connect/disconnect. EDITOR/REVIEWER can see the current state but not change it.
+
+### 3.3.12 Env additions
+
+- [ ] `BUFFER_CLIENT_ID` — from Buffer's developer console.
+- [ ] `BUFFER_CLIENT_SECRET` — same.
+- [ ] `BUFFER_REDIRECT_URI` — computed at runtime from `NEXT_PUBLIC_APP_URL` + `/api/integrations/buffer/callback`; env override supported.
+- [ ] `INTEGRATION_ENCRYPTION_KEY` — 32 raw bytes base64-encoded. Generated once, never rotated in v1.
+
+### 3.3.13 Testing
+
+- [ ] `tests/server/db/outputs-schedule.test.ts` — schedule/unschedule/mark-published + tenant scoping + status-transition legality (can't schedule GENERATING, can't publish READY, etc.).
+- [ ] `tests/actions/schedule-output.test.ts` — server action flow: auto mode with Buffer connected vs not, force-buffer error when platform unsupported, manual mode always allowed, past-date rejection.
+- [ ] `tests/server/integrations/buffer-client.test.ts` — mock `fetch`; assert form-encoding, rate-limit backoff, 404 = deleted-ok.
+- [ ] `tests/inngest/sync-scheduled-outputs.test.ts` — Buffer-confirmed → PUBLISHED, still-pending → skip, disconnected agency → downgrade to MANUAL, MANUAL past-`scheduledFor` + autoMarkPublished → PUBLISHED.
+- [ ] `tests/server/crypto/token-vault.test.ts` — encrypt/decrypt roundtrip, tampered ciphertext rejected, missing key surfaces a clear error.
+
+### 3.3.14 Rollout & feature-flag plan
+
+- [ ] Ship behind a `SCHEDULING_ENABLED` PostHog flag scoped to internal agencies for 1 week.
+- [ ] Migrate historical `APPROVED` outputs untouched — nothing about their status changes.
+- [ ] Announcement email (Resend template) to all OWNER accounts when public.
+
+### 3.3.15 Ship order (intra-slice)
+
+- [x] 1. Schema migration + enum + AgencyIntegration model. Landed in `20260701030000_scheduling` with the `ExternalScheduler` enum, six columns on `GeneratedOutput` (all nullable, no backfill), the `AgencyIntegration` table with `@@unique([agencyId, provider])`, and two calendar-hot-path indices (`scheduledFor`, `(status, scheduledFor)`).
+- [x] 2. `server/crypto/token-vault.ts` + tests. AES-256-GCM helper keyed by `INTEGRATION_ENCRYPTION_KEY` (32-byte base64). Storage format `<iv>.<ct>.<tag>`. 5 unit tests covering round-trip, tampered-ciphertext rejection, missing-key + wrong-length-key + malformed-payload.
+- [x] 3. `server/db/outputs.ts` schedule helpers + `server/db/integrations.ts`. `scheduleOutput` / `unscheduleOutput` / `markOutputPublished` / `listScheduledOutputsForAgency` (90-day cap) / `listInFlightScheduledOutputs` (cron scan). Integrations layer: `getBufferIntegrationForAgency` (tenant-scoped, decrypts), `connectBufferIntegration` / `disconnectBufferIntegration` (downgrades in-flight rows), `stampIntegrationSync`.
+- [x] 4. `server/integrations/buffer.ts` client. `exchangeCode`, `listProfiles`, `createUpdate`, `getUpdate`, `deleteUpdate`. Retries on 5xx, form-encoded, 15 s timeout. `BufferError { status, body }` on 4xx.
+- [x] 5. Server actions. `scheduleOutputAction` (auto/buffer/manual mode resolution + synchronous Buffer push), `unscheduleOutputAction` (Buffer delete first, then DB downgrade), `markOutputPublishedAction`.
+- [x] 6. Buffer OAuth routes + `/settings/integrations` page. `/api/integrations/buffer/{connect,callback,disconnect}`. HMAC-signed state cookie (10 min), state-param verification pins agencyId + nonce. Settings page renders the connect/disconnect card + connected profile chips + last-sync surface. Owner/Admin only for mutations.
+- [x] 7. `/schedule` page + calendar UI. Month grid (7×6, Monday-start) with per-day pills grouped by platform, right-drawer showing every scheduled/published post for the clicked day, deep-linkable via `?month=YYYY-MM`.
+- [x] 8. OutputCard schedule CTA. Compact `<OutputScheduleFooter>` under each card in the episode grid: "Schedule…" popover on APPROVED with a datetime picker + Auto/Buffer/Manual radio; SCHEDULED shows the target time, service, and Unschedule + Mark-published buttons; PUBLISHED shows the publish time + external post link. Buffer radio disables cleanly when the agency isn't connected.
+- [x] 9. Inngest `sync-scheduled-outputs` cron. Every 5 minutes: polls Buffer for BUFFER-backed SCHEDULED rows (flips to PUBLISHED on `sent`, FAILED on `failed`, skips still-`buffer`); auto-publishes MANUAL rows past `scheduledFor` when the agency's `autoMarkPublished` flag is on (default true, opt-out per agency). Missing agency integration mid-flight → downgrade to MANUAL. Registered in `inngest/functions.ts`.
+- [ ] 10. Feature flag + rollout email. Deferred — not blocking. Wire behind `SCHEDULING_ENABLED` PostHog flag once the first agency connects.
+
+### 3.3.16 Going fully native (deferred — Phase 4)
+
+Buffer is a rented dependency: Buffer changes terms, we change with them. A first-party integration removes that risk but is materially more work. What it costs:
+
+- **OAuth apps on every network** — Twitter/X Developer Portal + LinkedIn Marketing Developer Platform + Meta for Developers (Instagram Graph API via a Business account) + TikTok Business Content Posting API. Each has its own review process; TikTok's takes weeks and requires demo videos.
+- **Per-network posting clients** — separate `server/integrations/{twitter,linkedin,instagram,tiktok}.ts` clients, each with their own auth, upload flow (Instagram/TikTok require media containers), rate limits, and error semantics.
+- **Media pipeline** — Instagram/TikTok can't post text-only. We'd need R2 media hosting + resize/encode workers for image/video variants (Instagram's aspect-ratio rules are strict; TikTok requires MP4 with specific codec/bitrate ranges).
+- **Token refresh at scale** — LinkedIn tokens expire at 60 days; Instagram at 60 days; Twitter/X uses OAuth 2.0 PKCE with short-lived access tokens + refresh tokens; TikTok has 24-hour access tokens. A daily refresh cron becomes load-bearing.
+- **Rate-limit accounting** — Buffer's per-account rate limit is one shared bucket. First-party means per-account, per-network buckets and separate backoff strategies (Twitter's tiered access levels: free tier = 500 posts/month; paid tiers with higher limits).
+- **Retry semantics** — Buffer collapses transient errors internally; first-party means our cron has to distinguish "temporarily failed, retry" (network 5xx, rate limit) from "permanently failed, alert user" (auth revoked, content rejected by network policy).
+- **Compliance surface** — each network has a rejected-content policy (Twitter's automation rules, LinkedIn's spam heuristics, Instagram's Community Guidelines). A user's post being rejected by the network is a support ticket we now have to triage; Buffer absorbs that today.
+- **Analytics parity** — Buffer surfaces per-post impressions, clicks, retweets, etc. via `/updates/{id}/interactions`. First-party means pulling from each network's Insights API — LinkedIn's requires a different Marketing Developer approval level, TikTok's Business API is invite-only.
+
+**Rough sizing:** Buffer path is ~2–3 weeks of one engineer. First-party path is ~2–3 months, dominated by (a) waiting on TikTok Business API approval, (b) the media encoding pipeline for Instagram/TikTok, and (c) the token refresh cron plus the failure triage UI that lets support see why a post was rejected. Recommendation: ship Buffer now (§3.3.1–15) and re-evaluate first-party once we have >200 scheduling-active agencies and Buffer's fee curve starts hurting the P&L.
 
 ## 3.4 Affiliate program
 

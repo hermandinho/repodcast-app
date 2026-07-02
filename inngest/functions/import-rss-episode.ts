@@ -256,17 +256,9 @@ export const importRssEpisode = inngest.createFunction(
       }),
     );
 
-    // Hand off to the existing audio pipeline. transcribe-episode normally
-    // refuses non-UPLOAD sources, so flip the source to UPLOAD just for the
-    // handoff — the resulting transcript is opaque to the rest of the
-    // pipeline either way.
-    await step.run("mark-as-upload-for-transcribe", () =>
-      prisma.episode.update({
-        where: { id: episodeId },
-        data: { source: TranscriptSource.UPLOAD },
-      }),
-    );
-
+    // Hand off to the existing audio pipeline — transcribe-episode
+    // accepts RSS as a valid source so the episode's origin is preserved
+    // for reporting (Episodes-by-source chart, etc).
     await step.sendEvent("emit-transcribe", {
       name: "episode/transcribe.requested",
       data: { episodeId, platforms },

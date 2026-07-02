@@ -112,6 +112,8 @@ export function OutputsView({
   viewerRole = MemberRole.OWNER,
   streamUrl = null,
   readOnly = false,
+  bufferConnected = false,
+  bufferConnectedPlatforms = [],
 }: {
   client: SampleShow;
   episode: SampleEpisode;
@@ -131,6 +133,18 @@ export function OutputsView({
    * and grays out the controls so the truth matches what the server does.
    */
   readOnly?: boolean;
+  /**
+   * Phase 3.3 — whether the agency has an active Buffer integration.
+   * Gates the "Force Buffer" radio in the schedule popover.
+   */
+  bufferConnected?: boolean;
+  /**
+   * Phase 3.3 — which platforms actually have a Buffer channel behind
+   * them. `bufferConnected` reflects the account-level OAuth; this list
+   * reflects per-channel presence so the Buffer radio can gray out on
+   * platforms Buffer hasn't been given a channel for.
+   */
+  bufferConnectedPlatforms?: import("@prisma/client").Platform[];
 }) {
   const router = useRouter();
   const [outputs, setOutputs] = useState<LiveOutput[]>(() =>
@@ -152,6 +166,13 @@ export function OutputsView({
       justCopied: false,
       justApproved: false,
       failureReason: o.failureReason ?? null,
+      // Phase 3.3 — scheduling fields flow straight from the DB read so
+      // the OutputCard can render lifecycle rows + state-driven CTAs
+      // without a second data fetch.
+      scheduledForIso: o.scheduledForIso ?? null,
+      publishedAtIso: o.publishedAtIso ?? null,
+      externalScheduler: o.externalScheduler ?? null,
+      externalPostUrl: o.externalPostUrl ?? null,
     })),
   );
 
@@ -784,8 +805,11 @@ export function OutputsView({
                 platform={platform}
                 hostName={client.host}
                 state={o}
+                episodeId={episode.id}
                 viewerRole={viewerRole}
                 readOnly={readOnly}
+                bufferConnected={bufferConnected}
+                bufferConnectedPlatforms={bufferConnectedPlatforms}
                 actions={{
                   onCopy: () => onCopy(o.key),
                   onEdit: () => onEdit(o.key),
