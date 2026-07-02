@@ -86,11 +86,17 @@ export const generateEpisode = inngest.createFunction(
     // absent — that's a unique run token, so old events (pre-3.5) act
     // as if unbounded rather than sharing a bucket labeled `undefined`
     // (which would erroneously starve them all together).
+    //
+    // Expression grammar note: Inngest uses Google CEL, which does NOT
+    // support the JS nullish-coalesce `??`. The idiomatic "coalesce
+    // with fallback" is `has(x.y) ? x.y : fallback`, and accessing a
+    // missing map key inside CEL raises an evaluation error — hence
+    // the explicit `has()` guard.
     concurrency: [
       { limit: 10 },
       {
         scope: "fn",
-        key: "event.data.agencyId ?? event.id",
+        key: "has(event.data.agencyId) ? event.data.agencyId : event.id",
         limit: 3,
       },
     ],

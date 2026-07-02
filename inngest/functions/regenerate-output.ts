@@ -45,11 +45,13 @@ export const regenerateOutput = inngest.createFunction(
     priority: {
       run: "event.data.plan == 'NETWORK' ? 120 : 0",
     },
+    // See `generate-episode.ts` for the CEL syntax rationale — `??` is
+    // JS-only; Inngest's CEL uses `has() ? … : fallback`.
     concurrency: [
       { limit: 10 },
       {
         scope: "fn",
-        key: "event.data.agencyId ?? event.id",
+        key: "has(event.data.agencyId) ? event.data.agencyId : event.id",
         limit: 3,
       },
     ],

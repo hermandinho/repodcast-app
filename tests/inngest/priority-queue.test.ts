@@ -41,12 +41,14 @@ describe("generateEpisode — Phase 3.5 priority queue", () => {
     //   Per-agency limit stops one agency's batch from monopolizing the
     //   global pool. Key falls back to `event.id` so events missing an
     //   agencyId (legacy dispatchers pre-3.5) don't erroneously share a
-    //   bucket labeled `undefined`.
+    //   bucket labeled `undefined`. CEL syntax note — Inngest uses
+    //   Google CEL, not JS, so the "coalesce" is `has() ? x : fallback`
+    //   rather than the JS-style `??`.
     expect(opts.concurrency).toEqual([
       { limit: 10 },
       {
         scope: "fn",
-        key: "event.data.agencyId ?? event.id",
+        key: "has(event.data.agencyId) ? event.data.agencyId : event.id",
         limit: 3,
       },
     ]);
@@ -70,7 +72,7 @@ describe("regenerateOutput — Phase 3.5 priority queue", () => {
       { limit: 10 },
       {
         scope: "fn",
-        key: "event.data.agencyId ?? event.id",
+        key: "has(event.data.agencyId) ? event.data.agencyId : event.id",
         limit: 3,
       },
     ]);
