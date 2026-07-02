@@ -10,6 +10,10 @@ const isPublicRoute = createRouteMatcher([
   "/",
   // Public pricing page — drives the self-service signup funnel.
   "/pricing",
+  // Public marketing — About + Contact are linked from the landing
+  // footer and must render for logged-out visitors.
+  "/about",
+  "/contact",
   "/sign-in(.*)",
   "/sign-up(.*)",
   // Invite acceptance lands on /invite/[token] BEFORE the recipient has an

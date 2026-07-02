@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CONTACT_EMAILS } from "@/lib/contact-emails";
 import { submitLegalReportAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -6,7 +7,7 @@ export const dynamic = "force-dynamic";
 /**
  * Public abuse-report intake. Anyone can hit this page and submit a
  * report — the row lands in `AbuseReport` with status OPEN and the
- * operator queue at `/root/quality` picks it up for triage.
+ * internal operator queue picks it up for triage.
  *
  * Deliberately minimal: title + short intro + form. No branding, no
  * marketing chrome. This is the same UX we'd point a rights-holder or a
@@ -32,8 +33,8 @@ export default async function LegalReportPage({
           Report spam, copyright infringement, impersonation, or harassment involving content
           created or shared through Repodcast. We review every submission. For urgent legal matters,
           email{" "}
-          <a href="mailto:legal@repodcast.io" className="text-zinc-900 underline">
-            legal@repodcast.io
+          <a href={`mailto:${CONTACT_EMAILS.legal}`} className="text-zinc-900 underline">
+            {CONTACT_EMAILS.legal}
           </a>{" "}
           instead.
         </p>
@@ -74,7 +75,7 @@ function ReportForm({ error }: { error: string | null }) {
         </div>
       ) : error === "unknown" ? (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
-          Something went wrong on our end. Try again in a minute, or email legal@repodcast.io
+          Something went wrong on our end. Try again in a minute, or email {CONTACT_EMAILS.legal}{" "}
           directly.
         </div>
       ) : null}
