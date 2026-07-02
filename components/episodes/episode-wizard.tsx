@@ -161,6 +161,38 @@ const ALL_ON: Record<PlatformKey, boolean> = {
   news: true,
 };
 
+/**
+ * Client-side hint that a pasted YouTube URL is well-formed enough to
+ * attempt the import. The authoritative parser lives in
+ * `server/imports/youtube.ts#parseYouTubeVideoId` and re-runs inside the
+ * Inngest fn; this one is only for wizard gating so the CTA isn't enabled
+ * on obvious junk. Duplicated intentionally — importing the server-only
+ * module into a client component would break the "use client" boundary.
+ */
+function isPlausibleYouTubeUrl(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return false;
+  if (/^[A-Za-z0-9_-]{11}$/.test(trimmed)) return true;
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  let url: URL;
+  try {
+    url = new URL(withScheme);
+  } catch {
+    return false;
+  }
+  const host = url.hostname.replace(/^www\./, "").replace(/^m\./, "");
+  if (host === "youtu.be") {
+    const seg = url.pathname.replace(/^\//, "").split("/")[0];
+    return Boolean(seg && /^[A-Za-z0-9_-]{11}$/.test(seg));
+  }
+  if (host === "youtube.com" || host === "music.youtube.com") {
+    const v = url.searchParams.get("v");
+    if (v && /^[A-Za-z0-9_-]{11}$/.test(v)) return true;
+    return /^\/(?:embed|shorts|live|v)\/[A-Za-z0-9_-]{11}/.test(url.pathname);
+  }
+  return false;
+}
+
 const CheckIcon = () => (
   <svg
     width="12"
@@ -269,7 +301,7 @@ export function EpisodeWizard({
   //   1 Show       — a show is selected (always true once shows load).
   //   2 Source     — method-dependent: paste ≥ 500 words, upload has an
   //                  uploaded audio object, rss has a picked episode,
-  //                  youtube isn't wired (3.2) so it never satisfies.
+  //                  youtube has a URL that parses as a video id.
   //   3 Platforms  — at least one platform toggled on.
   // ------------------------------------------------------------------
   const stepValid: [boolean, boolean, boolean, boolean] = useMemo(() => {
@@ -281,10 +313,12 @@ export function EpisodeWizard({
           ? audio !== null
           : method === "rss"
             ? rssSelection !== null
-            : false;
+            : method === "youtube"
+              ? isPlausibleYouTubeUrl(ytUrl)
+              : false;
     const step3 = selectedCount > 0;
     return [step1, step2, step3, true];
-  }, [showId, shows, method, wordCount, audio, rssSelection, selectedCount]);
+  }, [showId, shows, method, wordCount, audio, rssSelection, ytUrl, selectedCount]);
 
   /** Short, per-step hint to surface under a disabled Continue. */
   const stepHint = (n: number): string | null => {
@@ -294,7 +328,8 @@ export function EpisodeWizard({
         return `Paste a transcript of 500+ words to continue (${wordCount} so far).`;
       if (method === "upload") return "Upload an audio file to continue.";
       if (method === "rss") return "Pick an episode from the connected feed to continue.";
-      if (method === "youtube") return "YouTube import isn't wired up yet — pick another source.";
+      if (method === "youtube")
+        return "Paste a YouTube URL (watch, youtu.be, shorts, or embed) to continue.";
     }
     if (n === 3 && !stepValid[2]) return "Pick at least one platform to continue.";
     return null;
@@ -328,15 +363,18 @@ export function EpisodeWizard({
       try {
         // Source-aware payload. PASTE carries the transcript; UPLOAD
         // carries the R2 object key returned by signAudioUploadAction;
-        // RSS carries the publisher GUID + canonical feed URL. YOUTUBE
-        // is still wizard-stubbed until 3.2.
+        // RSS carries the publisher GUID + canonical feed URL; YOUTUBE
+        // carries the pasted video URL (parsed authoritatively inside
+        // the Inngest fn).
         const trimmedTitle = title.trim();
         const source =
           method === "upload"
             ? TranscriptSource.UPLOAD
             : method === "rss"
               ? TranscriptSource.RSS
-              : TranscriptSource.PASTE;
+              : method === "youtube"
+                ? TranscriptSource.YOUTUBE
+                : TranscriptSource.PASTE;
         const result = await createEpisodeAction({
           showId,
           // Optional — server defaults to "Untitled episode" when blank
@@ -355,6 +393,7 @@ export function EpisodeWizard({
           rssGuid: source === TranscriptSource.RSS ? rssSelection?.guid : undefined,
           rssFeedUrl: source === TranscriptSource.RSS ? rssSelection?.feedUrl : undefined,
           rssTitle: source === TranscriptSource.RSS ? rssSelection?.title : undefined,
+          youtubeUrl: source === TranscriptSource.YOUTUBE ? ytUrl.trim() : undefined,
           platforms: selectedPlatforms.map((p) => PLATFORM_KEY_TO_ENUM[p.key]),
         });
         if (!result.ok) {
@@ -451,6 +490,7 @@ export function EpisodeWizard({
             wordCount={wordCount}
             audio={audio}
             rssSelection={rssSelection}
+            ytUrl={ytUrl}
             title={title}
             onTitle={setTitle}
             selectedPlatforms={selectedPlatforms}
@@ -1032,6 +1072,7 @@ function StepGenerate({
   wordCount,
   audio,
   rssSelection,
+  ytUrl,
   title,
   onTitle,
   selectedPlatforms,
@@ -1045,6 +1086,7 @@ function StepGenerate({
   wordCount: number;
   audio: AudioUploadValue | null;
   rssSelection: RssSelection | null;
+  ytUrl: string;
   title: string;
   onTitle: (next: string) => void;
   selectedPlatforms: typeof platforms;
@@ -1058,7 +1100,7 @@ function StepGenerate({
     paste: `${wordCount} words`,
     upload: audio ? `${audio.filename} · ${formatAudioSize(audio.size)}` : "no audio uploaded yet",
     rss: rssSelection?.title ?? "no episode picked yet",
-    youtube: "captions + audio",
+    youtube: ytUrl.trim().length > 0 ? ytUrl.trim() : "no URL yet",
   }[method];
 
   return (
@@ -1149,27 +1191,35 @@ function StepGenerate({
       {/* Gate per source so the failure surfaces before the submit round-
           trip rather than as a generic error toast. Paste needs ≥ 500
           words, upload needs an uploaded audio object, RSS needs a
-          picked episode. YouTube is still wizard-stubbed (3.2). */}
+          picked episode, YouTube needs a URL that parses as a video id. */}
       {(() => {
         const transcriptTooShort = method === "paste" && wordCount < 500;
         const audioMissing = method === "upload" && !audio;
         const rssMissing = method === "rss" && !rssSelection;
-        const sourceNotReady = method === "youtube";
+        const ytMissing = method === "youtube" && !isPlausibleYouTubeUrl(ytUrl);
         const disabled =
           selectedCount === 0 ||
           submitting ||
           transcriptTooShort ||
           audioMissing ||
           rssMissing ||
-          sourceNotReady;
+          ytMissing;
         const startingLabel =
-          method === "upload" ? "Uploading…" : method === "rss" ? "Importing…" : "Starting…";
+          method === "upload"
+            ? "Uploading…"
+            : method === "rss"
+              ? "Importing…"
+              : method === "youtube"
+                ? "Importing…"
+                : "Starting…";
         const ctaLabel =
           method === "upload"
             ? `Transcribe + generate ${selectedCount} outputs`
             : method === "rss"
               ? `Import + generate ${selectedCount} outputs in ${client.host}'s voice`
-              : `Generate ${selectedCount} outputs in ${client.host}'s voice`;
+              : method === "youtube"
+                ? `Import + generate ${selectedCount} outputs in ${client.host}'s voice`
+                : `Generate ${selectedCount} outputs in ${client.host}'s voice`;
         return (
           <>
             <button
@@ -1211,24 +1261,22 @@ function StepGenerate({
                 Pick an episode from the connected feed on step 2 before generating.
               </div>
             )}
-            {!submitError && sourceNotReady && (
+            {!submitError && ytMissing && (
               <div className="mt-3 text-center text-[12px] text-[#A06D12]">
-                YouTube import isn&apos;t wired up yet — pick Paste, Upload audio, or RSS.
+                Paste a YouTube URL on step 2 before generating.
               </div>
             )}
-            {!submitError &&
-              !transcriptTooShort &&
-              !audioMissing &&
-              !rssMissing &&
-              !sourceNotReady && (
-                <div className="text-subtle mt-3 text-center text-[12px]">
-                  {method === "upload"
-                    ? "Transcription usually takes 30–90 seconds, then generation kicks in."
-                    : method === "rss"
-                      ? "We'll pull the publisher's transcript or download the audio — usually a minute or two before generation begins."
+            {!submitError && !transcriptTooShort && !audioMissing && !rssMissing && !ytMissing && (
+              <div className="text-subtle mt-3 text-center text-[12px]">
+                {method === "upload"
+                  ? "Transcription usually takes 30–90 seconds, then generation kicks in."
+                  : method === "rss"
+                    ? "We'll pull the publisher's transcript or download the audio — usually a minute or two before generation begins."
+                    : method === "youtube"
+                      ? "We'll pull captions from YouTube — usually a few seconds before generation begins."
                       : "Typically ready in under a minute"}
-                </div>
-              )}
+              </div>
+            )}
           </>
         );
       })()}

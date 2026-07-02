@@ -783,7 +783,8 @@ Three forward-only steps: **Workspace → Teammates → First client**. The trai
 
 ## 3.2 YouTube import
 
-- [ ] YouTube Transcript API integration; extract transcript from a URL → episode
+- [x] **YouTube caption import** — landed. Transcript-first pipeline mirrors the RSS import: `episode/youtube.import.requested` fires from the wizard's server action, `inngest/functions/import-youtube-episode.ts` fetches the video page, extracts the embedded `ytInitialPlayerResponse`, walks `captions.playerCaptionsTracklistRenderer.captionTracks`, picks the best track (manual English → any manual → auto English → any auto), fetches the timedtext XML, parses `<text>` nodes into a flat transcript, persists it onto the Episode, and emits `episode/generate.requested`. No audio-download fallback — YouTube fights the tools that scrape audio streams, so a missing-captions video fails cleanly with actionable copy ("turn captions on in YouTube Studio and retry") instead of a brittle scrape. Non-retryable failure codes (`invalid_url`, `not_found`, `no_captions`, `parse_failed`) skip Inngest's retry budget; network/5xx errors retry up to 3×. 28 tests cover URL parsing (watch / youtu.be / embed / shorts / bare id / no-scheme / rejects), caption XML parsing (entity decoding, whitespace collapse, empty inputs, attribute order variants), track selection preferences, and the `YouTubeImportError` shape. Wizard step 2 gates on a plausible-URL client-side check; the pipeline stepper's YouTube path is `[import, generate]` (no transcribe step). External URL persisted onto `Episode.externalUrl` so the episode page can link back to the source video.
+- [ ] **Audio-fallback follow-up** — deferred to Phase 4. When Buffer/YouTube-caption miss rate hurts enough, wire a caption-less fallback via `youtubei.js` or `ytdl-core`, with a big warning about fragility.
 
 ## 3.3 Scheduling
 

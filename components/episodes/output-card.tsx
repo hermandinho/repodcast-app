@@ -166,7 +166,6 @@ export function OutputCard({
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reset semantics
     setViewing(null);
     if (!hasHistory) {
-       
       setVersions(null);
       return;
     }

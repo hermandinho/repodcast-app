@@ -17,7 +17,8 @@ const ALL_STEPS: Record<PipelineStep, StepDef> = {
 
 const SOURCE_STEPS: Record<"RSS" | "YOUTUBE" | "UPLOAD" | "PASTE", PipelineStep[]> = {
   RSS: ["import", "transcribe", "generate"],
-  YOUTUBE: ["import", "transcribe", "generate"],
+  // YouTube v1 is transcript-only — no audio download / Deepgram step.
+  YOUTUBE: ["import", "generate"],
   UPLOAD: ["transcribe", "generate"],
   PASTE: ["generate"],
 };

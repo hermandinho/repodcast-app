@@ -47,6 +47,23 @@ export type Events = {
     };
   };
 
+  /**
+   * Phase 3.2 — YouTube imports land here. The importer pulls the video's
+   * captions (auto-generated or manually uploaded) and emits
+   * `episode/generate.requested`. v1 has no audio-download fallback —
+   * YouTube fights the tools that extract audio streams (ytdl-core /
+   * youtubei.js), so we treat "no captions" as a terminal failure with an
+   * actionable failureReason instead of a brittle scrape.
+   */
+  "episode/youtube.import.requested": {
+    data: {
+      episodeId: string;
+      /** Full YouTube URL as the user provided it — parsed inside the fn. */
+      videoUrl: string;
+      platforms: Platform[];
+    };
+  };
+
   /** Fired by the pipeline once all platforms are persisted. SSE + email subscribe. */
   "episode/generated": {
     data: {

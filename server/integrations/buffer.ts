@@ -234,7 +234,6 @@ export async function listOrganizationsAndChannels(
   // per-app rate limit Buffer imposes.
   const channels: BufferChannel[] = [];
   for (const org of organizations) {
-     
     const chData = await bufferGraphQL<{
       channels: Array<{ id: string; name: string; service: string }>;
     }>(
