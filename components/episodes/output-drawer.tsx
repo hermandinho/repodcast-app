@@ -97,7 +97,6 @@ export function OutputDrawer({
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reset semantics on id change
     setViewing(null);
     if (!hasHistory) {
-       
       setVersions(null);
       return;
     }
@@ -381,7 +380,7 @@ export function OutputDrawer({
               onCancel={onClose}
               primary={{
                 label: "Try again",
-                tone: "danger",
+                tone: "brand",
                 onClick: actions.onRetry,
                 disabled: !roleCanEdit,
               }}
@@ -647,7 +646,7 @@ function ScheduleChoice({
         disabled
           ? "cursor-not-allowed border-zinc-200 bg-zinc-50 opacity-60"
           : isSelected
-            ? "border-[#C4BAF6] bg-[#F5F2FE]"
+            ? "border-[color:var(--color-accent-border)] bg-[color:var(--color-accent-soft)]"
             : "border-zinc-200 hover:bg-zinc-50"
       }`}
       title={disabled && disabledReason ? disabledReason : undefined}
@@ -721,18 +720,28 @@ function FooterRow({
 }
 
 function PrimaryFooterButton({ label, onClick, tone = "brand", disabled = false }: FooterButton) {
+  // Same tone palette as the card's PrimaryButton — the drawer footer
+  // should feel like a continuation of the tile that opened it.
+  //   success → soft mint outlined (Approve — matches the approved
+  //             status-pill palette so CTA + resulting pill share a
+  //             visual family)
+  //   brand   → app accent navy `--color-accent` (#3A5BA0) with white
+  //             text — the app's primary button. Used for Confirm
+  //             schedule / Save / Regenerate / Try again.
+  //   danger  → red (reserved for destructive UX; not used from this
+  //             file today)
   const toneStyle: Record<"success" | "brand" | "danger", CSSProperties> = {
     success: {
-      background: "#1F8A5B",
-      color: "#fff",
-      border: "1px solid rgba(0,0,0,.06)",
-      boxShadow: "0 1px 2px rgba(31,138,91,.22)",
+      background: "#E7F4EC",
+      color: "#1E7A47",
+      border: "1px solid #CFE8DA",
+      boxShadow: "none",
     },
     brand: {
-      background: "#6D5EF5",
+      background: "var(--color-accent)",
       color: "#fff",
       border: "1px solid rgba(0,0,0,.06)",
-      boxShadow: "0 1px 2px rgba(109,94,245,.22)",
+      boxShadow: "0 1px 2px rgba(58,91,160,.22)",
     },
     danger: {
       background: "#C0392B",

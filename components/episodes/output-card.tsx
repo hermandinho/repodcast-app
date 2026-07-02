@@ -77,24 +77,14 @@ function voiceBandFromQuality(q: number): VoiceBand {
 }
 
 /**
- * Card tint per status. Kept subtle — the CTA is the load-bearing
- * color signal, the tint is just the mood.
+ * Cards are always white per the ref — the status pill in the header
+ * is where color signaling happens. Tinted cards muddied the grid at
+ * scan-time. Kept as a helper (returns white) so the border-color
+ * hook below still has a symmetric API if we ever want to reintroduce
+ * a whisper of tint.
  */
-function tintFor(status: EpisodeStatus): string {
-  switch (status) {
-    case "approved":
-      return "#F5FBF7";
-    case "scheduled":
-      return "#F5F7FE";
-    case "published":
-      return "#F0FAF3";
-    case "failed":
-      return "#FDF5F4";
-    case "review":
-      return "#FDFAF3";
-    default:
-      return "#FFFFFF";
-  }
+function tintFor(_status: EpisodeStatus): string {
+  return "#FFFFFF";
 }
 
 export function OutputCard({
@@ -369,7 +359,7 @@ function ActionBand(p: {
   if (p.isFailed) {
     return (
       <PrimaryButton
-        tone="danger"
+        tone="brand"
         label="Try again"
         onClick={clickWithStop(p.onRetry)}
         disabled={!p.roleCanEdit}
@@ -501,18 +491,29 @@ function PrimaryButton({
   disabled?: boolean;
   tone: "success" | "brand" | "danger";
 }) {
+  // Tones map to the app's existing palette:
+  //   success → soft mint outlined (matches the approved-state colors
+  //             in statusMeta). Used for Approve so the CTA and the
+  //             pill it produces read as the same visual family.
+  //   brand   → accent navy (`--color-accent` = #3A5BA0) with white
+  //             text. This is the app's primary button style — used
+  //             for Schedule / Mark published / Try again so every
+  //             "commit forward" action has the same weight.
+  //   danger  → red (kept for future destructive actions; not used yet
+  //             — Try again reuses `brand`, not danger, because it's a
+  //             recovery action not a destructive one).
   const toneStyle: Record<typeof tone, CSSProperties> = {
     success: {
-      background: "#1F8A5B",
-      color: "#fff",
-      border: "1px solid rgba(0,0,0,.06)",
-      boxShadow: "0 1px 2px rgba(31,138,91,.22)",
+      background: "#E7F4EC",
+      color: "#1E7A47",
+      border: "1px solid #CFE8DA",
+      boxShadow: "none",
     },
     brand: {
-      background: "#6D5EF5",
+      background: "var(--color-accent)",
       color: "#fff",
       border: "1px solid rgba(0,0,0,.06)",
-      boxShadow: "0 1px 2px rgba(109,94,245,.22)",
+      boxShadow: "0 1px 2px rgba(58,91,160,.22)",
     },
     danger: {
       background: "#C0392B",

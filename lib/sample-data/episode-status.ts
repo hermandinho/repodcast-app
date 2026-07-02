@@ -14,11 +14,15 @@ export function statusMeta(status: EpisodeStatus): StatusMeta {
     case "generating":
       return { label: "Generating", bg: "#EEF2FB", color: "#3A5BA0", cardBorder: "#DDE5F4" };
     case "ready":
-      return { label: "Ready", bg: "#F1F4F9", color: "#7A8496", cardBorder: "#E6EBF3" };
+      // Peach — matches the ref's Ready pill and signals "attention needed"
+      // without being alarmist.
+      return { label: "Ready", bg: "#FDECDD", color: "#B9631C", cardBorder: "#F5D9BE" };
     case "review":
       return { label: "In review", bg: "#FBF1DE", color: "#A06D12", cardBorder: "#F0E3CB" };
     case "scheduled":
-      return { label: "Scheduled", bg: "#F1F4F9", color: "#7A8496", cardBorder: "#E6EBF3" };
+      // Purple — matches the Schedule CTA that got it into this state, so
+      // the eye pairs pill and button color without a mental hop.
+      return { label: "Scheduled", bg: "#EFEAFB", color: "#5D3FD3", cardBorder: "#D9CFF3" };
     case "approved":
       return { label: "Approved", bg: "#E7F4EC", color: "#1E7A47", cardBorder: "#CFE8DA" };
     case "published":
