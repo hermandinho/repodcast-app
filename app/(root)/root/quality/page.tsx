@@ -7,8 +7,10 @@ import {
   ABUSE_REPORT_STATUS_OPTIONS,
   listAbuseReports,
   listFlaggedOutputs,
+  listFraudSignalCandidates,
   type AbuseReportRow,
   type FlaggedOutputRow,
+  type FraudSignalRow,
 } from "@/server/db/system/quality";
 import {
   assignAbuseReportAction,
@@ -77,7 +79,7 @@ export default async function RootQualityPage({
     assignedToSystemAdminId: sp.assignedTo?.trim() || undefined,
   };
 
-  const [admins, reports, flags] = await Promise.all([
+  const [admins, reports, flags, fraudSignals] = await Promise.all([
     listActiveSystemAdmins(ctx),
     listAbuseReports(ctx, {
       ...filters,
@@ -85,6 +87,7 @@ export default async function RootQualityPage({
       skip: (pageNum - 1) * PAGE_SIZE,
     }),
     listFlaggedOutputs(ctx, { take: PAGE_SIZE, currentOnly: true }),
+    listFraudSignalCandidates(ctx),
   ]);
 
   return (
@@ -100,10 +103,14 @@ export default async function RootQualityPage({
             SystemAuditLog
           </code>{" "}
           row in the same transaction. Public{" "}
-          <code className="rounded bg-zinc-800 px-1 py-0.5 font-mono text-[11px] text-zinc-300">
+          <Link
+            href="/legal/report"
+            target="_blank"
+            className="rounded bg-zinc-800 px-1 py-0.5 font-mono text-[11px] text-zinc-300 hover:text-white"
+          >
             /legal/report
-          </code>{" "}
-          intake + tenant-side output-flagging land in a follow-up slice.
+          </Link>{" "}
+          takes external complaints; tenant-side output-flagging still lands in a follow-up slice.
         </p>
       </header>
 
@@ -121,7 +128,131 @@ export default async function RootQualityPage({
       />
 
       <FlaggedOutputsSection rows={flags.rows} total={flags.total} canWrite={canWrite} />
+
+      <FraudSignalsSection rows={fraudSignals} />
     </div>
+  );
+}
+
+// ============================================================
+// Anti-fraud signals
+// ============================================================
+
+const FRAUD_SIGNAL_COPY: Record<
+  FraudSignalRow["signals"][number],
+  { label: string; tone: string }
+> = {
+  young_high_spend_no_sub: {
+    label: "High spend, no sub",
+    tone: "bg-red-500/20 text-red-200 border-red-500/30",
+  },
+  disposable_email: {
+    label: "Disposable email",
+    tone: "bg-amber-500/20 text-amber-200 border-amber-500/30",
+  },
+  multi_agency_same_owner: {
+    label: "Same owner, other agencies",
+    tone: "bg-sky-500/20 text-sky-200 border-sky-500/30",
+  },
+};
+
+function FraudSignalsSection({ rows }: { rows: FraudSignalRow[] }) {
+  return (
+    <section className="flex flex-col gap-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <div>
+          <h2 className="font-display text-lg font-semibold text-white">Anti-fraud signals</h2>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            Agencies matching at least one heuristic. This surface flags — it does not auto-suspend.
+            Open the drilldown to review before acting.
+          </p>
+        </div>
+        <span className="font-mono text-[11px] text-zinc-500">{rows.length} flagged</span>
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-zinc-800 bg-zinc-900/40 p-6 text-center text-sm text-zinc-500">
+          Nothing suspicious right now.
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-zinc-800">
+          <table className="w-full text-sm">
+            <thead className="bg-zinc-900/80 text-left font-mono text-[10.5px] tracking-wider text-zinc-500 uppercase">
+              <tr>
+                <th className="px-4 py-2 font-normal">Agency</th>
+                <th className="px-4 py-2 font-normal">Owner</th>
+                <th className="px-4 py-2 font-normal">Created</th>
+                <th className="px-4 py-2 font-normal">Spend MTD</th>
+                <th className="px-4 py-2 font-normal">Signals</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-800">
+              {rows.map((r) => (
+                <tr key={r.agencyId} className="hover:bg-zinc-800/40">
+                  <td className="px-4 py-3">
+                    <Link
+                      href={`/root/agencies/${r.agencyId}`}
+                      className="text-white hover:underline"
+                    >
+                      {r.agencyName}
+                    </Link>
+                    <div className="font-mono text-[10.5px] text-zinc-500">{r.plan}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="text-zinc-200">{r.ownerName ?? r.ownerEmail ?? "—"}</div>
+                    {r.ownerName && r.ownerEmail ? (
+                      <div className="font-mono text-[10.5px] text-zinc-500">{r.ownerEmail}</div>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-3 text-zinc-400 tabular-nums">
+                    {formatRelative(r.createdAt)}
+                  </td>
+                  <td className="px-4 py-3 tabular-nums">
+                    <span className={r.aiSpendCentsMtd >= 5000 ? "text-red-300" : "text-zinc-300"}>
+                      ${(r.aiSpendCentsMtd / 100).toFixed(2)}
+                    </span>
+                    {!r.hasStripeSub ? (
+                      <div className="font-mono text-[10.5px] text-amber-300">no sub</div>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap gap-1">
+                      {r.signals.map((s) => {
+                        const meta = FRAUD_SIGNAL_COPY[s];
+                        return (
+                          <span
+                            key={s}
+                            className={`rounded-full border px-2 py-[2px] font-mono text-[10px] ${meta.tone}`}
+                          >
+                            {meta.label}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    {r.siblingAgencyIds.length > 0 ? (
+                      <div className="mt-1 font-mono text-[10.5px] text-zinc-500">
+                        also owns:{" "}
+                        {r.siblingAgencyIds.map((id, i) => (
+                          <span key={id}>
+                            <Link
+                              href={`/root/agencies/${id}`}
+                              className="text-zinc-400 hover:text-zinc-200"
+                            >
+                              {id.slice(0, 8)}…
+                            </Link>
+                            {i < r.siblingAgencyIds.length - 1 ? ", " : ""}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 

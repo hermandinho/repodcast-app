@@ -236,6 +236,58 @@ export async function createAbuseReport(
   );
 }
 
+/**
+ * Public-intake variant of `createAbuseReport`. Called from
+ * `/legal/report` (unauthenticated route). Deliberately does NOT wrap in
+ * `withSystemAudit` — there's no admin actor to attribute. The row lands
+ * OPEN; the queue-side assign/resolve/dismiss transitions will audit-log
+ * their operator as usual.
+ *
+ * v1 has no rate-limit. The public form ships behind a form-level
+ * honeypot; sustained spam gets dealt with reactively (mark-as-dismissed
+ * en masse), and a proper rate-limiter belongs in an edge layer we
+ * don't have yet.
+ */
+export const publicAbuseReportInput = z.object({
+  reportedByEmail: z
+    .email()
+    .max(320)
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
+  category: z.enum(ABUSE_REPORT_CATEGORY_VALUES),
+  body: z.string().trim().min(20).max(10_000),
+  /** Free-text URL / handle / id of what's being reported. Stored as-is
+   *  in the body for the operator to eyeball; we don't try to resolve it
+   *  to an agencyId here — that's a triage step, not an intake one. */
+  targetHint: z.string().trim().max(1_000).optional(),
+});
+export type PublicAbuseReportInput = z.input<typeof publicAbuseReportInput>;
+
+export async function submitPublicAbuseReport(
+  rawInput: PublicAbuseReportInput,
+): Promise<{ id: string }> {
+  const input = publicAbuseReportInput.parse(rawInput);
+
+  // Fold the targetHint into the body so operators see the full context
+  // in one place. Keeps the DB schema stable (no separate raw-target
+  // column) and avoids the "targetHint didn't map to an agencyId, now
+  // what?" ambiguity in the queue UI.
+  const combinedBody = input.targetHint
+    ? `${input.body}\n\n— target hint —\n${input.targetHint}`
+    : input.body;
+
+  const created = await prisma.abuseReport.create({
+    data: {
+      reportedByEmail: input.reportedByEmail ?? null,
+      category: input.category,
+      body: combinedBody,
+      status: "OPEN",
+    },
+    select: { id: true },
+  });
+  return { id: created.id };
+}
+
 export const assignAbuseReportInput = z.object({
   id: z.string().trim().min(1),
   /** Set to null to un-assign (returns to OPEN). */
@@ -652,6 +704,202 @@ function normalizeOptional(value: string | undefined): string | undefined {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
 }
+
+// ============================================================
+// Anti-fraud signals (Phase 3.6.10)
+// ============================================================
+
+/**
+ * Disposable-email domains commonly used for signup abuse. Not
+ * exhaustive — the set gets refreshed whenever we spot a new pattern in
+ * the wild. Case-insensitive match against the OWNER member's email
+ * domain. Kept in-code because a full public list is >2k entries and
+ * bringing in a DB table would be overkill for the signal.
+ */
+const DISPOSABLE_EMAIL_DOMAINS: readonly string[] = [
+  "mailinator.com",
+  "10minutemail.com",
+  "tempmail.com",
+  "temp-mail.org",
+  "guerrillamail.com",
+  "sharklasers.com",
+  "trashmail.com",
+  "yopmail.com",
+  "throwawaymail.com",
+  "getnada.com",
+  "maildrop.cc",
+  "fakeinbox.com",
+  "spamgourmet.com",
+  "mytemp.email",
+  "dropmail.me",
+  "mohmal.com",
+  "emailondeck.com",
+  "getairmail.com",
+];
+
+export type FraudSignal =
+  "young_high_spend_no_sub" | "disposable_email" | "multi_agency_same_owner";
+
+export type FraudSignalRow = {
+  agencyId: string;
+  agencyName: string;
+  plan: string;
+  ownerEmail: string | null;
+  ownerName: string | null;
+  createdAt: Date;
+  aiSpendCentsMtd: number;
+  hasStripeSub: boolean;
+  signals: readonly FraudSignal[];
+  /** For `multi_agency_same_owner`, the other agency ids this OWNER's
+   *  clerkUserId is on. Empty otherwise. */
+  siblingAgencyIds: readonly string[];
+};
+
+const YOUNG_AGENCY_DAYS = 7;
+const HIGH_SPEND_CENTS = 5_000; // $50 — a low-noise floor; well above trial usage.
+
+/**
+ * Cross-tenant scan for suspicious signups. Returns every agency that
+ * fires at least one signal. Read-only for every system role.
+ *
+ * Signals:
+ *   - `young_high_spend_no_sub` — created in the last 7 days, > $50 in
+ *     AI spend MTD, no Stripe subscription. Someone burning our margin
+ *     while the trial holds.
+ *   - `disposable_email` — OWNER member's email domain matches a known
+ *     disposable-mail service.
+ *   - `multi_agency_same_owner` — the OWNER's `clerkUserId` is bound to
+ *     more than one agency. Not always fraud (a founder running two
+ *     businesses is legitimate), but worth flagging for review.
+ */
+export async function listFraudSignalCandidates(
+  ctx: SystemAdminContext,
+): Promise<FraudSignalRow[]> {
+  assertSystemRole(ctx, SYSTEM_READ_ROLES);
+
+  const now = new Date();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const youngCutoff = new Date(now.getTime() - YOUNG_AGENCY_DAYS * 24 * 60 * 60 * 1000);
+
+  // Pull every agency's OWNER member first — that's the identity + email
+  // we key signals off. `role: OWNER` is enforced by
+  // `createAgencyAction`, so we take the first match per agency.
+  const owners = await prisma.member.findMany({
+    where: { role: "OWNER" },
+    select: {
+      id: true,
+      clerkUserId: true,
+      email: true,
+      name: true,
+      agencyId: true,
+      agency: {
+        select: {
+          id: true,
+          name: true,
+          plan: true,
+          createdAt: true,
+          stripeSubscriptionId: true,
+        },
+      },
+    },
+  });
+
+  // Group by clerkUserId to detect multi-agency ownership. Only compute
+  // the signal for members whose group size > 1.
+  const byClerkUserId = new Map<string, typeof owners>();
+  for (const o of owners) {
+    const list = byClerkUserId.get(o.clerkUserId) ?? [];
+    list.push(o);
+    byClerkUserId.set(o.clerkUserId, list);
+  }
+
+  // AI spend MTD per agency — single groupBy call, keyed by agencyId.
+  // Emitting no rows for zero-spend agencies is fine; we look them up by
+  // key with a fallback 0.
+  const spendRows = await prisma.usageLog.groupBy({
+    by: ["agencyId"],
+    where: { createdAt: { gte: monthStart } },
+    _sum: { costCents: true },
+  });
+  const spendByAgency = new Map<string, number>(
+    spendRows.map((r) => [r.agencyId, r._sum.costCents ?? 0]),
+  );
+
+  const results: FraudSignalRow[] = [];
+  for (const owner of owners) {
+    const agency = owner.agency;
+    if (!agency) continue; // defense — foreign key guarantees this exists.
+
+    const signals: FraudSignal[] = [];
+    const aiSpendCentsMtd = spendByAgency.get(agency.id) ?? 0;
+    const hasStripeSub = agency.stripeSubscriptionId !== null;
+
+    // Signal 1: young high-spender with no sub.
+    if (
+      agency.createdAt.getTime() >= youngCutoff.getTime() &&
+      aiSpendCentsMtd >= HIGH_SPEND_CENTS &&
+      !hasStripeSub
+    ) {
+      signals.push("young_high_spend_no_sub");
+    }
+
+    // Signal 2: disposable email domain on the OWNER.
+    const domain = ownerEmailDomain(owner.email);
+    if (domain && DISPOSABLE_EMAIL_DOMAINS.includes(domain)) {
+      signals.push("disposable_email");
+    }
+
+    // Signal 3: same Clerk user id owns another agency.
+    const siblings = byClerkUserId.get(owner.clerkUserId) ?? [];
+    const siblingAgencyIds = siblings
+      .filter((s) => s.agencyId !== agency.id)
+      .map((s) => s.agencyId);
+    if (siblingAgencyIds.length > 0) {
+      signals.push("multi_agency_same_owner");
+    }
+
+    if (signals.length === 0) continue;
+
+    results.push({
+      agencyId: agency.id,
+      agencyName: agency.name,
+      plan: agency.plan,
+      ownerEmail: owner.email,
+      ownerName: owner.name,
+      createdAt: agency.createdAt,
+      aiSpendCentsMtd,
+      hasStripeSub,
+      signals,
+      siblingAgencyIds,
+    });
+  }
+
+  // Sort: highest signal-count first, then highest spend, then newest.
+  results.sort((a, b) => {
+    if (b.signals.length !== a.signals.length) return b.signals.length - a.signals.length;
+    if (b.aiSpendCentsMtd !== a.aiSpendCentsMtd) return b.aiSpendCentsMtd - a.aiSpendCentsMtd;
+    return b.createdAt.getTime() - a.createdAt.getTime();
+  });
+
+  return results;
+}
+
+/**
+ * Extract the lowercase domain from an email. Exported for tests — the
+ * multiline / mixed-case / whitespace variants happen in the wild and
+ * we want to catch them all.
+ */
+export function ownerEmailDomain(email: string | null): string | null {
+  if (!email) return null;
+  const at = email.lastIndexOf("@");
+  if (at < 0 || at === email.length - 1) return null;
+  return email
+    .slice(at + 1)
+    .trim()
+    .toLowerCase();
+}
+
+export const DISPOSABLE_EMAIL_DOMAINS_LIST: readonly string[] = DISPOSABLE_EMAIL_DOMAINS;
 
 export const ABUSE_REPORT_STATUS_OPTIONS: readonly AbuseReportStatus[] = ABUSE_REPORT_STATUS_VALUES;
 export const ABUSE_REPORT_CATEGORY_OPTIONS: readonly AbuseReportCategory[] =
