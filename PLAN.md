@@ -1010,7 +1010,7 @@ Buffer is a rented dependency: Buffer changes terms, we change with them. A firs
 - [ ] `/root/quality` — flagged outputs, support requests, abuse reports.
 - [ ] `/root/config` — feature flags, plan-limit overrides, prompt rollouts.
 - [x] `/root/audit` — audit-log viewer. Filterable expandable-card list with before/after JSON snapshots. Read-only by construction. See §3.6.2.
-- [ ] `/root/system` — health checks (DB, Inngest, Clerk, Stripe, R2, Resend, Sentry, PostHog reachability + latency).
+- [x] `/root/system` — reachability grid across 9 providers (DB, Inngest, Clerk, Stripe, R2, Resend, Anthropic, Sentry, PostHog). See §3.6.12.
 - [ ] **Layout chrome:** separate sidebar from the tenant dashboard. Red-tinted top bar that reads "ROOT MODE" so an operator never forgets they're in the platform admin (preventing the classic "ran a dev query on prod" confusion).
 
 ### 3.6.4 Platform overview dashboard (`/root`)
@@ -1121,17 +1121,8 @@ Tests: 20 in `tests/server/db/system-config.test.ts` covering enum bidirectional
 
 ### 3.6.12 System health (`/root/system`)
 
-- [ ] Extends the existing `/api/health` endpoint into a full reachability grid:
-  - Postgres — `SELECT 1` + latency
-  - Inngest — `GET /api/inngest` self-introspection
-  - Clerk — `clerkClient.users.getCount()` smoke
-  - Stripe — `stripe.balance.retrieve()` smoke
-  - R2 — `headBucket()` smoke
-  - Anthropic — last successful call timestamp (we don't ping just to ping; we use the most-recent `UsageLog.createdAt` as a proxy)
-  - Resend — `domains.list()` smoke
-  - Sentry — DSN ping
-  - PostHog — `/decide` ping
-- [ ] **Latency over time** — sparkline per provider for last 24h. Inngest cron writes a `HealthProbe` row every 5 min.
+- [x] **Reachability grid** — landed. `server/db/system/health.ts#getSystemHealth` runs 9 parallel probes with per-probe `PROBE_TIMEOUT_MS` bounds so a hung provider can't take the page hostage: Postgres (`SELECT 1` + latency), Inngest (self-introspection GET), Clerk (`clerkClient.users.getCount()` smoke), Stripe (`stripe.balance.retrieve()`), R2 (`headBucket()`), Anthropic (freshest `UsageLog.createdAt` as a proxy — we don't burn inference credits just to render this page), Resend (`domains.list()`), Sentry (DSN ping), PostHog (`/decide` ping). Each returns `ok | degraded | down | unconfigured`; the last state is muted rather than red so an unbootstrapped provider on a fresh clone isn't scary. `/root/system` renders a top-of-page banner rolled up from the worst status + a per-provider tile grid with latency + last-error text.
+- [ ] **Latency over time** — sparkline per provider for last 24h. Blocked on the `HealthProbe` table + a 5-min Inngest ping cron writing rows. v1 shows the _current_ latency only; sparklines land when the cron slice does.
 - [ ] **Recent error rate** — Sentry events ingested via Sentry's API (Phase 3.6 stretch — for v1 the cheap version is a deep-link to the Sentry project filtered to last 24h).
 
 ### 3.6.13 Customer-side support hook (out of scope for 3.6 but planned)
