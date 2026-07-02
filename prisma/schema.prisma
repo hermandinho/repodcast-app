@@ -224,6 +224,8 @@ model Member {
   connectedIntegrations     AgencyIntegration[] @relation("IntegrationConnector")
   /// Phase 3.8 — portal feedback this member has triaged / acknowledged.
   readPortalFeedback        ClientPortalFeedback[] @relation("PortalFeedbackReader")
+  /// Phase 3.8 — statements this member published to the client portal.
+  sharedStatements          ClientStatement[]  @relation("StatementPortalPublisher")
 
   @@unique([agencyId, clerkUserId])
   @@index([agencyId])
@@ -653,13 +655,25 @@ model ClientStatement {
   /// Id returned by the agency's webhook handler (e.g. the QuickBooks /
   /// Xero invoice id). Surfaced in the UI as "Delivered to <tool>".
   webhookExternalRef  String?
+  /// Phase 3.8 — explicit publish to the client portal. Null keeps the
+  /// statement agency-only; setting the timestamp makes it visible on
+  /// `/portal/[token]` for any active portal link on this client. An
+  /// operator can unshare by nulling both fields — the portal read
+  /// re-checks on every render, so revocation is immediate.
+  sharedWithPortalAt  DateTime?
+  sharedByMemberId    String?
 
   client            Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
   generatedByMember Member? @relation("StatementAuthor", fields: [generatedByMemberId], references: [id], onDelete: SetNull)
+  sharedByMember    Member? @relation("StatementPortalPublisher", fields: [sharedByMemberId], references: [id], onDelete: SetNull)
 
   @@index([clientId, periodStart(sort: Desc)])
   @@index([clientId, generatedAt(sort: Desc)])
   @@index([generatedByMemberId])
+  /// Portal list read filters by client + `sharedWithPortalAt IS NOT NULL`
+  /// ordered by period. Composite index keeps that pattern seek-only.
+  @@index([clientId, sharedWithPortalAt(sort: Desc)])
+  @@index([sharedByMemberId])
 }
 
 /// Tokenized read-only access to the client portal. Pattern mirrors the

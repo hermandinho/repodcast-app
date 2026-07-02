@@ -8,6 +8,8 @@ import { toTenantContext } from "@/server/auth/tenant";
 import {
   generateClientStatement,
   generateClientStatementInput,
+  shareStatementWithPortal,
+  unshareStatementFromPortal,
 } from "@/server/db/client-statements";
 import { isLiveDb } from "@/server/data/source";
 
@@ -54,6 +56,55 @@ export async function generateClientStatementAction(
     return {
       ok: false,
       error: err instanceof Error ? err.message : "Statement generation failed.",
+    };
+  }
+}
+
+// ============================================================
+// Phase 3.8 — publish / unpublish a statement to the client portal
+// ============================================================
+
+const shareInput = z.object({
+  clientKey: z.string().min(1),
+  statementId: z.string().min(1),
+});
+
+export type ShareStatementResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Toggle the portal-visibility flag on a statement. `share=true` publishes
+ * (idempotent), `share=false` unpublishes. Revalidates the detail + list
+ * paths so the row's badge + button labels re-render on both surfaces.
+ *
+ * Sample-data mode returns a no-op success — same shape as the generate
+ * action — so the button doesn't error on the demo route.
+ */
+export async function shareStatementAction(
+  raw: { clientKey: string; statementId: string; share: boolean } | unknown,
+): Promise<ShareStatementResult> {
+  const parsed = shareInput.extend({ share: z.boolean() }).safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid share input", parsed.error.issues);
+  }
+  const { clientKey, statementId, share } = parsed.data;
+
+  if (!isLiveDb()) return { ok: true };
+
+  const auth = await requireAuthContext();
+  try {
+    const ctx = toTenantContext(auth);
+    if (share) {
+      await shareStatementWithPortal(ctx, statementId, auth.member.id);
+    } else {
+      await unshareStatementFromPortal(ctx, statementId);
+    }
+    revalidatePath(`/clients/${clientKey}/statements`);
+    revalidatePath(`/clients/${clientKey}/statements/${statementId}`);
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Share failed.",
     };
   }
 }

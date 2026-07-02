@@ -8,6 +8,10 @@ import {
   logPortalAccess,
   type PortalDeliverableRow,
 } from "@/server/db/client-portal";
+import {
+  listSharedStatementsForClient,
+  type PortalStatementRow,
+} from "@/server/db/client-statements";
 import { platforms, type PlatformKey } from "@/lib/sample-data/platforms";
 import { PortalOutputCard } from "@/components/portal/output-card";
 
@@ -78,7 +82,10 @@ export default async function PortalPage({ params }: { params: Promise<{ token: 
   // Fire-and-forget so a logging blip never breaks the read.
   void logPortalAccess(link.id, { ipHash, userAgent });
 
-  const deliverables = await listPortalDeliverables(link.clientId);
+  const [deliverables, statements] = await Promise.all([
+    listPortalDeliverables(link.clientId),
+    listSharedStatementsForClient(link.clientId),
+  ]);
   const grouped = groupByShowAndEpisode(deliverables);
 
   const agency = link.client.agency;
@@ -209,11 +216,67 @@ export default async function PortalPage({ params }: { params: Promise<{ token: 
         </div>
       )}
 
+      {statements.length > 0 && (
+        <StatementsSection statements={statements} token={token} accent={accent} />
+      )}
+
       {/* Footer — muted brand line, no sales language. */}
       <footer className="text-muted-2 mt-12 text-center font-mono text-[10.5px] tracking-[0.05em] uppercase">
         Delivered by {agency.name}
       </footer>
     </div>
+  );
+}
+
+function StatementsSection({
+  statements,
+  token,
+  accent,
+}: {
+  statements: PortalStatementRow[];
+  token: string;
+  accent: string;
+}) {
+  return (
+    <section className="mt-10">
+      <div className="mb-3 flex items-baseline justify-between">
+        <h2 className="font-display text-ink text-[17px] font-semibold tracking-[-0.005em]">
+          Statements
+        </h2>
+        <span className="text-muted-2 font-mono text-[10.5px] tracking-[0.05em] uppercase">
+          {statements.length} on file
+        </span>
+      </div>
+      <div className="border-border bg-surface shadow-card overflow-hidden rounded-2xl border">
+        {statements.map((s, i) => (
+          <div
+            key={s.id}
+            className={`flex flex-wrap items-center gap-4 px-5 py-4 ${
+              i > 0 ? "border-t border-[#EEF1F6]" : ""
+            }`}
+          >
+            <div className="min-w-0 flex-1">
+              <div className="font-display text-ink text-[14px] font-semibold">
+                {DATE_FMT.format(s.periodStart)} → {DATE_FMT.format(s.periodEnd)}
+              </div>
+              <div className="text-muted-2 mt-[3px] font-sans text-[11.5px]">
+                {s.episodeCount} episode
+                {s.episodeCount === 1 ? "" : "s"} · {s.outputCount} output
+                {s.outputCount === 1 ? "" : "s"} · {s.approvalRatePct}% approval rate
+              </div>
+            </div>
+            <a
+              href={`/api/portal/${token}/statements/${s.id}/pdf`}
+              className="font-sans text-[12.5px] font-semibold no-underline"
+              style={{ color: accent }}
+              download
+            >
+              Download PDF ↓
+            </a>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

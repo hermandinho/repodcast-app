@@ -27,6 +27,9 @@ const isPublicRoute = createRouteMatcher([
   // Phase 2.5 — client portal: the token itself is the credential, no
   // Clerk login required. Route handler validates expiry + revocation.
   "/portal/(.*)",
+  // Phase 3.8 — portal-side API routes (e.g. statement PDF download).
+  // Each handler re-validates the token; Clerk would 401 otherwise.
+  "/api/portal/(.*)",
   // Phase 3.6.10 — public abuse-report intake. Anonymous submission is
   // the whole point; the queue at /root/quality picks it up for triage.
   "/legal/(.*)",

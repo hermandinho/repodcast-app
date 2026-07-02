@@ -113,8 +113,19 @@ export default async function ClientStatementsListPage({
                   className="border-border-subtle bg-surface-2 hover:border-border-2 flex flex-wrap items-center gap-4 rounded-2xl border px-4 py-[12px] transition-colors"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="font-display text-ink text-[14px] font-semibold">
-                      {formatShortDate(s.periodStart)} → {formatShortDate(s.periodEnd)}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="font-display text-ink text-[14px] font-semibold">
+                        {formatShortDate(s.periodStart)} → {formatShortDate(s.periodEnd)}
+                      </div>
+                      {s.sharedWithPortalAt && (
+                        <span
+                          className="inline-flex items-center gap-[5px] rounded-full border border-emerald-200 bg-emerald-50 px-2 py-[2px] text-[10.5px] font-medium text-emerald-800"
+                          title={`Shared with client portal on ${formatShortDate(s.sharedWithPortalAt)}`}
+                        >
+                          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                          Shared
+                        </span>
+                      )}
                     </div>
                     <div className="text-muted-2 mt-[3px] text-[12px]">
                       {s.episodeCount} episode
