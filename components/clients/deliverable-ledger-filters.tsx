@@ -51,10 +51,13 @@ const PLATFORM_LABEL: Record<Platform, string> = {
   NEWSLETTER: "Newsletter",
 };
 
+export type ShowFilterOption = { id: string; name: string };
+
 export function DeliverableLedgerFilters({
   basePath,
   csvHref,
   csvDisabled,
+  showOptions = [],
 }: {
   /** e.g. `/clients/cuid123/billing` — the URL where filters live. */
   basePath: string;
@@ -62,6 +65,9 @@ export function DeliverableLedgerFilters({
   csvHref: string;
   /** Hide the Export button for non-OWNER/ADMIN roles. */
   csvDisabled: boolean;
+  /** Phase 3.8 — populate the Show filter dropdown. Empty array hides the
+   *  filter entirely (single-show or new clients). */
+  showOptions?: ShowFilterOption[];
 }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -71,6 +77,7 @@ export function DeliverableLedgerFilters({
   const currentTo = params.get("to") ?? "";
   const currentPlatform = params.get("platform") ?? "";
   const currentStatus = params.get("status") ?? "";
+  const currentShow = params.get("showId") ?? "";
 
   // Hooks have to be unconditional; this keeps the ref allocated even if
   // we never use it (no current debounced inputs, but mirrors the
@@ -102,7 +109,7 @@ export function DeliverableLedgerFilters({
     startTransition(() => router.push(basePath));
   };
 
-  const hasAny = currentFrom || currentTo || currentPlatform || currentStatus;
+  const hasAny = currentFrom || currentTo || currentPlatform || currentStatus || currentShow;
 
   return (
     <div className="border-border bg-surface shadow-card mb-3 flex flex-wrap items-center gap-2 rounded-2xl border px-3 py-2">
@@ -126,6 +133,22 @@ export function DeliverableLedgerFilters({
           aria-label="To date"
         />
       </div>
+
+      {showOptions.length > 0 && (
+        <select
+          value={currentShow}
+          onChange={(e) => setParam("showId", e.target.value)}
+          className="border-border text-muted rounded-md border bg-white px-3 py-2 font-sans text-[12.5px] font-medium"
+          aria-label="Filter by show"
+        >
+          <option value="">All shows</option>
+          {showOptions.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+      )}
 
       <select
         value={currentPlatform}

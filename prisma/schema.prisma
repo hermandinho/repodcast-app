@@ -222,6 +222,8 @@ model Member {
   scheduledOutputs          GeneratedOutput[]  @relation("OutputScheduler")
   /// Phase 3.3 — integrations this member connected (Buffer OAuth, etc.).
   connectedIntegrations     AgencyIntegration[] @relation("IntegrationConnector")
+  /// Phase 3.8 — portal feedback this member has triaged / acknowledged.
+  readPortalFeedback        ClientPortalFeedback[] @relation("PortalFeedbackReader")
 
   @@unique([agencyId, clerkUserId])
   @@index([agencyId])
@@ -675,9 +677,10 @@ model ClientPortalLink {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  client          Client                  @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  createdByMember Member?                 @relation("PortalLinkAuthor", fields: [createdByMemberId], references: [id], onDelete: SetNull)
+  client          Client                   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdByMember Member?                  @relation("PortalLinkAuthor", fields: [createdByMemberId], references: [id], onDelete: SetNull)
   accessLogs      ClientPortalAccessLog[]
+  feedback        ClientPortalFeedback[]
 
   @@index([clientId, expiresAt])
   @@index([createdByMemberId])
@@ -698,6 +701,37 @@ model ClientPortalAccessLog {
   portalLink ClientPortalLink @relation(fields: [portalLinkId], references: [id], onDelete: Cascade)
 
   @@index([portalLinkId, viewedAt(sort: Desc)])
+}
+
+/// Feedback submitted by a portal viewer against a specific deliverable
+/// (or general feedback when `outputId` is null). Append-only; the agency
+/// reads these on the client billing surface. Rate limit + body cap live
+/// inline in `submitPortalFeedback` — token is already the access
+/// credential, so we don't require an email. `readByMemberId` / `readAt`
+/// track when someone on the agency side triaged it.
+model ClientPortalFeedback {
+  id            String    @id @default(cuid())
+  portalLinkId  String
+  /// Nullable — general portal feedback isn't tied to any single output.
+  outputId      String?
+  /// Optional reporter email, captured only when the client volunteers one.
+  fromEmail     String?
+  /// Free-text body from the portal form. Length-capped in `submitPortalFeedback`.
+  body          String
+  createdAt     DateTime  @default(now())
+  /// Agency-side triage: which member acknowledged the feedback, and when.
+  readByMemberId String?
+  readAt        DateTime?
+
+  portalLink ClientPortalLink @relation(fields: [portalLinkId], references: [id], onDelete: Cascade)
+  /// Deliberately no FK on outputId — an operator regenerating the output
+  /// creates a new row and supersedes the old one; the feedback should stay
+  /// visible against the historical version. Nullable + orphan-tolerant.
+  readByMember Member?          @relation("PortalFeedbackReader", fields: [readByMemberId], references: [id], onDelete: SetNull)
+
+  @@index([portalLinkId, createdAt(sort: Desc)])
+  @@index([outputId])
+  @@index([readByMemberId])
 }
 
 /// Dedupe ledger for the renewals cron (Phase 2.13.6). The cron fires at the

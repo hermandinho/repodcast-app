@@ -1,17 +1,18 @@
 import { notFound } from "next/navigation";
 import { createHash } from "node:crypto";
 import { headers } from "next/headers";
-import { Platform } from "@prisma/client";
+import { OutputStatus, Platform } from "@prisma/client";
 import {
   getPortalLinkByToken,
-  listApprovedDeliverablesForPortal,
+  listPortalDeliverables,
   logPortalAccess,
   type PortalDeliverableRow,
 } from "@/server/db/client-portal";
 import { platforms, type PlatformKey } from "@/lib/sample-data/platforms";
+import { PortalOutputCard } from "@/components/portal/output-card";
 
 /**
- * Phase 2.5 — public client portal.
+ * Phase 3.8 — public client portal.
  *
  * Auth is the token in the URL — see `middleware.ts` for the public
  * matcher. `getPortalLinkByToken` rejects missing / revoked / expired
@@ -24,8 +25,15 @@ import { platforms, type PlatformKey } from "@/lib/sample-data/platforms";
  * bursts without storing raw addresses.
  *
  * Branding cascade: the agency's `brandLogoUrl` + `brandAccentColor` from
- * 2.5's branding settings drive the header + CTA accent inline. Falls
- * back to neutral defaults when either is unset.
+ * 2.5's branding settings drive the header, status chips, and CTA accent.
+ * Falls back to neutral defaults when either is unset.
+ *
+ * Layout (redesigned 3.8):
+ *   - Branded header (agency logo + client name)
+ *   - Summary strip — approved / scheduled / published counts, last 30 days
+ *   - Show → episode → output cards, ordered by most recent lifecycle event
+ *   - Each output card is interactive (client component) with a status
+ *     chip, copy button, view-on-platform link, and inline feedback form
  */
 
 export const dynamic = "force-dynamic";
@@ -70,16 +78,20 @@ export default async function PortalPage({ params }: { params: Promise<{ token: 
   // Fire-and-forget so a logging blip never breaks the read.
   void logPortalAccess(link.id, { ipHash, userAgent });
 
-  const deliverables = await listApprovedDeliverablesForPortal(link.clientId);
+  const deliverables = await listPortalDeliverables(link.clientId);
   const grouped = groupByShowAndEpisode(deliverables);
 
   const agency = link.client.agency;
   const accent = agency.brandAccentColor ?? DEFAULT_ACCENT;
 
+  const summary = summarize(deliverables);
+
   return (
     <div className="mx-auto max-w-[920px] px-6 py-10">
-      {/* Branded header — logo OR initials avatar in accent color. */}
-      <header className="mb-8 flex items-center gap-4">
+      {/* Branded header. Logo (or accent initials) + client name +
+          expiry note. Keeps chrome minimal — the summary strip below
+          carries the actual signal. */}
+      <header className="mb-6 flex items-center gap-4">
         {agency.brandLogoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -96,37 +108,55 @@ export default async function PortalPage({ params }: { params: Promise<{ token: 
             {agency.name.slice(0, 2).toUpperCase()}
           </div>
         )}
-        <div className="min-w-0">
-          <div className="text-muted-2 font-sans text-[11.5px] font-semibold tracking-[0.06em] uppercase">
-            Delivered by {agency.name}
+        <div className="min-w-0 flex-1">
+          <div className="text-muted-2 font-mono text-[10.5px] font-medium tracking-[0.08em] uppercase">
+            {agency.name}
           </div>
-          <h1 className="font-display text-ink mt-[2px] text-[24px] font-semibold">
+          <h1 className="font-display text-ink mt-[2px] text-[24px] font-semibold tracking-[-0.01em]">
             {link.client.name}
           </h1>
-          <div className="text-muted-2 mt-1 text-[12.5px]">
-            Approved content for your show. Link expires {DATE_FMT.format(link.expiresAt)}.
+          <div className="text-muted-2 mt-[3px] font-sans text-[12.5px]">
+            Link active through {DATE_FMT.format(link.expiresAt)}
           </div>
         </div>
       </header>
 
+      {/* Summary strip — three counters covering the full lifecycle.
+          Uses `border-r` dividers between cells so the row reads as a
+          single grouped stat rather than three isolated cards. */}
+      <section className="border-border bg-surface shadow-card mb-8 grid grid-cols-3 divide-x divide-[#EEF1F6] overflow-hidden rounded-2xl border">
+        <SummaryCell
+          label="Published"
+          value={summary.published}
+          hint="Live on your channels"
+          accent={accent}
+        />
+        <SummaryCell
+          label="Scheduled"
+          value={summary.scheduled}
+          hint="Queued to go out"
+          accent={accent}
+        />
+        <SummaryCell
+          label="Approved"
+          value={summary.approved}
+          hint="Signed off, awaiting scheduling"
+          accent={accent}
+        />
+      </section>
+
       {grouped.length === 0 ? (
-        <div className="border-border bg-surface rounded-2xl border border-dashed px-6 py-12 text-center">
-          <div className="font-display text-ink text-[15px] font-semibold">
-            Nothing approved yet
-          </div>
-          <p className="text-muted mx-auto mt-2 max-w-[400px] text-[13px]">
-            Your agency hasn&apos;t signed off on any outputs for this account yet. Check back once
-            they&apos;ve approved an episode and the deliverables will appear here.
-          </p>
-        </div>
+        <EmptyState />
       ) : (
         <div className="flex flex-col gap-8">
           {grouped.map((show) => (
             <section key={show.showId}>
               <div className="mb-3 flex items-baseline justify-between">
-                <h2 className="font-display text-ink text-[17px] font-semibold">{show.showName}</h2>
-                <span className="text-muted-2 text-[12px]">
-                  Hosted by {show.host} · {show.episodes.length} episode
+                <h2 className="font-display text-ink text-[17px] font-semibold tracking-[-0.005em]">
+                  {show.showName}
+                </h2>
+                <span className="text-muted-2 font-mono text-[10.5px] tracking-[0.05em] uppercase">
+                  {show.host} · {show.episodes.length} episode
                   {show.episodes.length === 1 ? "" : "s"}
                 </span>
               </div>
@@ -142,56 +172,32 @@ export default async function PortalPage({ params }: { params: Promise<{ token: 
                         {ep.episodeTitle}
                       </div>
                       {ep.recordedAt && (
-                        <div className="text-muted-2 mt-[2px] text-[12px]">
+                        <div className="text-muted-2 mt-[2px] font-mono text-[10.5px] tracking-[0.04em] uppercase">
                           Recorded {DATE_FMT.format(ep.recordedAt)}
                         </div>
                       )}
                     </header>
                     <div className="flex flex-col">
-                      {ep.outputs.map((o, i) => {
+                      {ep.outputs.map((o) => {
                         const meta = platformByKey.get(PLATFORM_TO_UI_KEY[o.platform]);
                         return (
-                          <div
+                          <PortalOutputCard
                             key={o.id}
-                            className="flex flex-col gap-[10px] px-5 py-4"
-                            style={{
-                              borderTop: i === 0 ? undefined : "1px solid #F0F3F8",
-                            }}
-                          >
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-[10px]">
-                                {meta && (
-                                  <span
-                                    className="font-display flex h-[26px] w-[26px] items-center justify-center rounded-md text-[11px] font-bold"
-                                    style={{
-                                      background: meta.badgeBg,
-                                      color: meta.badgeColor,
-                                      border: `1px solid ${meta.badgeBorder}`,
-                                    }}
-                                  >
-                                    {meta.badge}
-                                  </span>
-                                )}
-                                <div className="text-ink font-sans text-[13px] font-semibold">
-                                  {meta?.fullName ?? o.platform}
-                                </div>
-                              </div>
-                              {o.approvedAt && (
-                                <span
-                                  className="rounded-pill px-[9px] py-[3px] font-sans text-[11px] font-semibold"
-                                  style={{
-                                    background: `${accent}1A`,
-                                    color: accent,
-                                  }}
-                                >
-                                  Approved {DATE_FMT.format(o.approvedAt)}
-                                </span>
-                              )}
-                            </div>
-                            <div className="bg-canvas max-h-[260px] overflow-y-auto rounded-[10px] p-3 font-sans text-[13px] leading-[1.6] whitespace-pre-wrap text-[#39435A]">
-                              {o.content}
-                            </div>
-                          </div>
+                            outputId={o.id}
+                            token={token}
+                            platformName={meta?.fullName ?? o.platform}
+                            platformBadge={meta?.badge ?? "?"}
+                            platformBadgeBg={meta?.badgeBg ?? "#EEF1F6"}
+                            platformBadgeColor={meta?.badgeColor ?? "#1A2A4A"}
+                            platformBadgeBorder={meta?.badgeBorder ?? "#E4E8F0"}
+                            status={o.status as "APPROVED" | "SCHEDULED" | "PUBLISHED"}
+                            approvedAtIso={o.approvedAt?.toISOString() ?? null}
+                            scheduledForIso={o.scheduledFor?.toISOString() ?? null}
+                            publishedAtIso={o.publishedAt?.toISOString() ?? null}
+                            externalPostUrl={o.externalPostUrl}
+                            content={o.content}
+                            accentColor={accent}
+                          />
                         );
                       })}
                     </div>
@@ -203,9 +209,49 @@ export default async function PortalPage({ params }: { params: Promise<{ token: 
         </div>
       )}
 
-      <footer className="text-muted-2 mt-10 text-center text-[11.5px]">
-        Read-only delivery view · powered by {agency.name}
+      {/* Footer — muted brand line, no sales language. */}
+      <footer className="text-muted-2 mt-12 text-center font-mono text-[10.5px] tracking-[0.05em] uppercase">
+        Delivered by {agency.name}
       </footer>
+    </div>
+  );
+}
+
+function SummaryCell({
+  label,
+  value,
+  hint,
+  accent,
+}: {
+  label: string;
+  value: number;
+  hint: string;
+  accent: string;
+}) {
+  return (
+    <div className="px-5 py-4">
+      <div className="text-muted-2 font-mono text-[10.5px] font-medium tracking-[0.06em] uppercase">
+        {label}
+      </div>
+      <div
+        className="font-display mt-1 text-[28px] leading-none font-semibold tabular-nums"
+        style={{ color: value > 0 ? accent : "#8B95A6" }}
+      >
+        {value}
+      </div>
+      <div className="text-muted-2 mt-[6px] font-sans text-[11.5px] leading-[1.4]">{hint}</div>
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="border-border bg-surface rounded-2xl border border-dashed px-6 py-16 text-center">
+      <div className="font-display text-ink text-[15px] font-semibold">Nothing here yet</div>
+      <p className="text-muted mx-auto mt-2 max-w-[400px] text-[13px] leading-[1.5]">
+        Your agency hasn&apos;t signed off on any content for this account yet. Deliverables will
+        appear here as soon as they&apos;re approved.
+      </p>
     </div>
   );
 }
@@ -224,10 +270,9 @@ type GroupedShow = {
 
 /**
  * Bucket the flat deliverable list into show → episode → outputs so the
- * page renders as a hierarchy. Preserves the underlying "newest approved
- * first" order — the first show is the one that received the most recent
- * approval, and within each show the most recently approved episode is
- * first. Within an episode we keep the deliverable order from the query.
+ * page renders as a hierarchy. Preserves the underlying "most recent
+ * lifecycle event first" order — within each show/episode, the newest
+ * activity floats up.
  */
 function groupByShowAndEpisode(rows: PortalDeliverableRow[]): GroupedShow[] {
   const shows = new Map<string, GroupedShow>();
@@ -256,4 +301,20 @@ function groupByShowAndEpisode(rows: PortalDeliverableRow[]): GroupedShow[] {
     ep.outputs.push(row);
   }
   return Array.from(shows.values());
+}
+
+function summarize(rows: PortalDeliverableRow[]): {
+  approved: number;
+  scheduled: number;
+  published: number;
+} {
+  let approved = 0;
+  let scheduled = 0;
+  let published = 0;
+  for (const r of rows) {
+    if (r.status === OutputStatus.APPROVED) approved += 1;
+    else if (r.status === OutputStatus.SCHEDULED) scheduled += 1;
+    else if (r.status === OutputStatus.PUBLISHED) published += 1;
+  }
+  return { approved, scheduled, published };
 }

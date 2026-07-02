@@ -1239,7 +1239,14 @@ describe("deliverables repo — tenant filter + filter layering", () => {
     expect(findArgs.skip).toBe(0);
     expect(findArgs.orderBy).toEqual({ createdAt: "desc" });
     expect(findArgs.include).toEqual({
-      episode: { select: { id: true, title: true, recordedAt: true } },
+      episode: {
+        select: {
+          id: true,
+          title: true,
+          recordedAt: true,
+          show: { select: { id: true, name: true } },
+        },
+      },
       approvedByMember: { select: { id: true, name: true, email: true } },
     });
   });

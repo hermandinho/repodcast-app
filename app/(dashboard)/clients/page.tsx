@@ -1,15 +1,28 @@
 import { NewClientButton } from "@/components/clients/new-client-button";
 import { ClientsBrowser, type ClientWithStats } from "@/components/clients/clients-browser";
-import { listClientsForUI, listShowsForUI } from "@/server/data/source";
+import { isLiveDb, listClientsForUI, listShowsForUI } from "@/server/data/source";
 import { resolveTenantContext } from "@/server/data/tenant";
+import { unreadPortalFeedbackByClient } from "@/server/db/client-portal";
 
 /**
  * Customer clients list. Each row = one parent customer. A separate `/shows`
  * route lists individual podcast shows across all clients.
+ *
+ * Phase 3.8 — the sidebar surfaces an unread portal-feedback badge on this
+ * item. Landing here needs to answer "where is that feedback and what do I
+ * do about it": we fetch per-client unread counts, thread them through the
+ * browser so client cards with pending notes float to the top with an
+ * inline pill, and render a summary strip at the top explaining the trail.
  */
 export default async function ClientsPage() {
   const tenant = await resolveTenantContext();
-  const [clients, shows] = await Promise.all([listClientsForUI(tenant), listShowsForUI(tenant)]);
+  const [clients, shows, unreadByClient] = await Promise.all([
+    listClientsForUI(tenant),
+    listShowsForUI(tenant),
+    isLiveDb()
+      ? unreadPortalFeedbackByClient(tenant).catch(() => new Map<string, number>())
+      : Promise.resolve(new Map<string, number>()),
+  ]);
 
   // Roll up per-client aggregates from the show list once. The browser uses
   // these for the card stats and as sort keys.
@@ -37,8 +50,12 @@ export default async function ClientsPage() {
       showCount: agg.shows,
       episodeCount: agg.episodes,
       voiceSamples: agg.samples,
+      unreadFeedback: unreadByClient.get(c.key) ?? 0,
     };
   });
+
+  const totalUnread = Array.from(unreadByClient.values()).reduce((a, b) => a + b, 0);
+  const clientsWithUnread = clientsWithStats.filter((c) => c.unreadFeedback > 0).length;
 
   return (
     <div className="px-[30px] pt-[28px] pb-[60px]">
@@ -55,7 +72,61 @@ export default async function ClientsPage() {
         <NewClientButton />
       </div>
 
+      {totalUnread > 0 && (
+        <UnreadFeedbackStrip totalUnread={totalUnread} clientsWithUnread={clientsWithUnread} />
+      )}
+
       {clients.length === 0 ? <ClientsEmptyState /> : <ClientsBrowser clients={clientsWithStats} />}
+    </div>
+  );
+}
+
+/**
+ * Top-of-page hint that appears only when at least one client has unread
+ * portal feedback. Explains what the sidebar badge meant and points at the
+ * client cards below (which are already floated to the top by the
+ * browser's sort). No CTA button — the cards themselves are the target.
+ */
+function UnreadFeedbackStrip({
+  totalUnread,
+  clientsWithUnread,
+}: {
+  totalUnread: number;
+  clientsWithUnread: number;
+}) {
+  return (
+    <div
+      className="mb-[18px] flex items-start gap-3 rounded-2xl border px-4 py-[14px]"
+      style={{ borderColor: "#D8E1F3", background: "rgba(58,91,160,0.05)" }}
+    >
+      <div
+        className="mt-[2px] flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full"
+        style={{ background: "#3A5BA0", color: "white" }}
+        aria-hidden
+      >
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 12 12"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        >
+          <path d="M2 3.5h8v5H4.5L2 10.5V3.5z" />
+        </svg>
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="font-display text-ink text-[14px] font-semibold">
+          {totalUnread} unread portal note{totalUnread === 1 ? "" : "s"} from {clientsWithUnread}{" "}
+          client{clientsWithUnread === 1 ? "" : "s"}
+        </div>
+        <p className="text-muted mt-[3px] text-[12.5px] leading-[1.5]">
+          Open the affected client below and jump to their{" "}
+          <span className="font-medium">Billing</span> tab — the feedback inbox sits above the
+          deliverable ledger. Clients with pending notes are highlighted and floated to the top.
+        </p>
+      </div>
     </div>
   );
 }
