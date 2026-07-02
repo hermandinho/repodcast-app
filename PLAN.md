@@ -724,49 +724,47 @@ Three forward-only steps: **Workspace → Teammates → First client**. The trai
 
 ### Typography
 
-- [ ] Add **JetBrains Mono** via `next/font/google` (weights 400/500) and expose as `--font-mono` in the `@theme` block. Used for kicker eyebrows ("FOR PODCAST AGENCIES"), section labels, code-like accents.
-- [ ] Sora 700 for hero/section headlines with `letter-spacing: -0.035em` — the existing Sora wire-up covers this.
+- [x] **JetBrains Mono** wired via `next/font/google` in `app/layout.tsx` + exposed as `--font-mono` in `globals.css`.
+- [x] Sora 700 hero/section headlines with tight tracking — reuses the existing Sora setup.
 
-### Sections (mapped to `ref/UI/Landing/Repodcast Landing.dc.html`)
+### Sections (all landed in `components/landing/landing-page.tsx`, ~1300 lines)
 
-- [ ] **Nav** — sticky, `backdrop-filter: saturate(180%) blur(16px)` semi-transparent white. Brand mark (SVG waveform + "Repodcast" wordmark) + 4 nav links (`How it works`, `Voice Engine`, `Pricing`, `FAQ`) + `Sign in` ghost link + `Start free` primary.
-- [ ] **Hero** — split grid (1.02 / 0.98). LEFT: mono kicker, Sora 700 56px headline ("Sounds exactly like you. / Gets better every episode."), sub, dual CTA, "No credit card · 14-day trial" caption. RIGHT: product mockup with episode header + "Voice: Strong" pill, animated waveform on dark band, platform tabs (LinkedIn active), generated sample, "generated in 48s" + Approve / Tweak buttons. Background: radial gradient + dotted texture + floating accent orb.
-- [ ] **Logo strip** — "Trusted by growing studios" + 5 studio names in Sora 600 at reduced opacity.
-- [ ] **Problem** — split grid. LEFT: kicker + 38px headline + paragraph. RIGHT: 3-column stat panel (`6–9h`, `3+`, `$40–70`) inside a bordered card.
-- [ ] **How it works** — 3 numbered cards in a single hairline-grid container. Each: mono number ("01"), Sora 600 20px title, paragraph, mono pill tags.
-- [ ] **Voice Engine** (dark showpiece) — `#1A2A4A` background, `#13203B` panel inset. Decorative blob + concentric rings + dotted texture. Two-column panel inside: LEFT client picker, RIGHT split (LinkedIn sample card + voice-strength panel with progress bar, "Learned traits" bullet list). Active client state drives the right panel.
-- [ ] **Three Pillars** — 3 hairline-grid cards: "In your client's voice, not the AI's." / "Built for agencies, full stop." / "Gets better the more you use it."
-- [ ] **Outputs** — header + tagline "7× the output, one drop-in." 4-col grid of 8 cards: 7 platforms + a dark inset card "All written in the client's voice."
-- [ ] **Social Proof** — 3 testimonials in hairline grid: quote, avatar circle (initials on `#1A2A4A`), name + role/studio in mono.
-- [ ] **Pricing** — centered header + 3 plan cards. Studio $99 (white), Agency $249 (dark, "Most popular" badge), Network $499 (white). Each: name, tagline, price, CTA, 4–5 feature bullets with `→` markers.
-- [ ] **FAQ** — split (0.7 / 1.3). LEFT: kicker + Sora 700 34px headline. RIGHT: 6 expandable Q&A items, accordion (single open). `+` icon rotates 45deg on open.
-- [ ] **Final CTA** (dark) — full-bleed `#1A2A4A` with low-opacity animated waveform bg. Split: LEFT headline + sub, RIGHT dual CTA.
-- [ ] **Footer** — `#13203B`, 4-col grid (brand + Product / Company / Legal) + bottom row (copyright + tagline).
+- [x] **Nav** — sticky backdrop-blur white bar with brand mark + 4 anchor links + `Sign in` / `Start free` (or `Open dashboard` when signed in).
+- [x] **Hero** — split grid with mono kicker + Sora 700 headline + dual CTA + product mockup panel with LinkedIn sample + animated waveform, radial gradient + dotted texture + floating accent orb.
+- [x] **Problem** — split grid with 3-column stat panel (`6–9h`, `3+`, `$40–70`) inside a bordered card.
+- [x] **How it works** — 3 numbered hairline-grid cards.
+- [x] **Voice Engine** (dark showpiece) — `#1A2A4A` background with concentric-ring + dotted textures; interactive client picker on the left drives the sample-card + voice-strength panel on the right.
+- [x] **Three Pillars** — hairline-grid triptych.
+- [x] **Outputs** — 4-column grid of 8 cards (7 platforms + dark "all in the client's voice" inset).
+- [x] **Social Proof** — 3-testimonial hairline grid.
+- [x] **Pricing** — 3 plan cards with the middle Agency tier styled as the dark "most popular" pick.
+- [x] **FAQ** — 6-question accordion (single-open, `+ ↔ ×` icon rotation).
+- [x] **Final CTA** (dark) — full-bleed `#1A2A4A` with animated waveform background + dual CTA.
+- [x] **Footer** — `#13203B` 4-column grid + copyright row.
+- [x] **Compare** — bonus section not in the original spec but on the reference HTML — sits between Pillars and Outputs.
 
 ### Interactive components
 
-- [ ] **`<ClientPicker>`** for Voice Engine — `useState` for active client index. Three demo clients (The Founder's Cut, Mid-Run Mornings, Tape & Tonic) each with show name, initials, voice strength, sample post, learned traits. Switching updates the right panel in place. Active row highlighted with `#1E3056`.
-- [ ] **`<FAQAccordion>`** — `useState` for open index. Click toggles; opening a new one closes the previous. `+` ↔ `×` via `transform: rotate(45deg)` with `transition: transform .2s`.
+- [x] `<ClientPicker>` — `components/landing/client-picker.tsx`. `useState` for active client index across the three demo clients; the right panel swaps in-place.
+- [x] `<FAQAccordion>` — `components/landing/faq-accordion.tsx`. `useState` for open index; opening a new question closes the previous. `+` rotates to `×` via CSS transform.
 
-### Animations / motion
+### Animations / motion — landed in the same file via inline `<style>` + Tailwind
 
-- [ ] `@keyframes eq` waveform bars in hero + final-CTA background.
-- [ ] `@keyframes floaty` for accent orbs (9s ease-in-out).
-- [ ] `card-lift` hover (translateY(-2px) + border shift) on output cards.
-- [ ] `html { scroll-behavior: smooth }` for anchor jumps.
+- [x] `@keyframes eq` waveform bars in hero + final-CTA.
+- [x] `@keyframes floaty` accent orbs.
+- [x] `card-lift` hover on output cards.
+- [x] `html { scroll-behavior: smooth }` for anchor jumps.
 
 ### Design tokens (additions)
 
-- [ ] `--color-marketing-ink: #1A2A4A`, `--color-marketing-deep: #13203B`.
-- [ ] `--color-marketing-mint: #7FE3B0`, `--color-marketing-mint-bg: #EAF7F0`, `--color-marketing-mint-text: #1F8A5B`.
-- [ ] `--color-marketing-muted: #9AA3B2`, `--color-marketing-muted-deep: #6B7BA3`, `--color-marketing-soft: #A9B6D4`.
-- [ ] `--font-mono`.
+- [x] All landing tokens live in `app/globals.css` under `@theme` — `--color-marketing-ink`, `--color-marketing-deep`, `--color-marketing-mint` (+ bg + text variants), `--color-marketing-muted` (+ deep + soft variants), `--color-marketing-border` (+ -2). `--font-mono` also declared.
 
-### SEO (deferred polish — done with the launch checklist)
+### SEO
 
-- [ ] `metadata` export on `app/page.tsx` (title, description, openGraph, twitter cards).
-- [ ] OG image — render to `public/landing/og.png` (1200×630).
-- [ ] `public/robots.txt` + `app/sitemap.ts`.
+- [x] `metadata` export on `app/page.tsx` — title, description, `openGraph` (title, description, type=website), Twitter card `summary_large_image`.
+- [x] OG image — dynamic via `app/opengraph-image.tsx`. Renders through Next's built-in `ImageResponse` (satori) at the 1200×630 spec size, deep-navy background with mint waveform mark, hero headline verbatim so the OG matches the landing's fold impression. No committed PNG asset — regenerates on each request off the same code path.
+- [x] `app/sitemap.ts` — public routes only (`/`, `/pricing`, `/legal/report`, `/sign-in`, `/sign-up`). Deliberately omits `/dashboard`, `/settings/*`, `/root/*`, `/api/*`, `/portal/*` and the rest of the auth-gated surface.
+- [x] `app/robots.ts` — narrow allow-list (`/`, `/pricing`, `/legal/`, `/sign-in`, `/sign-up`) + explicit disallow for every tenant / admin / API prefix. Sitemap URL points back at the dynamic sitemap.
 
 ### Out of scope (deferred)
 
