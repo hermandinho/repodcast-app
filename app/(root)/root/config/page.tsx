@@ -8,6 +8,12 @@ import {
   type SystemConfigRow,
 } from "@/server/db/system/config";
 import {
+  countMissingKnownConfigs,
+  KNOWN_SYSTEM_CONFIG,
+  mergeKnownConfigStatus,
+  type KnownConfigEntry,
+} from "@/lib/system-config-catalog";
+import {
   deleteSystemConfigAction,
   revokeAgencyLimitOverrideAction,
   upsertAgencyLimitOverrideAction,
@@ -45,7 +51,13 @@ const ERROR_COPY: Record<string, string> = {
 export default async function RootConfigPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; ok?: string; key?: string; agencyId?: string }>;
+  searchParams: Promise<{
+    error?: string;
+    ok?: string;
+    key?: string;
+    agencyId?: string;
+    prefill?: string;
+  }>;
 }) {
   const sp = await searchParams;
   const ctx = await requireSystemAdminContext();
@@ -56,6 +68,10 @@ export default async function RootConfigPage({
     listSystemConfig(ctx),
     listAgencyLimitOverrides(ctx, {}),
   ]);
+
+  const knownConfigs = mergeKnownConfigStatus(configRows);
+  const missingCount = countMissingKnownConfigs(configRows);
+  const prefill = resolvePrefill(sp.prefill);
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-8">
@@ -87,10 +103,188 @@ export default async function RootConfigPage({
       ) : null}
       {sp.ok ? <Banner tone="ok">Change applied.</Banner> : null}
 
-      <SystemConfigSection rows={configRows} canWrite={canWrite} />
+      <KnownConfigsSection entries={knownConfigs} missingCount={missingCount} canWrite={canWrite} />
+
+      <SystemConfigSection rows={configRows} canWrite={canWrite} prefill={prefill} />
 
       <AgencyLimitOverridesSection overrides={overrides} canWrite={canWrite} />
     </div>
+  );
+}
+
+function resolvePrefill(raw: string | undefined): KnownConfigEntry | null {
+  if (!raw) return null;
+  return KNOWN_SYSTEM_CONFIG.find((entry) => entry.key === raw) ?? null;
+}
+
+// ============================================================
+// Known configs — catalog panel
+// ============================================================
+
+function KnownConfigsSection({
+  entries,
+  missingCount,
+  canWrite,
+}: {
+  entries: Array<KnownConfigEntry & { isConfigured: boolean }>;
+  missingCount: number;
+  canWrite: boolean;
+}) {
+  if (entries.length === 0) return null;
+  const allSet = missingCount === 0;
+
+  return (
+    <section
+      id="known-configs"
+      className={`flex flex-col gap-4 rounded-xl border p-4 ${
+        allSet ? "border-emerald-900/50 bg-emerald-950/10" : "border-amber-900/60 bg-amber-950/10"
+      }`}
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <h2 className="font-display text-lg font-semibold text-white">
+            Known configs the app expects
+          </h2>
+          <p className="text-[12.5px] text-zinc-400">
+            Keys the codebase reads at runtime. Missing ones fall back to built-in defaults —
+            usually fine for local dev, but you probably want to review each before a real
+            deployment.
+          </p>
+        </div>
+        <span
+          className={`shrink-0 rounded-md border px-2 py-1 font-mono text-[11px] tracking-wider uppercase ${
+            allSet
+              ? "border-emerald-700/60 bg-emerald-900/30 text-emerald-200"
+              : "border-amber-700/60 bg-amber-900/30 text-amber-200"
+          }`}
+        >
+          {allSet ? "all set" : `${missingCount} need${missingCount === 1 ? "s" : ""} setup`}
+        </span>
+      </div>
+
+      <ul className="flex flex-col gap-2">
+        {entries.map((entry) => (
+          <KnownConfigCard key={entry.key} entry={entry} canWrite={canWrite} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function KnownConfigCard({
+  entry,
+  canWrite,
+}: {
+  entry: KnownConfigEntry & { isConfigured: boolean };
+  canWrite: boolean;
+}) {
+  const exampleJson = JSON.stringify(entry.example, null, 2);
+  return (
+    <li
+      className={`rounded-lg border ${
+        entry.isConfigured
+          ? "border-emerald-900/40 bg-emerald-950/10"
+          : "border-amber-900/50 bg-zinc-900/40"
+      }`}
+    >
+      <details className="group" open={!entry.isConfigured}>
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+          <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <StatusDot ok={entry.isConfigured} />
+              <span className="font-mono text-[12px] text-white">{entry.key}</span>
+              <span className="truncate text-[12px] text-zinc-400">— {entry.label}</span>
+            </div>
+            <div className="text-[11.5px] text-zinc-500">{entry.purpose}</div>
+          </div>
+          <span
+            className={`shrink-0 rounded px-2 py-0.5 font-mono text-[10.5px] tracking-wider uppercase ${
+              entry.isConfigured
+                ? "bg-emerald-900/30 text-emerald-200"
+                : "bg-amber-900/30 text-amber-200"
+            }`}
+          >
+            {entry.isConfigured ? "configured" : "not set"}
+          </span>
+        </summary>
+
+        <div className="border-t border-zinc-800 px-4 py-4 text-[12.5px]">
+          {entry.isConfigured ? (
+            <p className="text-emerald-200/80">
+              Value is persisted in{" "}
+              <code className="rounded bg-zinc-800 px-1 py-0.5 font-mono text-[11px] text-zinc-200">
+                SystemConfig
+              </code>
+              . Scroll down to the “Platform config” section to view or edit it.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1 text-zinc-300">
+                <div>
+                  <span className="text-zinc-500">Read at:</span>{" "}
+                  <code className="rounded bg-zinc-800 px-1 py-0.5 font-mono text-[11px] text-zinc-200">
+                    {entry.readAt}
+                  </code>
+                </div>
+                <div>
+                  <span className="text-zinc-500">Default behavior:</span>{" "}
+                  <span className="text-zinc-300">{entry.defaultBehavior}</span>
+                </div>
+              </div>
+
+              <details>
+                <summary className="cursor-pointer text-[11.5px] text-zinc-400 hover:text-zinc-200">
+                  Show example value
+                </summary>
+                <pre className="mt-2 max-h-64 overflow-auto rounded border border-zinc-800 bg-zinc-950 p-3 font-mono text-[11px] leading-relaxed text-zinc-300">
+                  {exampleJson}
+                </pre>
+              </details>
+
+              {canWrite ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <form action={upsertSystemConfigAction}>
+                    <input type="hidden" name="key" value={entry.key} />
+                    <input type="hidden" name="valueJson" value={exampleJson} />
+                    <input type="hidden" name="description" value={entry.label} />
+                    <input
+                      type="hidden"
+                      name="note"
+                      value="Seeded from Known-configs catalog (defaults)"
+                    />
+                    <button
+                      type="submit"
+                      className="rounded-md border border-amber-500/60 bg-amber-500/10 px-3 py-2 text-[12.5px] font-medium text-amber-100 hover:bg-amber-500/20"
+                    >
+                      Configure with defaults
+                    </button>
+                  </form>
+                  <Link
+                    href={`/root/config?prefill=${encodeURIComponent(entry.key)}#add-key`}
+                    className="rounded-md border border-zinc-700 px-3 py-2 text-[12.5px] text-zinc-200 hover:bg-zinc-800"
+                  >
+                    Customize before saving
+                  </Link>
+                </div>
+              ) : (
+                <p className="text-[12px] text-zinc-500">
+                  ROOT or OPERATOR is required to seed this key.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </details>
+    </li>
+  );
+}
+
+function StatusDot({ ok }: { ok: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`inline-block size-2 rounded-full ${ok ? "bg-emerald-400" : "bg-amber-400"}`}
+    />
   );
 }
 
@@ -98,7 +292,15 @@ export default async function RootConfigPage({
 // SystemConfig
 // ============================================================
 
-function SystemConfigSection({ rows, canWrite }: { rows: SystemConfigRow[]; canWrite: boolean }) {
+function SystemConfigSection({
+  rows,
+  canWrite,
+  prefill,
+}: {
+  rows: SystemConfigRow[];
+  canWrite: boolean;
+  prefill: KnownConfigEntry | null;
+}) {
   return (
     <section className="flex flex-col gap-4">
       <div className="flex items-baseline justify-between">
@@ -120,7 +322,7 @@ function SystemConfigSection({ rows, canWrite }: { rows: SystemConfigRow[]; canW
         </ul>
       )}
 
-      {canWrite ? <SystemConfigUpsertForm /> : <WriteGateNotice />}
+      {canWrite ? <SystemConfigUpsertForm prefill={prefill} /> : <WriteGateNotice />}
     </section>
   );
 }
@@ -210,38 +412,64 @@ function SystemConfigCard({ row, canWrite }: { row: SystemConfigRow; canWrite: b
   );
 }
 
-function SystemConfigUpsertForm() {
+function SystemConfigUpsertForm({ prefill }: { prefill: KnownConfigEntry | null }) {
+  const prefillJson = prefill ? JSON.stringify(prefill.example, null, 2) : "";
   return (
     <form
+      id="add-key"
       action={upsertSystemConfigAction}
-      className="flex flex-col gap-2 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4"
+      className={`flex flex-col gap-2 rounded-xl border p-4 ${
+        prefill ? "border-amber-700/60 bg-amber-950/10" : "border-zinc-800 bg-zinc-900/40"
+      }`}
     >
-      <h3 className="font-display text-sm font-semibold text-white">Add / update key</h3>
+      <div className="flex items-baseline justify-between">
+        <h3 className="font-display text-sm font-semibold text-white">
+          {prefill ? "Configure known key" : "Add / update key"}
+        </h3>
+        {prefill ? (
+          <span className="font-mono text-[10.5px] tracking-wider text-amber-200 uppercase">
+            pre-filled from catalog
+          </span>
+        ) : null}
+      </div>
+      {prefill ? (
+        <p className="text-[12px] text-zinc-400">
+          Review the example below and edit before saving — or leave it as-is to seed the catalog
+          defaults.
+        </p>
+      ) : null}
       <input
         type="text"
         name="key"
         required
+        defaultValue={prefill?.key ?? ""}
         placeholder="UPPER_SNAKE_KEY"
         pattern="[A-Z0-9_]{2,64}"
         title="UPPER_SNAKE_CASE, 2-64 chars"
-        className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-100 placeholder:text-zinc-500"
+        readOnly={prefill !== null}
+        className={`rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-100 placeholder:text-zinc-500 ${
+          prefill ? "cursor-not-allowed opacity-80" : ""
+        }`}
       />
       <textarea
         name="valueJson"
-        rows={4}
+        rows={prefill ? 10 : 4}
         required
+        defaultValue={prefillJson}
         placeholder={'value as JSON — "string", 42, true, {"foo": 1}, [1,2]'}
         className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-[12px] text-zinc-100 placeholder:text-zinc-500"
       />
       <input
         type="text"
         name="description"
+        defaultValue={prefill?.label ?? ""}
         placeholder="Description (optional)"
         className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500"
       />
       <input
         type="text"
         name="note"
+        defaultValue={prefill ? "Configured from Known-configs catalog" : ""}
         placeholder="Audit note (recommended)"
         className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500"
       />
@@ -250,7 +478,7 @@ function SystemConfigUpsertForm() {
           type="submit"
           className="rounded-md border border-red-500/60 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-100 hover:bg-red-500/20"
         >
-          Create key
+          {prefill ? "Save configuration" : "Create key"}
         </button>
       </div>
     </form>

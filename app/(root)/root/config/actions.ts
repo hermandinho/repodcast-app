@@ -11,6 +11,7 @@ import {
   upsertAgencyLimitOverride,
   upsertSystemConfig,
 } from "@/server/db/system/config";
+import { findKnownConfig } from "@/lib/system-config-catalog";
 
 /**
  * Phase 3.6.11 — server actions behind `/root/config`.
@@ -47,6 +48,7 @@ export async function upsertSystemConfigAction(formData: FormData): Promise<void
     redirect(`/root/config?error=${errCode(err)}&key=${encodeURIComponent(key)}`);
   }
   revalidatePath("/root/config");
+  revalidateDependentPaths(key);
   redirect(`/root/config?ok=1&key=${encodeURIComponent(key)}`);
 }
 
@@ -63,7 +65,22 @@ export async function deleteSystemConfigAction(formData: FormData): Promise<void
     redirect(`/root/config?error=${errCode(err)}&key=${encodeURIComponent(key)}`);
   }
   revalidatePath("/root/config");
+  revalidateDependentPaths(key);
   redirect("/root/config?ok=deleted");
+}
+
+/**
+ * Invalidate every page listed on the catalog entry for this key. Without
+ * this, a `LANDING_TRUSTED_BY` write updates the DB row but the marketing
+ * page keeps serving the cached hero — the whole point of the "edit without
+ * redeploy" flow is that operators see the change immediately.
+ */
+function revalidateDependentPaths(key: string): void {
+  const entry = findKnownConfig(key);
+  if (!entry?.revalidatePaths) return;
+  for (const path of entry.revalidatePaths) {
+    revalidatePath(path);
+  }
 }
 
 // ============================================================
