@@ -122,15 +122,16 @@ export default async function OpenGraphImage() {
         </div>
         <div
           style={{
+            display: "flex",
+            flexDirection: "column",
             fontSize: 68,
             lineHeight: 1.05,
             fontWeight: 700,
             letterSpacing: "-0.03em",
           }}
         >
-          Sounds exactly like you.
-          <br />
-          Gets better every episode.
+          <span>Sounds exactly like you.</span>
+          <span>Gets better every episode.</span>
         </div>
         <div
           style={{

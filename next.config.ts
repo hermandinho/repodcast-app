@@ -33,7 +33,11 @@ const config: NextConfig = process.env.SENTRY_DSN
       // Suppress source-map upload + telemetry when no auth token is present
       // (e.g. local builds).
       authToken: process.env.SENTRY_AUTH_TOKEN,
-      disableLogger: true,
+      // Sentry 8.x moved the logger tree-shake into the webpack.treeshake
+      // bag (previously `disableLogger`, now deprecated). No-op under
+      // Turbopack, which is why dev prints "Not supported with Turbopack"
+      // — the flag only takes effect on the production webpack build.
+      webpack: { treeshake: { removeDebugLogging: true } },
     })
   : nextConfig;
 

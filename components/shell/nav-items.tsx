@@ -86,7 +86,7 @@ export const navItems: NavItem[] = [
   },
   {
     label: "Team",
-    href: "/team",
+    href: "/settings/team",
     icon: (
       <svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke={stroke} strokeWidth="1.5">
         <circle cx="5.5" cy="6" r="2.3" />
