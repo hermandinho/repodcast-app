@@ -1,3 +1,4 @@
+import { UserButton } from "@clerk/nextjs";
 import Link from "next/link";
 import { getAuthContext } from "@/server/auth/context";
 import { listClientsForUI, listShowsForUI } from "@/server/data/source";
@@ -44,7 +45,7 @@ export async function Topbar() {
 
       <ClientSwitcher clients={clients} showsByKey={showsByKey} />
 
-      <div className="ml-auto flex items-center gap-[10px]">
+      <div className="ml-auto flex items-center gap-[14px]">
         <Link
           href="/episodes/new"
           className="bg-accent shadow-card inline-flex items-center gap-[7px] rounded-[10px] px-[14px] py-[8px] font-sans text-[13px] font-semibold text-white transition-[filter] hover:brightness-95"
@@ -62,6 +63,13 @@ export async function Topbar() {
           </svg>
           New episode
         </Link>
+        <UserButton
+          appearance={{
+            elements: {
+              avatarBox: { width: 30, height: 30 },
+            },
+          }}
+        />
       </div>
     </header>
   );

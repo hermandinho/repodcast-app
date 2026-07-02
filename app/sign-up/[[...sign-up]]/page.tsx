@@ -1,9 +1,9 @@
-import { SignUp } from "@clerk/nextjs";
 import Link from "next/link";
 import { AuthShell } from "@/components/auth/auth-shell";
+import { ClerkSignUpMount } from "@/components/auth/clerk-widget-mount";
 
-// See app/sign-in/[[...sign-in]]/page.tsx — same Clerk `withClerk` HOC
-// handoff. `AuthShell` scopes `suppressHydrationWarning` around the mount.
+// See app/sign-in/[[...sign-in]]/page.tsx — same client-only mount pattern
+// to sidestep the React 19 hydration mismatch on Clerk's widget container.
 // Theme comes from <ClerkProvider> in app/layout.tsx.
 //
 // `fallbackRedirectUrl` mirrors sign-in — /after-sign-in resolves the
@@ -28,7 +28,7 @@ export default function SignUpPage() {
         </>
       }
     >
-      <SignUp fallbackRedirectUrl="/after-sign-in" signInUrl="/sign-in" />
+      <ClerkSignUpMount fallbackRedirectUrl="/after-sign-in" signInUrl="/sign-in" />
     </AuthShell>
   );
 }
