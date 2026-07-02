@@ -729,43 +729,49 @@ export function OutputsView({
           </div>
         </div>
 
-        {/* KPI strip — approval progress, avg quality, and voice status all
-            on one line. Replaces the older two-row layout (bordered voice
-            mini-card in the header + a separate progress strip below), which
-            duplicated the rail's AI-voice card and ate vertical space. */}
-        <div className="border-border bg-surface mb-5 flex flex-wrap items-center gap-x-5 gap-y-[10px] rounded-xl border px-4 py-[11px]">
+        {/* KPI strip — approval progress · avg quality · voice status.
+            Vertical dividers separate the three groups per ref, and the
+            trainer copy lives on the right so the eye reads the row as
+            "state on the left, provenance on the right". */}
+        <div className="border-border bg-surface mb-[22px] flex flex-wrap items-center gap-x-[22px] gap-y-[10px] rounded-[14px] border px-[22px] py-[15px]">
           <div className="flex min-w-[200px] flex-1 items-center gap-[12px]">
-            <div className="text-[13px] whitespace-nowrap">
-              <span className="text-ink font-semibold">
+            <div className="text-[14px] whitespace-nowrap text-[#5A6473]">
+              <span className="font-display text-ink text-[15px] font-bold">
                 {approvedCount} of {totalCount}
               </span>{" "}
-              <span className="text-muted-2">approved</span>
+              approved
             </div>
-            <div className="h-[6px] min-w-[100px] flex-1 overflow-hidden rounded-md bg-[#EEF1F6]">
+            <div className="h-[8px] min-w-[120px] flex-1 overflow-hidden rounded-[5px] bg-[#EAEEF4]">
               <div
-                className="h-full rounded-md bg-[#2E9E5B] transition-[width] duration-500 ease-out"
+                className="h-full rounded-[5px] bg-[#1F8A5B] transition-[width] duration-500 ease-out"
                 style={{ width: `${approvedPct}%` }}
               />
             </div>
           </div>
 
-          <div className="text-muted-2 flex items-center gap-[6px] text-[12.5px] whitespace-nowrap">
+          <span className="hidden h-[26px] w-px bg-[#E8EBF1] sm:block" />
+
+          <div className="flex items-center gap-[6px] text-[14px] whitespace-nowrap text-[#5A6473]">
             <span>Avg quality</span>
-            <span className="text-ink font-semibold">{avgQuality === null ? "—" : avgQuality}</span>
+            <span className="font-display text-ink text-[15px] font-bold">
+              {avgQuality === null ? "—" : avgQuality}
+            </span>
           </div>
+
+          <span className="hidden h-[26px] w-px bg-[#E8EBF1] sm:block" />
 
           <div className="flex items-center gap-[8px] whitespace-nowrap">
             <VoiceStrengthBars samples={samples} size="sm" />
             <span
-              className="font-sans text-[12.5px] font-semibold"
+              className="font-sans text-[13.5px] font-semibold"
               style={{ color: voiceTextColor(samples) }}
             >
               {voiceLabel(samples)}
             </span>
-            <span className="text-muted-2 text-[12px]">· {samples} samples</span>
+            <span className="text-muted-2 font-mono text-[12px]">· {samples} samples</span>
           </div>
 
-          <div className="text-muted-2 basis-full text-[11.5px] sm:basis-auto sm:border-l sm:border-[#E6EBF3] sm:pl-5">
+          <div className="text-muted-2 basis-full text-[13px] sm:ml-auto sm:basis-auto">
             Each approval trains{" "}
             <span className="text-muted font-medium">{client.host}&apos;s</span> voice engine
           </div>
@@ -795,12 +801,13 @@ export function OutputsView({
         {/* Clip moments — null/empty rendering handled inside the panel */}
         <ClipMomentsPanel moments={episode.keyMoments} />
 
-        {/* Output grid — tighter tiles per ref/card1.png. `minmax(240px)`
-             hits 4 columns at ≥1024px main width and gracefully collapses
-             to 3/2/1 columns below. */}
+        {/* Output grid — per ref/details-full.html, `minmax(272px, 1fr)`
+             yields 3 columns at typical main widths and 4 on very wide
+             screens, giving each tile enough room for the preview box +
+             signals + button row without cramping. */}
         <div
-          className="grid gap-[14px]"
-          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}
+          className="grid items-stretch gap-[18px]"
+          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(272px, 1fr))" }}
         >
           {outputs.map((o) => {
             const platform = platformByKey.get(o.key)!;

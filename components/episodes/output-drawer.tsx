@@ -244,24 +244,93 @@ export function OutputDrawer({
           </button>
         </div>
 
-        {/* Metadata strip */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-zinc-100 px-5 py-2.5 text-[11px] text-zinc-500">
-          {isPublished && publishedDate ? (
-            <MetaBadge tone="ok" label={`Published ${formatShortDateTime(publishedDate)}`} />
-          ) : isScheduled && scheduledDate ? (
-            <MetaBadge tone="info" label={`Scheduled ${formatShortDateTime(scheduledDate)}`} />
-          ) : (
+        {/* Signal strip — Quality score + Voice match, two boxes per ref.
+            Hidden while generating so the skeleton reads cleanly. */}
+        {!isGen && (
+          <div className="flex gap-[10px] border-b border-zinc-100 bg-[#FAFBFD] px-5 py-4">
+            <div className="flex-1 rounded-[11px] border border-[#E8EBF1] bg-white px-[15px] py-[13px]">
+              <div className="mb-[7px] font-mono text-[10px] tracking-[0.06em] text-[#9AA3B2] uppercase">
+                Quality score
+              </div>
+              <div className="flex items-center gap-[9px]">
+                <span
+                  className="font-display flex h-[34px] w-[34px] items-center justify-center rounded-full text-[12px] font-bold tabular-nums"
+                  style={{
+                    border: `2.5px solid ${qualityColorFor(state.quality)}`,
+                    color: qualityColorFor(state.quality),
+                  }}
+                >
+                  {state.quality || "—"}
+                </span>
+                <span className="text-[12.5px] leading-[1.35] font-medium text-[#5A6473]">
+                  {qualityNoteFor(state.quality)}
+                </span>
+              </div>
+            </div>
+            <div className="flex-1 rounded-[11px] border border-[#E8EBF1] bg-white px-[15px] py-[13px]">
+              <div className="mb-[7px] font-mono text-[10px] tracking-[0.06em] text-[#9AA3B2] uppercase">
+                Voice match
+              </div>
+              <div className="flex items-center gap-[9px]">
+                <span className="flex items-end gap-[2.5px]" aria-hidden>
+                  <span
+                    className="w-[4px] rounded-[1px]"
+                    style={{
+                      height: 9,
+                      background:
+                        voiceStrengthFor(state.quality) >= 1
+                          ? voiceColorFor(state.quality)
+                          : "#D8DEE8",
+                    }}
+                  />
+                  <span
+                    className="w-[4px] rounded-[1px]"
+                    style={{
+                      height: 13,
+                      background:
+                        voiceStrengthFor(state.quality) >= 2
+                          ? voiceColorFor(state.quality)
+                          : "#D8DEE8",
+                    }}
+                  />
+                  <span
+                    className="w-[4px] rounded-[1px]"
+                    style={{
+                      height: 17,
+                      background:
+                        voiceStrengthFor(state.quality) >= 3
+                          ? voiceColorFor(state.quality)
+                          : "#D8DEE8",
+                    }}
+                  />
+                </span>
+                <span
+                  className="text-[13px] font-semibold"
+                  style={{ color: voiceColorFor(state.quality) }}
+                >
+                  {voiceLabelFor(state.quality)}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Metadata strip — lifecycle chips (scheduled/published/via) */}
+        {(isScheduled || isPublished) && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-zinc-100 px-5 py-2.5 text-[11px] text-zinc-500">
+            {isPublished && publishedDate ? (
+              <MetaBadge tone="ok" label={`Published ${formatShortDateTime(publishedDate)}`} />
+            ) : isScheduled && scheduledDate ? (
+              <MetaBadge tone="info" label={`Scheduled ${formatShortDateTime(scheduledDate)}`} />
+            ) : null}
             <span className="font-mono">{wordCount} words</span>
-          )}
-          {state.quality > 0 && <span className="font-mono">Quality {state.quality}</span>}
-          {isScheduled || isPublished ? (
-            state.externalScheduler === "BUFFER" ? (
+            {state.externalScheduler === "BUFFER" ? (
               <span className="font-mono">via Buffer</span>
             ) : state.externalScheduler === "MANUAL" ? (
               <span className="font-mono">manual</span>
-            ) : null
-          ) : null}
-        </div>
+            ) : null}
+          </div>
+        )}
 
         {/* Version history */}
         {hasHistory && !state.editing && (
@@ -422,7 +491,7 @@ export function OutputDrawer({
               ]}
               primary={{
                 label: pending ? "Scheduling…" : "Confirm schedule",
-                tone: "schedule",
+                tone: "brand",
                 onClick: submitSchedule,
                 disabled: pending || !roleCanSchedule,
               }}
@@ -439,7 +508,7 @@ export function OutputDrawer({
                 state.externalScheduler !== "BUFFER" && roleCanSchedule
                   ? {
                       label: pending ? "Marking…" : "Mark published",
-                      tone: "success",
+                      tone: "brand",
                       onClick: submitMarkPublished,
                       disabled: pending,
                     }
@@ -453,7 +522,7 @@ export function OutputDrawer({
                 state.externalPostUrl
                   ? {
                       label: "View post ↗",
-                      tone: "success",
+                      tone: "brand",
                       onClick: () => window.open(state.externalPostUrl!, "_blank", "noopener"),
                     }
                   : undefined
@@ -492,7 +561,7 @@ export function OutputDrawer({
               ]}
               primary={{
                 label: "Approve",
-                tone: "success",
+                tone: "brand",
                 onClick: actions.onApprove,
                 disabled: !roleCanApprove || viewingOlder,
               }}
@@ -793,4 +862,43 @@ function countWords(s: string): number {
   const trimmed = s.trim();
   if (trimmed.length === 0) return 0;
   return trimmed.split(/\s+/).length;
+}
+
+// ============================================================
+// Quality / voice band helpers — mirror the card's helpers so the
+// drawer's signal strip reads the same tone as the tile that opened it.
+// ============================================================
+
+function qualityColorFor(q: number): string {
+  if (q >= 90) return "#1F8A5B";
+  if (q >= 75) return "#B7791F";
+  return "#C0392B";
+}
+
+function qualityNoteFor(q: number): string {
+  if (q >= 90) return "Post-ready. No edits suggested.";
+  if (q >= 75) return "Solid. Skim for one or two tweaks.";
+  if (q > 0) return "Worth a review pass before shipping.";
+  return "Waiting on a quality score.";
+}
+
+function voiceColorFor(q: number): string {
+  if (q >= 85) return "#1F8A5B";
+  if (q >= 72) return "#3A5BA0";
+  if (q > 0) return "#B7791F";
+  return "#8A93A3";
+}
+
+function voiceLabelFor(q: number): string {
+  if (q >= 85) return "Strong";
+  if (q >= 72) return "Growing";
+  if (q > 0) return "Developing";
+  return "New";
+}
+
+function voiceStrengthFor(q: number): 0 | 1 | 2 | 3 {
+  if (q >= 85) return 3;
+  if (q >= 72) return 2;
+  if (q > 0) return 1;
+  return 0;
 }
