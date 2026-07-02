@@ -128,12 +128,13 @@ export const importYoutubeEpisode = inngest.createFunction(
       }),
     );
 
-    let metadata;
-    try {
-      metadata = await fetchYouTubeMetadata(videoId);
-    } catch (err) {
-      throw rewrapYouTubeError(err);
-    }
+    const metadata = await step.run("fetch-metadata", async () => {
+      try {
+        return await fetchYouTubeMetadata(videoId);
+      } catch (err) {
+        throw rewrapYouTubeError(err);
+      }
+    });
     if (metadata.durationSec !== null && metadata.durationSec > MAX_DURATION_SEC) {
       const hours = Math.round(metadata.durationSec / 3600);
       throw new NonRetriableError(
@@ -144,19 +145,23 @@ export const importYoutubeEpisode = inngest.createFunction(
     // ---- 4a. Transcript-first path ----
     const track = pickBestCaptionTrack(metadata.captionLanguages, metadata.autoCaptionLanguages);
     if (track) {
-      let transcript = "";
-      try {
-        transcript = await fetchCaptionText(videoId, track);
-      } catch (err) {
-        // Downgrade caption fetch failures to a soft signal — we'll
-        // still try the audio-fallback path below rather than fail
-        // outright. Log the reason for debugging.
-        console.warn(
-          `[import-youtube-episode] caption fetch failed for ${videoId}, falling through to audio: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-      }
+      // Wrapped in step.run so a downstream retry (e.g. the DB write
+      // below hits a transient conflict) doesn't re-invoke yt-dlp.
+      const transcript = await step.run("fetch-captions", async () => {
+        try {
+          return await fetchCaptionText(videoId, track);
+        } catch (err) {
+          // Downgrade caption fetch failures to a soft signal — return
+          // empty so the audio-fallback path takes over. Log the reason
+          // for debugging.
+          console.warn(
+            `[import-youtube-episode] caption fetch failed for ${videoId}, falling through to audio: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+          return "";
+        }
+      });
 
       if (transcript.trim().length >= MIN_TRANSCRIPT_CHARS) {
         await step.run("persist-transcript", () =>

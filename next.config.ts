@@ -3,10 +3,21 @@ import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["charming-creative-sunbird.ngrok-free.app"],
-  // Phase 3.2 — force-include the yt-dlp binary in the Inngest route's
-  // bundle on Vercel. Next's file tracer picks up require()'d modules but
-  // not spawn'd binary paths; without this, the Vercel deployment would
-  // ship without the binary and every YouTube import would ENOENT.
+  // Phase 3.2 — yt-dlp integration.
+  //
+  // 1. `serverExternalPackages` — don't bundle yt-dlp-exec into the
+  //    server build. When bundled by Turbopack, the package's
+  //    `path.join(__dirname, '..', 'bin')` computes against Turbopack's
+  //    virtual filesystem (paths that look like `\ROOT\node_modules\...`)
+  //    which don't exist at runtime → ENOENT on every spawn. Marking it
+  //    external tells Next to require it from real node_modules at
+  //    runtime, so `__dirname` resolves to the actual on-disk directory.
+  //
+  // 2. `outputFileTracingIncludes` — force the yt-dlp binary into the
+  //    Vercel deployment's `/api/inngest` bundle. Next's file tracer
+  //    picks up require()'d modules but not spawn'd binary paths; without
+  //    this the deploy would ship without the binary.
+  serverExternalPackages: ["yt-dlp-exec"],
   outputFileTracingIncludes: {
     "/api/inngest": ["./node_modules/yt-dlp-exec/bin/**"],
   },
