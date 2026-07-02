@@ -203,25 +203,25 @@ export function OutputCard({
         )}
       </div>
 
-      {/* Metric chips */}
+      {/* Metric row — inline icon + label per ref (no chip boxes). Left:
+          Quality with a small checkmark. Right: voice-match with a
+          three-bar signal icon. Colors track the quality band so a
+          low-quality output shows amber/gray labels, high-quality shows
+          mint. */}
       {!isGen && !isFailed && (
-        <div className="flex items-center gap-1.5 px-3.5 pb-3">
+        <div className="flex items-center gap-4 px-3.5 pb-3">
           <span
-            className="rounded-md px-2 py-0.5 font-mono text-[10.5px] font-semibold"
-            style={{
-              background: "#EEF1F6",
-              color: "#3A4557",
-            }}
+            className="inline-flex items-center gap-1 text-[11px] font-medium"
+            style={{ color: voice.color }}
           >
-            Quality {state.quality || "—"}
+            <QualityIcon />
+            Quality
           </span>
           <span
-            className="rounded-md px-2 py-0.5 font-mono text-[10.5px] font-semibold"
-            style={{
-              background: voice.bg,
-              color: voice.color,
-            }}
+            className="inline-flex items-center gap-1 text-[11px] font-medium"
+            style={{ color: voice.color }}
           >
+            <SignalBarsIcon />
             {voice.label}
           </span>
         </div>
@@ -270,6 +270,38 @@ function StatusPill({ sm }: { sm: ReturnType<typeof statusMeta> }) {
       <span className="block h-[5px] w-[5px] rounded-full" style={{ background: sm.color }} />
       {sm.label}
     </span>
+  );
+}
+
+/** Small checkmark icon paired with the Quality label. Inherits color
+ *  via `currentColor` so it matches whatever tone the caller wraps it in. */
+function QualityIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M2.5 6.2 5 8.5 9.5 3.5" />
+    </svg>
+  );
+}
+
+/** Three ascending vertical bars — reads as "signal strength" / voice
+ *  match. Colored via `currentColor`. */
+function SignalBarsIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
+      <rect x="1.5" y="7" width="2" height="4" rx="1" />
+      <rect x="5" y="4.5" width="2" height="6.5" rx="1" />
+      <rect x="8.5" y="2" width="2" height="9" rx="1" />
+    </svg>
   );
 }
 
@@ -445,7 +477,7 @@ function ActionBand(p: {
     return (
       <div className="flex flex-col gap-1.5">
         <PrimaryButton
-          tone="brand"
+          tone="schedule"
           label="Schedule"
           onClick={clickWithStop(() => p.onOpen?.())}
           disabled={!p.roleCanSchedule}
@@ -480,6 +512,8 @@ function ActionBand(p: {
   );
 }
 
+export type CtaTone = "success" | "brand" | "schedule" | "danger";
+
 function PrimaryButton({
   label,
   onClick,
@@ -489,20 +523,23 @@ function PrimaryButton({
   label: string;
   onClick: (e: React.MouseEvent) => void;
   disabled?: boolean;
-  tone: "success" | "brand" | "danger";
+  tone: CtaTone;
 }) {
-  // Tones map to the app's existing palette:
-  //   success → soft mint outlined (matches the approved-state colors
-  //             in statusMeta). Used for Approve so the CTA and the
-  //             pill it produces read as the same visual family.
-  //   brand   → accent navy (`--color-accent` = #3A5BA0) with white
-  //             text. This is the app's primary button style — used
-  //             for Schedule / Mark published / Try again so every
-  //             "commit forward" action has the same weight.
-  //   danger  → red (kept for future destructive actions; not used yet
-  //             — Try again reuses `brand`, not danger, because it's a
-  //             recovery action not a destructive one).
-  const toneStyle: Record<typeof tone, CSSProperties> = {
+  // Four tones, each with a specific meaning that matches the ref's
+  // visual language:
+  //   success  → soft mint outlined (matches the Approved status pill).
+  //              Used for Approve so the CTA and the resulting pill
+  //              read as the same visual family.
+  //   brand    → accent navy `var(--color-accent)` #3A5BA0 with white
+  //              text. Used for Mark published + Try again — actions
+  //              the operator is finalizing themselves.
+  //   schedule → purple #5D3FD3 with white text. Distinct from `brand`
+  //              because Schedule delegates the actual publish to an
+  //              external system (Buffer or a future manual reminder);
+  //              matches the Scheduled status pill so the pill and the
+  //              CTA that produces it share a color family.
+  //   danger   → red (reserved for destructive UX; unused here today).
+  const toneStyle: Record<CtaTone, CSSProperties> = {
     success: {
       background: "#E7F4EC",
       color: "#1E7A47",
@@ -514,6 +551,12 @@ function PrimaryButton({
       color: "#fff",
       border: "1px solid rgba(0,0,0,.06)",
       boxShadow: "0 1px 2px rgba(58,91,160,.22)",
+    },
+    schedule: {
+      background: "#5D3FD3",
+      color: "#fff",
+      border: "1px solid rgba(0,0,0,.06)",
+      boxShadow: "0 1px 2px rgba(93,63,211,.22)",
     },
     danger: {
       background: "#C0392B",

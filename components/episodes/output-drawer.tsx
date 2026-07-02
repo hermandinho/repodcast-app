@@ -422,7 +422,7 @@ export function OutputDrawer({
               ]}
               primary={{
                 label: pending ? "Scheduling…" : "Confirm schedule",
-                tone: "brand",
+                tone: "schedule",
                 onClick: submitSchedule,
                 disabled: pending || !roleCanSchedule,
               }}
@@ -673,7 +673,7 @@ function ScheduleChoice({
 type FooterButton = {
   label: string;
   onClick: () => void;
-  tone?: "success" | "brand" | "danger";
+  tone?: "success" | "brand" | "schedule" | "danger";
   disabled?: boolean;
 };
 
@@ -720,17 +720,16 @@ function FooterRow({
 }
 
 function PrimaryFooterButton({ label, onClick, tone = "brand", disabled = false }: FooterButton) {
-  // Same tone palette as the card's PrimaryButton — the drawer footer
-  // should feel like a continuation of the tile that opened it.
-  //   success → soft mint outlined (Approve — matches the approved
-  //             status-pill palette so CTA + resulting pill share a
-  //             visual family)
-  //   brand   → app accent navy `--color-accent` (#3A5BA0) with white
-  //             text — the app's primary button. Used for Confirm
-  //             schedule / Save / Regenerate / Try again.
-  //   danger  → red (reserved for destructive UX; not used from this
-  //             file today)
-  const toneStyle: Record<"success" | "brand" | "danger", CSSProperties> = {
+  // Same four-tone palette as the card's PrimaryButton — the drawer
+  // footer should feel like a continuation of the tile that opened it.
+  //   success  → soft mint outlined (Approve, Mark published finalize)
+  //   brand    → accent navy `var(--color-accent)` (Save, Regenerate,
+  //              Try again — operator finalizing themselves)
+  //   schedule → purple #5D3FD3 (Confirm schedule — delegates publish
+  //              to Buffer or a manual reminder; pairs with the
+  //              Scheduled status pill's purple)
+  //   danger   → red (reserved for destructive UX)
+  const toneStyle: Record<"success" | "brand" | "schedule" | "danger", CSSProperties> = {
     success: {
       background: "#E7F4EC",
       color: "#1E7A47",
@@ -742,6 +741,12 @@ function PrimaryFooterButton({ label, onClick, tone = "brand", disabled = false 
       color: "#fff",
       border: "1px solid rgba(0,0,0,.06)",
       boxShadow: "0 1px 2px rgba(58,91,160,.22)",
+    },
+    schedule: {
+      background: "#5D3FD3",
+      color: "#fff",
+      border: "1px solid rgba(0,0,0,.06)",
+      boxShadow: "0 1px 2px rgba(93,63,211,.22)",
     },
     danger: {
       background: "#C0392B",
