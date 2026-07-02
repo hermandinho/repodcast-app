@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CookiePreferencesButton } from "@/components/consent/cookie-preferences-button";
 import { BrandMark } from "./nav";
 
 const COLUMNS = [
@@ -95,12 +96,16 @@ export function LandingFooter() {
           >
             © 2026 Repodcast, Inc.
           </span>
-          <span
-            className="text-[12px]"
+          <div
+            className="flex items-center gap-4 text-[12px]"
             style={{ fontFamily: "var(--font-mono)", color: "#6B7BA3" }}
           >
-            Made for the studios doing the work.
-          </span>
+            <CookiePreferencesButton
+              className="cursor-pointer transition-colors hover:text-white"
+              style={{ color: "#6B7BA3", background: "transparent", border: 0, padding: 0 }}
+            />
+            <span>Made for the studios doing the work.</span>
+          </div>
         </div>
       </div>
     </footer>
