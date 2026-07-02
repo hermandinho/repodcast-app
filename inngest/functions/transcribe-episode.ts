@@ -44,7 +44,12 @@ export const transcribeEpisode = inngest.createFunction(
     retries: 3,
   },
   async ({ event, step }) => {
-    const { episodeId, platforms } = event.data as Events["episode/transcribe.requested"]["data"];
+    const {
+      episodeId,
+      platforms,
+      plan,
+      agencyId: agencyIdFromEvent,
+    } = event.data as Events["episode/transcribe.requested"]["data"];
 
     // ---- 1. Load + validate ----
     const episode = await prisma.episode.findUnique({
@@ -75,12 +80,13 @@ export const transcribeEpisode = inngest.createFunction(
         `Episode ${episodeId} has no audio object key — upload didn't complete?`,
       );
     }
+    const agencyId = agencyIdFromEvent ?? episode.show.client.agencyId;
     if (episode.transcript.trim().length > 0) {
       // Already has a transcript. Skip Deepgram + fire generate directly so
       // a re-fired event still kicks the generation pipeline.
       await step.sendEvent("emit-generate", {
         name: "episode/generate.requested",
-        data: { episodeId, platforms },
+        data: { episodeId, platforms, plan, agencyId },
       });
       return { episodeId, skippedTranscription: true };
     }
@@ -141,7 +147,7 @@ export const transcribeEpisode = inngest.createFunction(
     // ---- 5. Hand off to the existing generation pipeline ----
     await step.sendEvent("emit-generate", {
       name: "episode/generate.requested",
-      data: { episodeId, platforms },
+      data: { episodeId, platforms, plan, agencyId },
     });
 
     return {

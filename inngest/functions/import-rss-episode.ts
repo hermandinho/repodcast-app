@@ -75,8 +75,14 @@ export const importRssEpisode = inngest.createFunction(
     },
   },
   async ({ event, step }) => {
-    const { episodeId, guid, feedUrl, platforms } =
-      event.data as Events["episode/rss.import.requested"]["data"];
+    const {
+      episodeId,
+      guid,
+      feedUrl,
+      platforms,
+      plan,
+      agencyId: agencyIdFromEvent,
+    } = event.data as Events["episode/rss.import.requested"]["data"];
 
     // ---- 1. Load + validate ----
     const episode = await prisma.episode.findUnique({
@@ -98,16 +104,16 @@ export const importRssEpisode = inngest.createFunction(
         `Episode ${episodeId} source is ${episode.source}, not RSS — refusing to import`,
       );
     }
+    const agencyId = agencyIdFromEvent ?? episode.show.client.agencyId;
     if (episode.transcript.trim().length >= MIN_TRANSCRIPT_CHARS) {
       // Idempotent re-fire — transcript already filled. Skip straight to
       // generate so the dispatcher's retry still wakes up the pipeline.
       await step.sendEvent("emit-generate", {
         name: "episode/generate.requested",
-        data: { episodeId, platforms },
+        data: { episodeId, platforms, plan, agencyId },
       });
       return { episodeId, skipped: true };
     }
-    const agencyId = episode.show.client.agencyId;
 
     // ---- 2. Status → PROCESSING ----
     await step.run("mark-processing", () =>
@@ -194,7 +200,7 @@ export const importRssEpisode = inngest.createFunction(
 
         await step.sendEvent("emit-generate", {
           name: "episode/generate.requested",
-          data: { episodeId, platforms },
+          data: { episodeId, platforms, plan, agencyId },
         });
 
         return {
@@ -263,7 +269,7 @@ export const importRssEpisode = inngest.createFunction(
     // for reporting (Episodes-by-source chart, etc).
     await step.sendEvent("emit-transcribe", {
       name: "episode/transcribe.requested",
-      data: { episodeId, platforms },
+      data: { episodeId, platforms, plan, agencyId },
     });
 
     return {

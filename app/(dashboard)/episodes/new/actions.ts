@@ -128,6 +128,16 @@ export async function createEpisodeAction(raw: unknown): Promise<CreateEpisodeRe
   const auth = await requireAuthContext();
   const tenant = toTenantContext(auth);
 
+  // Phase 3.5 — carry plan + agencyId through the Inngest event so the
+  // priority.run + per-agency concurrency keys on the downstream fns
+  // pick them up at enqueue time. We read plan straight off auth (already
+  // loaded) rather than round-tripping through `getAgencyPlan` — that
+  // helper resolves `planOverride`, which matters for hard capacity
+  // enforcement but not for priority-queue tagging (QoS bump). Slight
+  // staleness while ROOT is comping a plan is acceptable here.
+  const plan = auth.agency.plan;
+  const agencyId = tenant.agencyId;
+
   // Pick a sensible title: explicit > publisher-provided > placeholder.
   const resolvedTitle = input.title ?? input.rssTitle ?? "Untitled episode";
 
@@ -155,7 +165,7 @@ export async function createEpisodeAction(raw: unknown): Promise<CreateEpisodeRe
   if (input.source === TranscriptSource.UPLOAD) {
     await inngest.send({
       name: "episode/transcribe.requested",
-      data: { episodeId: episode.id, platforms },
+      data: { episodeId: episode.id, platforms, plan, agencyId },
     });
   } else if (input.source === TranscriptSource.RSS) {
     await inngest.send({
@@ -166,6 +176,8 @@ export async function createEpisodeAction(raw: unknown): Promise<CreateEpisodeRe
         guid: input.rssGuid!,
         feedUrl: input.rssFeedUrl!,
         platforms,
+        plan,
+        agencyId,
       },
     });
   } else if (input.source === TranscriptSource.YOUTUBE) {
@@ -175,12 +187,14 @@ export async function createEpisodeAction(raw: unknown): Promise<CreateEpisodeRe
         episodeId: episode.id,
         videoUrl: input.youtubeUrl!,
         platforms,
+        plan,
+        agencyId,
       },
     });
   } else {
     await inngest.send({
       name: "episode/generate.requested",
-      data: { episodeId: episode.id, platforms },
+      data: { episodeId: episode.id, platforms, plan, agencyId },
     });
   }
 

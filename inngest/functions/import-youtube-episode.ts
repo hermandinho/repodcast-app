@@ -75,8 +75,13 @@ export const importYoutubeEpisode = inngest.createFunction(
     },
   },
   async ({ event, step }) => {
-    const { episodeId, videoUrl, platforms } =
-      event.data as Events["episode/youtube.import.requested"]["data"];
+    const {
+      episodeId,
+      videoUrl,
+      platforms,
+      plan,
+      agencyId: agencyIdFromEvent,
+    } = event.data as Events["episode/youtube.import.requested"]["data"];
 
     // ---- 1. Load + validate ----
     const episode = await prisma.episode.findUnique({
@@ -97,15 +102,15 @@ export const importYoutubeEpisode = inngest.createFunction(
         `Episode ${episodeId} source is ${episode.source}, not YOUTUBE — refusing to import`,
       );
     }
+    const agencyId = agencyIdFromEvent ?? episode.show.client.agencyId;
     if (episode.transcript.trim().length >= MIN_TRANSCRIPT_CHARS) {
       // Idempotent re-fire — transcript already filled. Skip to generate.
       await step.sendEvent("emit-generate", {
         name: "episode/generate.requested",
-        data: { episodeId, platforms },
+        data: { episodeId, platforms, plan, agencyId },
       });
       return { episodeId, skipped: true };
     }
-    const agencyId = episode.show.client.agencyId;
 
     // ---- 2. Parse URL + fetch metadata ----
     const videoId = parseYouTubeVideoId(videoUrl);
@@ -180,7 +185,7 @@ export const importYoutubeEpisode = inngest.createFunction(
         );
         await step.sendEvent("emit-generate", {
           name: "episode/generate.requested",
-          data: { episodeId, platforms },
+          data: { episodeId, platforms, plan, agencyId },
         });
         return {
           episodeId,
@@ -223,7 +228,7 @@ export const importYoutubeEpisode = inngest.createFunction(
     // bug we squashed.
     await step.sendEvent("emit-transcribe", {
       name: "episode/transcribe.requested",
-      data: { episodeId, platforms },
+      data: { episodeId, platforms, plan, agencyId },
     });
 
     return {

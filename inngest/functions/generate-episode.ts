@@ -63,6 +63,37 @@ export const generateEpisode = inngest.createFunction(
     id: "generate-episode",
     triggers: [{ event: "episode/generate.requested" }],
     retries: 3,
+    // Phase 3.5 — priority queue.
+    //
+    // `priority.run` is evaluated at enqueue time against `event.data`.
+    // NETWORK-tier dispatches jump 120 s ahead of anything queued in the
+    // last two minutes, so a NETWORK batch fired at t=0 executes ahead
+    // of a STUDIO episode queued at t=-90s. Non-NETWORK plans (and any
+    // legacy events missing `plan`) get default priority (0).
+    priority: {
+      run: "event.data.plan == 'NETWORK' ? 120 : 0",
+    },
+    // Concurrency has two layers:
+    //   - Global cap protects Anthropic rate limits and our monthly
+    //     $-per-token budget from a runaway fan-out.
+    //   - Per-agency cap keeps one agency's batch from monopolizing all
+    //     global slots. A NETWORK batch of 20 episodes still consumes at
+    //     most 3 slots at once; the other 7+ slots stay open for other
+    //     agencies, and NETWORK's `priority.run` bump just means their
+    //     next slot fires ahead of a queued STUDIO event.
+    //
+    // The per-agency key falls back to `event.id` when `agencyId` is
+    // absent — that's a unique run token, so old events (pre-3.5) act
+    // as if unbounded rather than sharing a bucket labeled `undefined`
+    // (which would erroneously starve them all together).
+    concurrency: [
+      { limit: 10 },
+      {
+        scope: "fn",
+        key: "event.data.agencyId ?? event.id",
+        limit: 3,
+      },
+    ],
   },
   async ({ event, step }) => {
     const { episodeId, platforms } = event.data as Events["episode/generate.requested"]["data"];

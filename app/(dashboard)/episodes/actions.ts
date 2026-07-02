@@ -124,12 +124,17 @@ export async function bulkGenerateEpisodesAction(raw: unknown): Promise<BulkGene
   }
 
   const auth = await requireAuthContext();
-  const { dispatches, skippedNotEligible } = await bulkGenerateEpisodes(
-    toTenantContext(auth),
-    parsed.data,
-  );
+  const tenant = toTenantContext(auth);
+  const { dispatches, skippedNotEligible } = await bulkGenerateEpisodes(tenant, parsed.data);
 
   if (dispatches.length > 0) {
+    // Phase 3.5 — tag the event with plan + agencyId so the priority.run
+    // expression on `generate-episode` can bump NETWORK ahead and the
+    // per-agency concurrency key caps this batch to N slots. Uses the
+    // plan on auth (rather than `getAgencyPlan`) since it's already
+    // loaded — see `episodes/new/actions.ts` for the tradeoff rationale.
+    const plan = auth.agency.plan;
+    const agencyId = tenant.agencyId;
     await Promise.allSettled(
       dispatches.map((d) =>
         inngest.send({
@@ -137,6 +142,8 @@ export async function bulkGenerateEpisodesAction(raw: unknown): Promise<BulkGene
           data: {
             episodeId: d.episodeId,
             platforms: d.platforms as Platform[],
+            plan,
+            agencyId,
           },
         }),
       ),

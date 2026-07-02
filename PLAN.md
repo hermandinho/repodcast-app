@@ -955,15 +955,36 @@ Buffer is a rented dependency: Buffer changes terms, we change with them. A firs
 
 **Rough sizing:** Buffer path is ~2–3 weeks of one engineer. First-party path is ~2–3 months, dominated by (a) waiting on TikTok Business API approval, (b) the media encoding pipeline for Instagram/TikTok, and (c) the token refresh cron plus the failure triage UI that lets support see why a post was rejected. Recommendation: ship Buffer now (§3.3.1–15) and re-evaluate first-party once we have >200 scheduling-active agencies and Buffer's fee curve starts hurting the P&L.
 
-## 3.4 Affiliate program
+## 3.4 Affiliate program — skipped
 
-- [ ] Integrate Rewardful or Tolt (Stripe-native); referral links + tracking
-- [ ] Affiliate signup/info page
+Deferred out of Phase 3. Rewardful/Tolt integration is straightforward
+whenever we come back (script tag + swap `client_reference_id` on the
+two Stripe Checkout calls) but there's no signal yet that referrals
+would move the needle at our current scale, and the $49/mo floor eats
+into margins with zero affiliates. Revisit once organic growth plateaus
+and we have a partner or two asking for it.
 
 ## 3.5 Network tier & priority
 
-- [ ] Add NETWORK ($499) Stripe product + limits (25 shows, unlimited seats, batch + priority)
-- [ ] Priority generation queue (Inngest concurrency keyed by plan)
+- [x] **NETWORK ($499) Stripe product + limits** — landed as part of the
+  original 3-tier product setup (see `lib/plans.ts`, `scripts/configure-
+  stripe-plans.ts`, `NEXT_PUBLIC_STRIPE_NETWORK_{MONTHLY,ANNUAL}_PRICE_ID`
+  in `.env.example`). Caps: 25 shows, ~unlimited seats (999), 200
+  episodes/mo, 1400 generations/mo, $200 monthly cost cap. Batch
+      generation is `assertMinPlan(NETWORK)`-gated at both the UI and repo
+      layer (`server/db/episodes.ts` in `bulkGenerateEpisodes`).
+- [x] **Priority generation queue** — `generate-episode` and
+      `regenerate-output` both carry a two-layer concurrency config +
+      `priority.run` expression. NETWORK events cut 120 s ahead of default
+      priority; global limit is 10, per-agency limit is 3 (keyed on
+      `event.data.agencyId`) so one agency's batch can't monopolize slots.
+      Dispatchers on `createEpisodeAction`, `bulkGenerateEpisodesAction`,
+      `regenerateOutputAction`, and the transcript-update fallback all tag
+      events with `plan` + `agencyId`. Upstream import fns (transcribe /
+      RSS / YouTube) carry the tags forward so a NETWORK dispatch through
+      the RSS pipeline still ends up at NETWORK priority when it lands at
+      generate. Config shape pinned by `tests/inngest/priority-queue.test.ts`
+      so a future refactor can't silently drop it.
 
 ## 3.6 ROOT user & platform admin backend
 

@@ -38,6 +38,21 @@ export const regenerateOutput = inngest.createFunction(
     id: "regenerate-output",
     triggers: [{ event: "episode/regenerate.output.requested" }],
     retries: 3,
+    // Phase 3.5 — same priority + concurrency model as `generate-episode`.
+    // Regenerate is the user-facing hot path (a Reviewer clicked "Try
+    // again" and is staring at a spinner), so priority.run mattering here
+    // is arguably more visible than on batch generation.
+    priority: {
+      run: "event.data.plan == 'NETWORK' ? 120 : 0",
+    },
+    concurrency: [
+      { limit: 10 },
+      {
+        scope: "fn",
+        key: "event.data.agencyId ?? event.id",
+        limit: 3,
+      },
+    ],
     // After Inngest exhausts retries the row would dangle in GENERATING
     // forever. Flip it to FAILED + log the error in a transition so the
     // per-card error UI can render with a Try-again button.

@@ -154,11 +154,18 @@ describe("createEpisodeAction — live mode end-to-end", () => {
       externalUrl: null,
     });
 
-    // Generation request goes out with the platforms the user selected.
+    // Generation request goes out with the platforms the user selected,
+    // plus the Phase 3.5 QoS tags (plan + agencyId) so the priority-queue
+    // expression on `generate-episode` can bump NETWORK-tier dispatches.
     expect(mocks.inngestSend).toHaveBeenCalledOnce();
     expect(mocks.inngestSend).toHaveBeenCalledWith({
       name: "episode/generate.requested",
-      data: { episodeId: EPISODE_ID, platforms: [Platform.TWITTER, Platform.LINKEDIN] },
+      data: {
+        episodeId: EPISODE_ID,
+        platforms: [Platform.TWITTER, Platform.LINKEDIN],
+        plan: Plan.STUDIO,
+        agencyId: AGENCY_ID,
+      },
     });
   });
 
@@ -229,7 +236,12 @@ describe("createEpisodeAction — live mode end-to-end", () => {
     expect(mocks.inngestSend).toHaveBeenCalledOnce();
     expect(mocks.inngestSend).toHaveBeenCalledWith({
       name: "episode/transcribe.requested",
-      data: { episodeId: EPISODE_ID, platforms: [Platform.TWITTER, Platform.LINKEDIN] },
+      data: {
+        episodeId: EPISODE_ID,
+        platforms: [Platform.TWITTER, Platform.LINKEDIN],
+        plan: Plan.STUDIO,
+        agencyId: AGENCY_ID,
+      },
     });
   });
 
@@ -310,6 +322,8 @@ describe("createEpisodeAction — live mode end-to-end", () => {
         guid: "ff-001-hire-four",
         feedUrl: "https://feeds.example.com/ff.xml",
         platforms: [Platform.TWITTER, Platform.LINKEDIN],
+        plan: Plan.STUDIO,
+        agencyId: AGENCY_ID,
       },
     });
   });
