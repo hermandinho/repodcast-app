@@ -1233,8 +1233,38 @@ Not tested with automated cases — the PostHog + Sentry surfaces are I/O agains
 
 ## 3.8 Launch assets
 
-- [ ] Product Hunt assets, demo video, screenshots
-- [ ] Outreach list tooling + email templates (agency GTM)
+- [x] **Outreach email templates (agency GTM)** — `docs/outreach-templates.md`.
+      Five stages of the agency lifecycle: cold outbound, 7-day follow-up,
+      trial activation (Day 2 no-episode), upgrade nudge (≥ 90 % of a plan
+      limit), and 30-day dormant reactivation. Each template ships with 2–3
+      subject-line variants, personalization tokens (`{{first_name}}`,
+      `{{agency}}`, `{{show}}`, `{{host}}`, `{{plan}}`, etc.), send-timing
+      guidance, and rationale notes on non-obvious choices (why the
+      reply-thread subject on follow-up 2, why the "wait until cap" comp
+      path filters higher-signal replies, why no full refunds from the
+      reactivation template).
+- [x] **Launch checklist** — `docs/launch-checklist.md`. Product Hunt-
+      anchored plan across T-14→T-8 (locked prep + hunter recruitment),
+      T-7→T-2 (assets + list warm-up), T-1 (green-status gate + calendar
+      clear), T-0 (hour-by-hour: 12:01 AM go-live, 6 AM visibility push,
+      9 AM–3 PM comment shift, 6 PM rank check, 11:30 PM wrap), T+1→T+7
+      (activation email + cohort retention read), and a within-14-day
+      retrospective template with a cost-per-signup calc so we know
+      whether to re-run the channel. The whole doc encodes the operational
+      claim that launch success is bounded by comment-reply cadence in the
+      first four hours — every T-14→T-1 step exists to reduce the cognitive
+      load during that window.
+- [ ] **Visual assets deferred to a human** — demo video (screen +
+      narration), Product Hunt hero + gallery, production screenshots.
+      These need a human running through the real UI with a real
+      agency, so we didn't scaffold placeholders. The launch checklist's
+      T-7→T-2 section calls them out with the exact dimensions and
+      content requirements when we're ready to record.
+- [~] **Outreach list tooling** — intentionally not built. The
+  `server/imports/podcastindex.ts` helper we use for RSS already
+  gives us the data source; if we need to run a targeted campaign we
+  can spin up a one-off CLI in a session rather than maintaining a
+  generic list-builder tool nobody asked for.
 
 **Exit criteria for Phase 3:** Public launch-ready; acquisition + retention machinery instrumented; all three tiers live; admin visibility in place.
 
