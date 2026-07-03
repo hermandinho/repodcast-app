@@ -1,7 +1,7 @@
 import "server-only";
 
 import { auth, currentUser } from "@clerk/nextjs/server";
-import type { MemberRole, Plan, SystemAdminRole } from "@prisma/client";
+import type { MemberRole, Plan, SystemAdminRole, TrialStatus } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { prisma } from "@/server/db/client";
 import { ForbiddenError } from "./errors";
@@ -24,6 +24,13 @@ export type AuthContext = {
      * unpaid agencies get bounced to /onboarding.
      */
     stripeSubscriptionId: string | null;
+    /**
+     * Phase 3.9 — trial state, surfaced here so the dashboard shell can
+     * render the "X days left" banner without a second lookup. `trialEndsAt`
+     * is null on agencies that never trialed; `trialStatus` is always set.
+     */
+    trialStatus: TrialStatus;
+    trialEndsAt: Date | null;
   };
   member: {
     id: string;
@@ -100,7 +107,14 @@ export async function getAuthContext(): Promise<AuthContext | null> {
         id: true,
         role: true,
         agency: {
-          select: { id: true, name: true, plan: true, stripeSubscriptionId: true },
+          select: {
+            id: true,
+            name: true,
+            plan: true,
+            stripeSubscriptionId: true,
+            trialStatus: true,
+            trialEndsAt: true,
+          },
         },
       },
     }),
@@ -120,6 +134,8 @@ export async function getAuthContext(): Promise<AuthContext | null> {
       name: member.agency.name,
       plan: member.agency.plan,
       stripeSubscriptionId: member.agency.stripeSubscriptionId,
+      trialStatus: member.agency.trialStatus,
+      trialEndsAt: member.agency.trialEndsAt,
     },
     member: {
       id: member.id,
@@ -150,7 +166,16 @@ async function resolveImpersonatedContext(
         name: true,
         role: true,
         agencyId: true,
-        agency: { select: { id: true, name: true, plan: true, stripeSubscriptionId: true } },
+        agency: {
+          select: {
+            id: true,
+            name: true,
+            plan: true,
+            stripeSubscriptionId: true,
+            trialStatus: true,
+            trialEndsAt: true,
+          },
+        },
       },
     }),
   ]);
@@ -174,6 +199,8 @@ async function resolveImpersonatedContext(
       name: impersonatedMember.agency.name,
       plan: impersonatedMember.agency.plan,
       stripeSubscriptionId: impersonatedMember.agency.stripeSubscriptionId,
+      trialStatus: impersonatedMember.agency.trialStatus,
+      trialEndsAt: impersonatedMember.agency.trialEndsAt,
     },
     member: {
       id: impersonatedMember.id,

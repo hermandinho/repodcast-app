@@ -209,6 +209,8 @@ describe("read-only impersonation — assertRole chokepoint (AuthContext layer)"
       name: "Test Agency",
       plan: Plan.STUDIO,
       stripeSubscriptionId: "sub_test",
+      trialStatus: "NONE",
+      trialEndsAt: null,
     },
     member: { id: "mem_1", role: MemberRole.OWNER },
     impersonation: null,

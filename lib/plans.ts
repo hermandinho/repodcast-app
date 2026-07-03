@@ -170,3 +170,16 @@ export function effectiveMonthlyPrice(
 
 /** Ordered list — used by the upgrade UI. */
 export const PLAN_ORDER: Plan[] = [Plan.STUDIO, Plan.AGENCY, Plan.NETWORK];
+
+/**
+ * Free-trial length in days. Passed to Stripe as `trial_period_days` on the
+ * onboarding Checkout Session; also drives the T-3 reminder cron and the
+ * in-app "X days left" banner. See MarketingStrategy.md §1.
+ */
+export const TRIAL_DAYS = 7;
+
+/**
+ * Which plan tier a trial unlocks. AGENCY (not STUDIO) so trialists reach
+ * the client-portal + branding "aha" — the features that convert them.
+ */
+export const TRIAL_PLAN: Plan = Plan.AGENCY;

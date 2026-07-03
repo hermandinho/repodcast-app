@@ -14,6 +14,13 @@ import { resolveTenantContext } from "@/server/data/tenant";
 import { prisma } from "@/server/db/client";
 import { BillingActions } from "@/components/settings/billing-actions";
 
+// Module-level helper — extracted so `Date.now()` isn't called inline
+// during render (react-hooks/purity).
+function daysUntil(target: Date): number {
+  const ms = target.getTime() - Date.now();
+  return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
+}
+
 export default async function BillingPage() {
   const tenant = await resolveTenantContext();
 
@@ -27,6 +34,8 @@ export default async function BillingPage() {
             plan: true,
             stripeSubscriptionId: true,
             preferredCurrency: true,
+            trialStatus: true,
+            trialEndsAt: true,
           },
         })
         .catch(() => null)
@@ -35,6 +44,8 @@ export default async function BillingPage() {
   const plan: Plan = agency?.plan ?? Plan.STUDIO;
   const hasSubscription = agency?.stripeSubscriptionId != null;
   const currency = asSupportedCurrency(agency?.preferredCurrency) ?? DEFAULT_CURRENCY;
+  const trialStatus = agency?.trialStatus ?? "NONE";
+  const trialEndsAt = agency?.trialEndsAt ?? null;
 
   // Capacity + invoices: real numbers when DB live, zero baseline otherwise.
   const live = isLiveDb();
@@ -78,6 +89,18 @@ export default async function BillingPage() {
 
   return (
     <>
+      {/* Trial status card — only rendered when the agency is in a trial-
+          related state so the paid-only view stays uncluttered. `daysLeft`
+          is computed via a module-level helper so the JSX stays pure. */}
+      {trialStatus !== "NONE" ? (
+        <TrialStatusCard
+          status={trialStatus}
+          trialEndsAt={trialEndsAt}
+          plan={plan}
+          daysLeftIfActive={trialStatus === "ACTIVE" && trialEndsAt ? daysUntil(trialEndsAt) : 0}
+        />
+      ) : null}
+
       {/* Current plan card */}
       <div className="border-border bg-surface shadow-card mb-[18px] rounded-3xl border p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -476,6 +499,91 @@ function TrendBars({
           );
         })}
       </svg>
+    </div>
+  );
+}
+
+function TrialStatusCard({
+  status,
+  trialEndsAt,
+  plan,
+  daysLeftIfActive,
+}: {
+  status: "ACTIVE" | "CONVERTED" | "EXPIRED" | "CANCELED";
+  trialEndsAt: Date | null;
+  plan: Plan;
+  /** Precomputed by the parent so this component stays pure. */
+  daysLeftIfActive: number;
+}) {
+  const dateLabel = trialEndsAt
+    ? new Intl.DateTimeFormat(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }).format(trialEndsAt)
+    : "—";
+
+  const [pillLabel, pillBg, pillFg, headline, body]: [string, string, string, string, string] =
+    (() => {
+      switch (status) {
+        case "ACTIVE": {
+          const daysLeft = daysLeftIfActive;
+          const left =
+            daysLeft === 0 ? "Ends today" : daysLeft === 1 ? "1 day left" : `${daysLeft} days left`;
+          return [
+            left,
+            "#E6F1EA",
+            "#1E7A47",
+            `Free trial — ${plan}`,
+            `Your card will be charged ${dateLabel} unless you cancel. You keep everything you've generated either way.`,
+          ];
+        }
+        case "CONVERTED":
+          return [
+            "Converted",
+            "#E6F1EA",
+            "#1E7A47",
+            "Trial converted",
+            `You're a paying customer since ${dateLabel}. Thanks for sticking with us.`,
+          ];
+        case "EXPIRED":
+          return [
+            "Expired",
+            "#FBE7E4",
+            "#A02B1C",
+            "Trial ended without a charge",
+            `Your trial ended ${dateLabel} and the first invoice couldn't be charged. You're on STUDIO now — restart any time by starting a subscription.`,
+          ];
+        case "CANCELED":
+          return [
+            "Canceled",
+            "#FDF1DC",
+            "#7A5B1E",
+            "Trial canceled",
+            `You canceled on ${dateLabel} — no charge. You're on STUDIO; upgrade any time.`,
+          ];
+      }
+    })();
+
+  return (
+    <div className="border-border bg-surface shadow-card mb-[18px] rounded-3xl border p-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="text-muted-2 font-sans text-[11.5px] font-semibold tracking-[0.06em] uppercase">
+            Trial
+          </div>
+          <div className="mt-1 flex items-baseline gap-3">
+            <span className="font-display text-ink text-[19px] font-semibold">{headline}</span>
+            <span
+              className="rounded-pill px-[9px] py-[3px] font-sans text-[11px] font-semibold tracking-[0.04em] uppercase"
+              style={{ background: pillBg, color: pillFg }}
+            >
+              {pillLabel}
+            </span>
+          </div>
+          <p className="text-muted mt-1 text-[13px]">{body}</p>
+        </div>
+      </div>
     </div>
   );
 }

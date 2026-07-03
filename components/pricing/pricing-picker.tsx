@@ -10,7 +10,7 @@ import {
   SUPPORTED_CURRENCIES,
   type SupportedCurrency,
 } from "@/lib/currencies";
-import { PLAN_DISPLAY, PLAN_ORDER, effectiveMonthlyPrice, priceFor } from "@/lib/plans";
+import { PLAN_DISPLAY, PLAN_ORDER, TRIAL_DAYS, effectiveMonthlyPrice, priceFor } from "@/lib/plans";
 
 /**
  * Public plan picker — powers /pricing AND is re-mounted inside
@@ -21,7 +21,7 @@ import { PLAN_DISPLAY, PLAN_ORDER, effectiveMonthlyPrice, priceFor } from "@/lib
  */
 
 type Mode =
-  | { kind: "public" }
+  | { kind: "public"; trialEligible: boolean }
   | {
       kind: "onboarding";
       /** Server action rendered as a form target; passed via `<form action>`. */
@@ -31,9 +31,14 @@ type Mode =
       initialCadence?: BillingCadence;
       initialCurrency?: SupportedCurrency;
       submittingLabel?: string;
+      /** Whether this user still qualifies for the free trial (see `TRIAL_DAYS`). */
+      trialEligible: boolean;
     };
 
-export function PricingPicker(props: Partial<Mode> = { kind: "public" }) {
+export function PricingPicker(
+  props: Partial<Mode> & { trialEligible?: boolean } = { kind: "public", trialEligible: true },
+) {
+  const trialEligible = props.trialEligible ?? true;
   const mode: Mode =
     props.kind === "onboarding"
       ? {
@@ -43,8 +48,9 @@ export function PricingPicker(props: Partial<Mode> = { kind: "public" }) {
           initialCadence: props.initialCadence,
           initialCurrency: props.initialCurrency,
           submittingLabel: props.submittingLabel,
+          trialEligible,
         }
-      : { kind: "public" };
+      : { kind: "public", trialEligible };
 
   const [cadence, setCadence] = useState<BillingCadence>(
     mode.kind === "onboarding" ? (mode.initialCadence ?? "MONTHLY") : "MONTHLY",
@@ -197,7 +203,9 @@ function PlanCard({
         <span className="font-display text-[32px] font-semibold tracking-tight">{priceLabel}</span>
         <span className="text-[13px] text-[#5B6A85]">{perLabel}</span>
       </div>
-      <div className="mt-1 text-[11.5px] text-[#8B95A6]">{cadenceHint}</div>
+      <div className="mt-1 text-[11.5px] text-[#8B95A6]">
+        {mode.trialEligible ? `$0 today, then ${cadenceHint.toLowerCase()}` : cadenceHint}
+      </div>
 
       <ul className="mt-5 flex flex-col gap-2 text-[13.5px] text-[#1A2A4A]">
         {meta.highlights.map((h) => (
@@ -220,7 +228,7 @@ function PlanCard({
               : "bg-[#1A2A4A]/10 text-[#1A2A4A] hover:bg-[#1A2A4A]/20")
           }
         >
-          Get Started
+          {mode.trialEligible ? `Start ${TRIAL_DAYS}-day free trial` : "Get Started"}
         </Link>
       ) : (
         <form action={mode.submit}>
@@ -236,7 +244,10 @@ function PlanCard({
                 : "bg-[#1A2A4A]/10 text-[#1A2A4A] hover:bg-[#1A2A4A]/20")
             }
           >
-            {mode.submittingLabel ?? `Continue with ${meta.name}`}
+            {mode.submittingLabel ??
+              (mode.trialEligible
+                ? `Start ${TRIAL_DAYS}-day free trial`
+                : `Continue with ${meta.name}`)}
           </button>
         </form>
       )}

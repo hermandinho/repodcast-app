@@ -208,6 +208,8 @@ export default async function RootAgencyDrilldownPage({
         suspendedAt={agency.suspendedAt}
         stripeSubscriptionId={agency.stripeSubscriptionId}
         latestInvoice={latestInvoice}
+        trialStatus={agency.trialStatus}
+        trialEndsAt={agency.trialEndsAt}
         viewerRole={ctx.admin.role}
       />
 
@@ -267,6 +269,7 @@ const ACTION_OK_COPY: Record<string, string> = {
   override_granted: "Plan override granted.",
   override_revoked: "Plan override revoked.",
   subscription_canceled: "Stripe subscription canceled; local plan downgraded to STUDIO.",
+  trial_extended: "Trial extended. Stripe and local trialEndsAt updated.",
 };
 
 function StatTile({

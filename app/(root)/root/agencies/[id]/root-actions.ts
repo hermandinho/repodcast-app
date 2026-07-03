@@ -7,6 +7,7 @@ import type { Plan } from "@prisma/client";
 import { ForbiddenError, NotFoundError, ValidationError } from "@/server/auth/errors";
 import { requireSystemAdminContext } from "@/server/auth/system";
 import {
+  extendAgencyTrial,
   forceCancelAgencySubscription,
   grantAgencyPlanOverride,
   hardDeleteAgency,
@@ -153,6 +154,27 @@ export async function hardDeleteAgencyAction(formData: FormData): Promise<void> 
   // The agency row is gone — redirect to the list surface with a success
   // banner. The old drilldown URL now 404s.
   redirect(`/root/agencies?deleted=${encodeURIComponent(expectedName)}`);
+}
+
+// ============================================================
+// Extend trial (Phase 3.9)
+// ============================================================
+
+export async function extendAgencyTrialAction(formData: FormData): Promise<void> {
+  const ctx = await requireSystemAdminContext();
+  const id = strOrEmpty(formData.get("id"));
+
+  try {
+    await extendAgencyTrial(ctx, {
+      id,
+      additionalDays: Number.parseInt(strOrEmpty(formData.get("additionalDays")), 10),
+      note: strOrEmpty(formData.get("note")),
+    });
+  } catch (err) {
+    redirect(`/root/agencies/${id}?action_error=${errCode(err)}`);
+  }
+  revalidatePath(`/root/agencies/${id}`);
+  redirect(`/root/agencies/${id}?action_ok=trial_extended`);
 }
 
 // ============================================================

@@ -1,5 +1,6 @@
-import type { InvoiceStatus, Plan, SystemAdminRole } from "@prisma/client";
+import type { InvoiceStatus, Plan, SystemAdminRole, TrialStatus } from "@prisma/client";
 import {
+  extendAgencyTrialAction,
   forceCancelAgencySubscriptionAction,
   grantAgencyPlanOverrideAction,
   hardDeleteAgencyAction,
@@ -27,6 +28,8 @@ export function AgencyActionsPanel({
   suspendedAt,
   stripeSubscriptionId,
   latestInvoice,
+  trialStatus,
+  trialEndsAt,
   viewerRole,
 }: {
   agencyId: string;
@@ -43,6 +46,8 @@ export function AgencyActionsPanel({
     status: InvoiceStatus;
     createdAt: Date;
   } | null;
+  trialStatus: TrialStatus;
+  trialEndsAt: Date | null;
   viewerRole: SystemAdminRole;
 }) {
   const canWrite = viewerRole === "ROOT" || viewerRole === "OPERATOR";
@@ -83,6 +88,9 @@ export function AgencyActionsPanel({
         <PlanOverrideCard agencyId={agencyId} agencyPlan={agencyPlan} planOverride={planOverride} />
         <ForceCancelCard agencyId={agencyId} agencyName={agencyName} hasSub={hasSub} />
         <RefundCard agencyId={agencyId} latestInvoice={latestInvoice} />
+        {trialStatus === "ACTIVE" ? (
+          <ExtendTrialCard agencyId={agencyId} trialEndsAt={trialEndsAt} />
+        ) : null}
       </div>
 
       {canHardDelete ? (
@@ -384,6 +392,59 @@ function ActionCard({
       </header>
       {children}
     </article>
+  );
+}
+
+// ============================================================
+// Extend trial (Phase 3.9)
+// ============================================================
+
+function ExtendTrialCard({
+  agencyId,
+  trialEndsAt,
+}: {
+  agencyId: string;
+  trialEndsAt: Date | null;
+}) {
+  const endsLabel = trialEndsAt ? trialEndsAt.toISOString().slice(0, 10) : "unknown";
+  return (
+    <ActionCard
+      label="Extend trial"
+      description={`Currently ends ${endsLabel}. Bumping the window pushes Stripe's trial_end and mirrors locally in the same audit TX.`}
+    >
+      <form action={extendAgencyTrialAction} className="flex flex-col gap-2">
+        <input type="hidden" name="id" value={agencyId} />
+        <label className="flex flex-col gap-1">
+          <span className="font-mono text-[10px] tracking-wider text-zinc-500 uppercase">
+            Additional days (1–30)
+          </span>
+          <input
+            type="number"
+            name="additionalDays"
+            defaultValue={7}
+            min={1}
+            max={30}
+            required
+            className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-[12.5px] text-zinc-100"
+          />
+        </label>
+        <input
+          type="text"
+          name="note"
+          required
+          minLength={3}
+          maxLength={500}
+          placeholder="Reason (required — appears on audit log)"
+          className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-[12.5px] text-zinc-100 placeholder:text-zinc-500"
+        />
+        <button
+          type="submit"
+          className="rounded border border-emerald-500/60 bg-emerald-500/10 px-3 py-2 text-[12.5px] font-medium text-emerald-100 hover:bg-emerald-500/20"
+        >
+          Extend trial
+        </button>
+      </form>
+    </ActionCard>
   );
 }
 

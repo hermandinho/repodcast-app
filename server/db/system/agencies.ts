@@ -1,6 +1,6 @@
 import "server-only";
 
-import { type MemberRole, type Plan, type Prisma } from "@prisma/client";
+import { type MemberRole, type Plan, type Prisma, TrialStatus } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/server/db/client";
 import { NotFoundError, ValidationError } from "@/server/auth/errors";
@@ -43,6 +43,12 @@ export const listAgenciesForRootInput = z.object({
    * surface stays stable.
    */
   status: z.enum(["all", "active", "suspended"]).default("all"),
+  /**
+   * Phase 3.9 — filter by TrialStatus. Defaults to "all" so operators land on
+   * the full list; the ROOT list page adds a chip for the "currently on trial"
+   * view (maps to "active").
+   */
+  trial: z.enum(["all", "active", "converted", "expired", "canceled"]).default("all"),
   /** Created-after lower bound (inclusive). */
   createdFrom: z.coerce.date().optional(),
   /** Created-before upper bound (inclusive, widened to end-of-day below). */
@@ -65,6 +71,8 @@ export type AgencyRowForRoot = {
   costCentsMtd: number;
   lastActivityAt: Date | null;
   suspendedAt: Date | null;
+  trialStatus: TrialStatus;
+  trialEndsAt: Date | null;
 };
 
 export type AgencyDetailForRoot = {
@@ -84,6 +92,10 @@ export type AgencyDetailForRoot = {
   brandLogoUrl: string | null;
   brandAccentColor: string | null;
   renewalRemindersEnabled: boolean;
+  /** Phase 3.9 — trial lifecycle. Surfaces the extend-trial action + the
+   *  status pill on the ROOT drilldown. */
+  trialStatus: TrialStatus;
+  trialEndsAt: Date | null;
   /** Owner of the agency (first OWNER row). May be missing on misconfigured rows. */
   owner: { id: string; email: string; name: string | null } | null;
   /** Counts across the whole agency lifetime. */
@@ -132,6 +144,11 @@ function buildAgencyListWhere(input: ListAgenciesForRootInput): Prisma.AgencyWhe
   } else if (input.status === "suspended") {
     (where as Prisma.AgencyWhereInput & { suspendedAt?: unknown }).suspendedAt = { not: null };
   }
+  if (input.trial !== "all") {
+    // Map the URL param to the DB enum. Uppercase-conversion keeps the URL
+    // clean (`?trial=active` reads better than `?trial=ACTIVE`).
+    where.trialStatus = input.trial.toUpperCase() as TrialStatus;
+  }
   if (input.createdFrom || input.createdTo) {
     where.createdAt = {};
     if (input.createdFrom) where.createdAt.gte = input.createdFrom;
@@ -166,6 +183,8 @@ export async function listAgenciesForRoot(
         name: true,
         plan: true,
         createdAt: true,
+        trialStatus: true,
+        trialEndsAt: true,
         members: {
           where: { role: "OWNER" },
           orderBy: { createdAt: "asc" },
@@ -256,6 +275,8 @@ export async function listAgenciesForRoot(
     costCentsMtd: costMtd.get(r.id) ?? 0,
     lastActivityAt: lastActivity.get(r.id) ?? null,
     suspendedAt: null,
+    trialStatus: r.trialStatus,
+    trialEndsAt: r.trialEndsAt,
   }));
 
   return { rows, total };
@@ -322,6 +343,8 @@ export async function getAgencyForRoot(
       brandLogoUrl: true,
       brandAccentColor: true,
       renewalRemindersEnabled: true,
+      trialStatus: true,
+      trialEndsAt: true,
       members: {
         where: { role: "OWNER" },
         orderBy: { createdAt: "asc" },
@@ -401,6 +424,8 @@ export async function getAgencyForRoot(
     brandLogoUrl: agency.brandLogoUrl,
     brandAccentColor: agency.brandAccentColor,
     renewalRemindersEnabled: agency.renewalRemindersEnabled,
+    trialStatus: agency.trialStatus,
+    trialEndsAt: agency.trialEndsAt,
     owner,
     totals: {
       members: agency._count.members,
@@ -767,6 +792,97 @@ export async function forceCancelAgencySubscription(
       });
     },
   );
+}
+
+export const extendAgencyTrialInput = z.object({
+  id: z.string().trim().min(1),
+  /** Additional days on top of the current `trialEndsAt`. 1..30 to keep abuse bounded. */
+  additionalDays: z.coerce.number().int().min(1).max(30),
+  /** Required — audit-only note explaining why. */
+  note: z.string().trim().min(3).max(500),
+});
+export type ExtendAgencyTrialInput = z.input<typeof extendAgencyTrialInput>;
+
+/**
+ * Phase 3.9 — extend an ACTIVE trial by N days. Updates both Stripe (source of
+ * truth for the day-15 charge attempt) and the local `Agency.trialEndsAt`
+ * mirror in the same audit TX so a Stripe failure rolls the mirror back.
+ *
+ * Guardrails:
+ *   - Only agencies whose `trialStatus === ACTIVE` are eligible. EXPIRED /
+ *     CONVERTED / CANCELED all reject with `ValidationError`.
+ *   - Additional days capped at 30 to bound the "give the customer 6 months
+ *     free" foot-gun.
+ */
+export async function extendAgencyTrial(
+  ctx: SystemAdminContext,
+  rawInput: ExtendAgencyTrialInput,
+): Promise<{ newTrialEndsAt: Date }> {
+  assertSystemRole(ctx, SYSTEM_WRITE_ROLES);
+  const input = extendAgencyTrialInput.parse(rawInput);
+
+  const agency = await prisma.agency.findUnique({
+    where: { id: input.id },
+    select: {
+      id: true,
+      name: true,
+      trialStatus: true,
+      trialEndsAt: true,
+      stripeSubscriptionId: true,
+    },
+  });
+  if (!agency) throw new NotFoundError(`Agency ${input.id} not found`);
+  if (agency.trialStatus !== TrialStatus.ACTIVE) {
+    throw new ValidationError(
+      `Agency ${input.id} is not on an active trial (status: ${agency.trialStatus})`,
+    );
+  }
+  if (!agency.trialEndsAt) {
+    throw new ValidationError(`Agency ${input.id} has no trialEndsAt to extend`);
+  }
+  if (!agency.stripeSubscriptionId) {
+    throw new ValidationError(`Agency ${input.id} has no live Stripe subscription`);
+  }
+
+  const currentEnd = agency.trialEndsAt;
+  const newEnd = new Date(currentEnd.getTime() + input.additionalDays * 86_400_000);
+
+  const stripe = requireStripeClient();
+
+  await withSystemAudit(
+    ctx,
+    {
+      action: SYSTEM_AUDIT_ACTIONS.SUBSCRIPTION_EXTEND_TRIAL,
+      targetAgencyId: input.id,
+      note: input.note,
+    },
+    async (tx, audit) => {
+      audit.setBefore({
+        agencyId: agency.id,
+        trialEndsAt: currentEnd.toISOString(),
+        additionalDays: input.additionalDays,
+      });
+
+      // Stripe: `trial_end` is a unix timestamp. `proration_behavior: "none"`
+      // avoids issuing a proration line item for the shifted window.
+      await stripe.subscriptions.update(agency.stripeSubscriptionId!, {
+        trial_end: Math.floor(newEnd.getTime() / 1000),
+        proration_behavior: "none",
+      });
+
+      // Mirror the new end date. The webhook's `subscription.updated` handler
+      // would eventually resync this too, but we write it here so the ROOT UI
+      // reflects the change without a race.
+      await tx.agency.update({
+        where: { id: input.id },
+        data: { trialEndsAt: newEnd },
+      });
+
+      audit.setAfter({ agencyId: agency.id, trialEndsAt: newEnd.toISOString() });
+    },
+  );
+
+  return { newTrialEndsAt: newEnd };
 }
 
 export const recordInvoiceRefundIntentInput = z.object({

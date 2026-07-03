@@ -1,6 +1,7 @@
 import { inngest } from "./client";
 import { checkOnboardingNudges } from "./functions/check-onboarding-nudges";
 import { checkRenewals } from "./functions/check-renewals";
+import { checkTrialNudges } from "./functions/check-trial-nudges";
 import { cleanupOrphanAudio } from "./functions/cleanup-orphan-audio";
 import { generateEpisode } from "./functions/generate-episode";
 import { importRssEpisode } from "./functions/import-rss-episode";
@@ -38,6 +39,7 @@ export const functions = [
   importYoutubeEpisode,
   checkRenewals,
   checkOnboardingNudges,
+  checkTrialNudges,
   cleanupOrphanAudio,
   nightlyUsageRollup,
   backfillUsageRollup,

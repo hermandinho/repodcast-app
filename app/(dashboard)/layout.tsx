@@ -1,9 +1,20 @@
 import { redirect } from "next/navigation";
 import { ImpersonationBanner } from "@/components/dashboard/impersonation-banner";
+import { TrialBanner } from "@/components/dashboard/trial-banner";
 import { Sidebar } from "@/components/shell/sidebar";
 import { Topbar } from "@/components/shell/topbar";
 import { getAuthContext } from "@/server/auth/context";
 import { isLiveDb } from "@/server/data/source";
+
+// Module-level helpers — kept out of the component body so the react-hooks/
+// purity rule doesn't flag `Date.now()` as impure inside render.
+function daysUntil(target: Date): number {
+  const ms = target.getTime() - Date.now();
+  return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
+}
+function formatShortDate(d: Date): string {
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
 
 /**
  * Dashboard gate (Phase 3.x onboarding rebuild).
@@ -39,6 +50,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
             memberName={auth.impersonation.as.name}
             mode={auth.impersonation.mode}
             actorRole={auth.impersonation.actorRole}
+          />
+        ) : null}
+        {auth?.agency.trialStatus === "ACTIVE" && auth.agency.trialEndsAt ? (
+          <TrialBanner
+            plan={auth.agency.plan}
+            daysLeft={daysUntil(auth.agency.trialEndsAt)}
+            endsAtLabel={formatShortDate(auth.agency.trialEndsAt)}
           />
         ) : null}
         <main className="flex-1 overflow-y-auto">{children}</main>

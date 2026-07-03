@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { FAQAccordion } from "@/components/landing/faq-accordion";
+import { PlanComparisonTable } from "@/components/pricing/plan-comparison-table";
 import { PricingPicker } from "@/components/pricing/pricing-picker";
 
 /**
@@ -13,7 +14,7 @@ export function PricingPageBody({ isSignedIn }: { isSignedIn: boolean }) {
     <>
       <PricingHero />
       <PricingPickerSection />
-      <ComparisonTable />
+      <PlanComparisonTable />
       <GuaranteeStrip />
       <PricingFAQ />
       <PricingFinalCTA isSignedIn={isSignedIn} />
@@ -114,202 +115,6 @@ function PricingPickerSection() {
     >
       <div className="relative mx-auto" style={{ maxWidth: 1180 }}>
         <PricingPicker />
-      </div>
-    </section>
-  );
-}
-
-/* ============================================================
-   Comparison table — full feature × plan matrix
-   ============================================================ */
-
-type ComparisonRow = {
-  section?: string;
-  label: string;
-  values: [string, string, string];
-  emphasis?: boolean;
-};
-
-const COMPARISON: ComparisonRow[] = [
-  { section: "Voice", label: "Per-client voice model", values: ["✓", "✓", "✓"] },
-  { label: "Approval-driven voice learning", values: ["✓", "✓", "✓"] },
-  { label: "Voice strength meter", values: ["✓", "✓", "✓"] },
-
-  { section: "Output", label: "Formats per episode", values: ["7", "7", "7"] },
-  { label: "Turnaround time", values: ["< 60s", "< 60s", "< 60s"] },
-  { label: "Batch processing", values: ["—", "—", "✓"], emphasis: true },
-
-  { section: "Team", label: "Client shows", values: ["3", "10", "25"] },
-  { label: "Seats", values: ["2", "6", "Unlimited"] },
-  { label: "Approval workflow", values: ["✓", "✓", "✓"] },
-  { label: "Role-based permissions", values: ["✓", "✓", "✓"] },
-
-  {
-    section: "Client-facing",
-    label: "White-label exports",
-    values: ["—", "✓", "✓"],
-    emphasis: true,
-  },
-  { label: "Client portal (per-client)", values: ["—", "✓", "✓"], emphasis: true },
-  { label: "Custom brand accent", values: ["—", "✓", "✓"] },
-
-  { section: "Ops", label: "Monthly cost cap", values: ["$20", "$60", "$200"] },
-  { label: "Episodes / month", values: ["20", "60", "200"] },
-  { label: "Generations / month", values: ["140", "420", "1,400"] },
-
-  { section: "Billing", label: "Currencies", values: ["5", "5", "5"] },
-  { label: "Monthly or annual", values: ["✓", "✓", "✓"] },
-  { label: "Cancel any time", values: ["✓", "✓", "✓"] },
-];
-
-function ComparisonTable() {
-  const planNames = ["Studio", "Agency", "Network"] as const;
-
-  // Group rows by section so we can render sticky section headers.
-  const groups: Array<{ title: string; rows: ComparisonRow[] }> = [];
-  let current: { title: string; rows: ComparisonRow[] } | null = null;
-  for (const row of COMPARISON) {
-    if (row.section) {
-      if (current) groups.push(current);
-      current = { title: row.section, rows: [row] };
-    } else if (current) {
-      current.rows.push(row);
-    }
-  }
-  if (current) groups.push(current);
-
-  return (
-    <section
-      id="compare"
-      className="scroll-mt-20 px-7 py-[76px]"
-      style={{ background: "#FFFFFF", borderBottom: "1px solid #ECEEF3" }}
-    >
-      <div className="mx-auto" style={{ maxWidth: 1180 }}>
-        <div className="mb-9 text-center">
-          <div
-            className="text-[12px] font-medium uppercase"
-            style={{
-              fontFamily: "var(--font-mono)",
-              letterSpacing: "0.14em",
-              color: "#9AA3B2",
-            }}
-          >
-            Full comparison
-          </div>
-          <h2
-            className="m-0 mt-3"
-            style={{
-              fontFamily: "var(--font-display)",
-              fontWeight: 700,
-              fontSize: 32,
-              lineHeight: 1.15,
-              letterSpacing: "-0.03em",
-              color: "#1A2A4A",
-            }}
-          >
-            What&apos;s included in each plan.
-          </h2>
-        </div>
-
-        <div
-          className="overflow-hidden"
-          style={{ border: "1px solid #E4E8F0", borderRadius: 16, background: "#FFFFFF" }}
-        >
-          <div
-            className="grid text-[12.5px] font-semibold uppercase"
-            style={{
-              gridTemplateColumns: "1.6fr repeat(3,1fr)",
-              background: "#F5F7FB",
-              borderBottom: "1px solid #E8EBF1",
-              fontFamily: "var(--font-mono)",
-              letterSpacing: "0.06em",
-              color: "#5A6473",
-            }}
-          >
-            <div style={{ padding: "18px 22px" }}>Feature</div>
-            {planNames.map((name, i) => (
-              <div
-                key={name}
-                style={{
-                  padding: "18px 20px",
-                  borderLeft: "1px solid #E8EBF1",
-                  color: i === 1 ? "#1A2A4A" : undefined,
-                  background: i === 1 ? "#FFFFFF" : undefined,
-                }}
-              >
-                {name}
-                {i === 1 && (
-                  <span
-                    className="ml-2 rounded-md"
-                    style={{
-                      padding: "3px 8px",
-                      background: "#7FE3B0",
-                      color: "#1A2A4A",
-                      fontSize: 10.5,
-                    }}
-                  >
-                    Popular
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {groups.map((group, gi) => (
-            <div key={group.title}>
-              <div
-                className="text-[11.5px] font-medium uppercase"
-                style={{
-                  padding: "16px 22px 6px",
-                  color: "#3A5BA0",
-                  fontFamily: "var(--font-mono)",
-                  letterSpacing: "0.08em",
-                  background: gi === 0 ? "transparent" : "#FBFCFE",
-                  borderTop: gi === 0 ? "none" : "1px solid #EEF0F5",
-                }}
-              >
-                {group.title}
-              </div>
-              {group.rows.map((row) => (
-                <div
-                  key={row.label}
-                  className="grid"
-                  style={{
-                    gridTemplateColumns: "1.6fr repeat(3,1fr)",
-                    borderTop: "1px solid #F0F2F6",
-                    background: row.emphasis ? "#F9FBFD" : undefined,
-                  }}
-                >
-                  <div
-                    style={{
-                      padding: "14px 22px",
-                      color: "#1A2A4A",
-                      fontSize: 14,
-                      fontWeight: 500,
-                    }}
-                  >
-                    {row.label}
-                  </div>
-                  {row.values.map((v, i) => (
-                    <div
-                      key={i}
-                      style={{
-                        padding: "14px 20px",
-                        borderLeft: "1px solid #F0F2F6",
-                        color: i === 1 ? "#1A2A4A" : "#5A6473",
-                        background: i === 1 ? "#F1F6FF" : undefined,
-                        fontSize: 14,
-                        fontWeight: i === 1 ? 600 : 400,
-                      }}
-                    >
-                      {v}
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
       </div>
     </section>
   );

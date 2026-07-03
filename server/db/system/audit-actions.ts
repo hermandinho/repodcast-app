@@ -25,6 +25,7 @@ export const SYSTEM_AUDIT_ACTIONS = {
   AGENCY_UPDATE_NOTE: "agency.update_note",
 
   SUBSCRIPTION_FORCE_CANCEL: "subscription.force_cancel",
+  SUBSCRIPTION_EXTEND_TRIAL: "subscription.extend_trial",
 
   INVOICE_REFUND_REQUEST: "invoice.refund_request",
 

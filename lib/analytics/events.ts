@@ -107,6 +107,47 @@ export type EventMap = {
     cadence: "MONTHLY" | "ANNUAL";
     stripeSubscriptionId: string;
   };
+
+  /**
+   * Phase 3.9 — trial funnel (see MarketingStrategy.md §1). Fires server-
+   * side from the Stripe webhook because the client redirect isn't
+   * authoritative — Stripe's `subscription.created` / `subscription.updated`
+   * / `subscription.deleted` are.
+   *
+   *   trial_started              — first `customer.subscription.created`
+   *                                whose status is `trialing`.
+   *   trial_converted            — the trialing → active transition on
+   *                                first successful charge (day 15).
+   *   trial_expired_no_conversion — trial ended, payment failed after
+   *                                Stripe's Smart Retries. `subscription.
+   *                                deleted` with `cancellation_details.
+   *                                reason !== "cancellation_requested"`.
+   *   trial_canceled_early       — user canceled during the trial window.
+   *                                `subscription.deleted` with reason
+   *                                `cancellation_requested` while the
+   *                                agency was still ACTIVE.
+   */
+  trial_started: {
+    agencyId: string;
+    plan: Plan;
+    cadence: "MONTHLY" | "ANNUAL";
+    stripeSubscriptionId: string;
+    trialEndsAt?: string;
+  };
+  trial_converted: {
+    agencyId: string;
+    plan: Plan;
+    cadence: "MONTHLY" | "ANNUAL";
+    stripeSubscriptionId: string;
+  };
+  trial_expired_no_conversion: {
+    agencyId: string;
+    stripeSubscriptionId: string;
+  };
+  trial_canceled_early: {
+    agencyId: string;
+    stripeSubscriptionId: string;
+  };
 };
 
 export type EventName = keyof EventMap;

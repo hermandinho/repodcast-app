@@ -1,5 +1,6 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
+import { OnboardingStepHeader } from "@/components/onboarding/onboarding-step-header";
 import { WorkspaceForm } from "@/components/onboarding/workspace-form";
 import { getOnboardingStateForUser } from "@/server/db/agencies";
 import { isLiveDb } from "@/server/data/source";
@@ -7,7 +8,7 @@ import { isLiveDb } from "@/server/data/source";
 export const dynamic = "force-dynamic";
 
 /**
- * Step 1 of the new onboarding: name the workspace.
+ * Step 1: name the workspace.
  *
  * Users who already have an Agency skip forward to /onboarding/plan (or
  * /dashboard if they're paying). Users who somehow reach this without a
@@ -35,37 +36,18 @@ export default async function OnboardingWorkspacePage({
   const suggestedName = firstName ? `${firstName}'s Studio` : "My Studio";
 
   return (
-    <div className="flex flex-col gap-8">
-      <StepChrome active={1} />
-      <header className="text-center">
-        <h1 className="font-display text-[28px] font-semibold tracking-tight">
-          Name your workspace
-        </h1>
-        <p className="mt-2 text-[13.5px] text-[#5B6A85]">
-          This is what teammates and clients see. You can rename it any time from Settings.
-        </p>
-      </header>
-      <WorkspaceForm suggestedName={suggestedName} passthroughQs={qs} />
+    <div className="flex flex-col gap-8 sm:gap-10">
+      <OnboardingStepHeader
+        step="workspace"
+        title="Name your workspace"
+        subtitle="This is what teammates and clients see. You can rename it any time from Settings."
+      />
+      <div className="mx-auto w-full max-w-[520px]">
+        <div className="rounded-2xl border border-black/[0.06] bg-white/95 p-5 shadow-sm sm:p-6 lg:p-8">
+          <WorkspaceForm suggestedName={suggestedName} passthroughQs={qs} />
+        </div>
+      </div>
     </div>
-  );
-}
-
-function StepChrome({ active }: { active: 1 | 2 }) {
-  const dot = (n: 1 | 2) => (
-    <span
-      key={n}
-      aria-current={active === n ? "step" : undefined}
-      className={"h-2 w-2 rounded-full " + (active === n ? "bg-[#1A2A4A]" : "bg-[#1A2A4A]/25")}
-    />
-  );
-  return (
-    <ol className="mx-auto flex items-center gap-2 font-mono text-[11.5px] tracking-wider text-[#5B6A85] uppercase">
-      {dot(1)}
-      <span>Workspace</span>
-      <span className="h-px w-6 bg-[#1A2A4A]/20" />
-      {dot(2)}
-      <span>Plan</span>
-    </ol>
   );
 }
 

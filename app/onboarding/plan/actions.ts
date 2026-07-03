@@ -10,6 +10,7 @@ import {
   SUPPORTED_CURRENCIES,
 } from "@/lib/currencies";
 import { BillingCadence, Plan } from "@/lib/enums";
+import { TRIAL_DAYS } from "@/lib/plans";
 import { requireAuthContext } from "@/server/auth/context";
 import { ValidationError } from "@/server/auth/errors";
 import { priceIdFor } from "@/server/billing/prices";
@@ -65,7 +66,12 @@ export async function checkoutFromOnboardingAction(formData: FormData): Promise<
 
   const agency = await prisma.agency.findUnique({
     where: { id: auth.agency.id },
-    select: { preferredCurrency: true, stripeSubscriptionId: true },
+    select: {
+      preferredCurrency: true,
+      stripeSubscriptionId: true,
+      stripeCustomerId: true,
+      trialStatus: true,
+    },
   });
 
   // Guard against double-charging: if the webhook already stamped a sub on
@@ -84,6 +90,12 @@ export async function checkoutFromOnboardingAction(formData: FormData): Promise<
     );
   }
 
+  // Trial-eligibility: one trial per Stripe customer. First-time customer
+  // means we've never minted a `stripeCustomerId` (initial signup) AND we've
+  // never stamped a non-NONE trial status. Returning customers whose sub
+  // lapsed reach checkout with `stripeCustomerId` set → no second trial.
+  const trialEligible = !agency?.stripeCustomerId && (agency?.trialStatus ?? "NONE") === "NONE";
+
   const stripe = requireStripeClient();
   const url = await baseUrl();
   const returnParams = new URLSearchParams({ plan, cadence, currency: resolvedCurrency });
@@ -99,6 +111,7 @@ export async function checkoutFromOnboardingAction(formData: FormData): Promise<
     metadata: { agencyId: auth.agency.id, plan, cadence, currency: resolvedCurrency },
     subscription_data: {
       metadata: { agencyId: auth.agency.id, plan, cadence, currency: resolvedCurrency },
+      ...(trialEligible ? { trial_period_days: TRIAL_DAYS } : {}),
     },
     allow_promotion_codes: true,
   });

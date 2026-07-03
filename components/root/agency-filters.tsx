@@ -16,6 +16,14 @@ const STATUS_OPTIONS = [
   { value: "suspended", label: "Suspended" },
 ];
 
+const TRIAL_OPTIONS = [
+  { value: "", label: "All trials" },
+  { value: "active", label: "On trial" },
+  { value: "converted", label: "Converted" },
+  { value: "expired", label: "Expired" },
+  { value: "canceled", label: "Canceled" },
+];
+
 /**
  * URL-driven filter row for `/root/agencies`. Same debounce + page-reset
  * conventions as `/episodes` so the operator's muscle memory carries over.
@@ -28,6 +36,7 @@ export function AgencyFilters() {
   const currentSearch = params.get("q") ?? "";
   const currentPlan = params.get("plan") ?? "";
   const currentStatus = params.get("status") ?? "";
+  const currentTrial = params.get("trial") ?? "";
   const currentFrom = params.get("from") ?? "";
   const currentTo = params.get("to") ?? "";
 
@@ -69,7 +78,7 @@ export function AgencyFilters() {
   };
 
   const anyFilterActive = Boolean(
-    currentSearch || currentPlan || currentStatus || currentFrom || currentTo,
+    currentSearch || currentPlan || currentStatus || currentTrial || currentFrom || currentTo,
   );
 
   return (
@@ -108,6 +117,21 @@ export function AgencyFilters() {
           className="focus:border-accent rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-sm text-zinc-100 focus:outline-none"
         >
           {STATUS_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="flex flex-col gap-1">
+        <span className="font-mono text-[10px] tracking-wider text-zinc-500 uppercase">Trial</span>
+        <select
+          value={currentTrial}
+          onChange={(e) => setParam("trial", e.target.value)}
+          className="focus:border-accent rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-sm text-zinc-100 focus:outline-none"
+        >
+          {TRIAL_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>
               {opt.label}
             </option>

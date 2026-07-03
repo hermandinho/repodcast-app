@@ -31,24 +31,33 @@ export async function Topbar() {
 
   return (
     <header
-      className="border-border bg-surface z-20 flex flex-shrink-0 items-center gap-[18px] border-b px-[26px]"
+      className="border-border bg-surface z-20 flex flex-shrink-0 items-center gap-3 border-b px-4 sm:gap-4 sm:px-5 md:gap-[18px] md:px-[26px]"
       style={{ height: "var(--topbar-height)" }}
     >
-      <div className="flex items-center gap-[10px]">
-        <div className="bg-ink font-display flex h-[22px] w-[22px] items-center justify-center rounded-md text-[11px] font-bold text-white">
+      {/* Agency badge + name. On mobile only the initial-badge renders so
+          the ClientSwitcher has room to breathe. */}
+      <div className="flex min-w-0 items-center gap-[10px]">
+        <div className="bg-ink font-display flex h-[22px] w-[22px] flex-shrink-0 items-center justify-center rounded-md text-[11px] font-bold text-white">
           {agencyInitial}
         </div>
-        <span className="font-display text-ink text-[15px] font-semibold">{agencyName}</span>
+        <span className="font-display text-ink hidden truncate text-[15px] font-semibold sm:inline">
+          {agencyName}
+        </span>
       </div>
 
-      <div className="bg-border h-6 w-px" />
+      <div className="bg-border hidden h-6 w-px sm:block" />
 
-      <ClientSwitcher clients={clients} showsByKey={showsByKey} />
+      {/* ClientSwitcher — grows to fill the middle on wide viewports; on
+          narrow ones min-w-0 lets its own truncation kick in. */}
+      <div className="min-w-0 flex-1 sm:flex-none">
+        <ClientSwitcher clients={clients} showsByKey={showsByKey} />
+      </div>
 
-      <div className="ml-auto flex items-center gap-[14px]">
+      <div className="ml-auto flex flex-shrink-0 items-center gap-2 sm:gap-3 md:gap-[14px]">
         <Link
           href="/episodes/new"
-          className="bg-accent shadow-card inline-flex items-center gap-[7px] rounded-[10px] px-[14px] py-[8px] font-sans text-[13px] font-semibold text-white transition-[filter] hover:brightness-95"
+          aria-label="New episode"
+          className="bg-accent shadow-card inline-flex items-center gap-[7px] rounded-[10px] px-3 py-[8px] font-sans text-[13px] font-semibold text-white transition-[filter] hover:brightness-95 sm:px-[14px]"
         >
           <svg
             width="13"
@@ -58,10 +67,11 @@ export async function Topbar() {
             stroke="currentColor"
             strokeWidth="2"
             strokeLinecap="round"
+            aria-hidden
           >
             <path d="M6.5 2.5v8M2.5 6.5h8" />
           </svg>
-          New episode
+          <span className="hidden sm:inline">New episode</span>
         </Link>
         <UserButton
           appearance={{
