@@ -223,7 +223,7 @@ describe("read-only impersonation — assertRole chokepoint (AuthContext layer)"
         systemAdminId: "sa_1",
         mode: "read",
         actorRole: "ROOT",
-        actor: { email: "root@repodcast.com", name: "Root" },
+        actor: { email: "root@repodcastapp.com", name: "Root" },
         as: { email: "owner@tenant.com", name: "Tenant Owner" },
         startedAt: new Date().toISOString(),
       },

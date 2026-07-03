@@ -20,7 +20,7 @@ import { createHash } from "node:crypto";
  */
 
 const BASE_URL = "https://api.podcastindex.org/api/1.0";
-const USER_AGENT = "Repodcast/1.0 (+https://repodcast.app)";
+const USER_AGENT = "Repodcast/1.0 (+https://repodcastapp.com)";
 
 export type PodcastIndexFeed = {
   /** Podcast Index numeric feed id — stable, used to fetch episodes. */

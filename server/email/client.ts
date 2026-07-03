@@ -17,4 +17,4 @@ export function requireResendClient(): Resend {
   return client;
 }
 
-export const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? "Repodcast <no-reply@repodcast.app>";
+export const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? "Repodcast <no-reply@repodcastapp.com>";

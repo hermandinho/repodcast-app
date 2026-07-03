@@ -76,8 +76,8 @@ export default async function SecurityPage() {
       <h2 id="encryption">3. Encryption</h2>
       <ul>
         <li>
-          <strong>In transit</strong> — all traffic to repodcast.io is served over TLS 1.2 or higher
-          with modern cipher suites. HSTS is enabled.
+          <strong>In transit</strong> — all traffic to repodcastapp.com is served over TLS 1.2 or
+          higher with modern cipher suites. HSTS is enabled.
         </li>
         <li>
           <strong>At rest</strong> — audio, transcripts, and generated content live in Amazon S3

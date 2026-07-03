@@ -51,7 +51,7 @@ Locked-in prep. If you're skipping steps here, don't launch this cycle.
       One take. Use a real recent episode so the content isn't
       obviously canned. Add captions (they play muted in the feed).
 - [ ] **Landing page dress rehearsal.** Someone who has never seen
-      Repodcast walks through `repodcast.io` and narrates confusion.
+      Repodcast walks through `repodcastapp.com` and narrates confusion.
       Fix every "wait, what does that mean" you hear.
 - [ ] **Warm the outreach list.** For the agency GTM list (see
       `docs/outreach-templates.md`), send the cold-outbound sequence 3

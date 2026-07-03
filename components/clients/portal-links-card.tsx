@@ -47,7 +47,7 @@ export function PortalLinksCard({
 }: {
   clientId: string;
   initialLinks: PortalLinkRow[];
-  /** Public origin used to compose the share URL (e.g. https://app.repodcast.com). */
+  /** Public origin used to compose the share URL (e.g. https://repodcastapp.com). */
   baseUrl: string;
   canManage: boolean;
 }) {

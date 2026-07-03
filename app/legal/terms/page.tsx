@@ -33,7 +33,7 @@ export default async function TermsPage() {
       <h2 id="parties">1. The parties</h2>
       <p>
         &ldquo;<strong>Repodcast</strong>,&rdquo; &ldquo;<strong>we</strong>,&rdquo; and &ldquo;
-        <strong>us</strong>&rdquo; refer to the company operating repodcast.io. &ldquo;
+        <strong>us</strong>&rdquo; refer to the company operating repodcastapp.com. &ldquo;
         <strong>You</strong>&rdquo; refers to the agency that has created a Repodcast workspace and
         each individual you invite into it. Your clients (the podcasters or brands you serve) are
         not parties to these Terms; the relationship between you and your clients is governed by

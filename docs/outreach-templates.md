@@ -58,7 +58,7 @@ Two questions:
 Either way, glad to keep listening.
 
 — {{sender_first_name}}
-{{sender_role}} · repodcast.io
+{{sender_role}} · repodcastapp.com
 ```
 
 **Notes.**

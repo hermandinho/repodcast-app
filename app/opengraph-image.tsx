@@ -156,7 +156,7 @@ export default async function OpenGraphImage() {
           color: MUTED,
         }}
       >
-        <span>repodcast.io</span>
+        <span>repodcastapp.com</span>
         <span>7 platforms · voice-true · agency-native</span>
       </div>
     </div>,
