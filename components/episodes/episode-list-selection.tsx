@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
-import { MemberRole } from "@prisma/client";
+import { MemberRole } from "@/lib/enums";
 import type { EpisodeListItem, EpisodeListStatus } from "@/server/data/source";
 import {
   bulkApproveEpisodesAction,

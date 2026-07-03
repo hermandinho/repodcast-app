@@ -3,7 +3,7 @@ import "server-only";
 import { MemberRole, type Client } from "@prisma/client";
 import { z } from "zod";
 import { NotFoundError } from "@/server/auth/errors";
-import { requireRole, type TenantContext } from "@/server/auth/tenant";
+import { requireReadRole, requireRole, type TenantContext } from "@/server/auth/tenant";
 import { prisma } from "./client";
 
 // ============================================================
@@ -40,7 +40,7 @@ const WRITE_ROLES = [MemberRole.OWNER, MemberRole.ADMIN] as const;
 // ============================================================
 
 export async function listClients(ctx: TenantContext): Promise<Client[]> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   return prisma.client.findMany({
     where: { agencyId: ctx.agencyId },
     orderBy: { createdAt: "desc" },
@@ -48,7 +48,7 @@ export async function listClients(ctx: TenantContext): Promise<Client[]> {
 }
 
 export async function getClient(ctx: TenantContext, clientId: string): Promise<Client> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   const client = await prisma.client.findFirst({
     where: { id: clientId, agencyId: ctx.agencyId },
   });

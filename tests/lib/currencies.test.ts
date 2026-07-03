@@ -59,17 +59,33 @@ describe("lib/currencies", () => {
 });
 
 describe("lib/plans · priceFor", () => {
-  it("returns the configured price for each (plan, currency) pair", () => {
+  it("returns the configured monthly price for each (plan, currency) pair", () => {
     for (const plan of [Plan.STUDIO, Plan.AGENCY, Plan.NETWORK]) {
       for (const c of SUPPORTED_CURRENCIES) {
-        expect(priceFor(plan, c)).toBe(PLAN_PRICES_BY_CURRENCY[plan][c]);
+        expect(priceFor(plan, c)).toBe(PLAN_PRICES_BY_CURRENCY[plan].monthly[c]);
       }
     }
   });
 
-  it("defaults to USD when no currency is passed", () => {
-    expect(priceFor(Plan.STUDIO)).toBe(PLAN_PRICES_BY_CURRENCY.STUDIO.USD);
-    expect(priceFor(Plan.AGENCY)).toBe(PLAN_PRICES_BY_CURRENCY.AGENCY.USD);
-    expect(priceFor(Plan.NETWORK)).toBe(PLAN_PRICES_BY_CURRENCY.NETWORK.USD);
+  it("defaults to USD monthly when no currency or cadence is passed", () => {
+    expect(priceFor(Plan.STUDIO)).toBe(PLAN_PRICES_BY_CURRENCY.STUDIO.monthly.USD);
+    expect(priceFor(Plan.AGENCY)).toBe(PLAN_PRICES_BY_CURRENCY.AGENCY.monthly.USD);
+    expect(priceFor(Plan.NETWORK)).toBe(PLAN_PRICES_BY_CURRENCY.NETWORK.monthly.USD);
+  });
+
+  it("returns annual prices when cadence = ANNUAL", () => {
+    for (const plan of [Plan.STUDIO, Plan.AGENCY, Plan.NETWORK]) {
+      for (const c of SUPPORTED_CURRENCIES) {
+        expect(priceFor(plan, c, "ANNUAL")).toBe(PLAN_PRICES_BY_CURRENCY[plan].annual[c]);
+      }
+    }
+  });
+
+  it("annual price equals monthly × 10 (two months free) for every (plan, currency)", () => {
+    for (const plan of [Plan.STUDIO, Plan.AGENCY, Plan.NETWORK]) {
+      for (const c of SUPPORTED_CURRENCIES) {
+        expect(priceFor(plan, c, "ANNUAL")).toBe(priceFor(plan, c, "MONTHLY") * 10);
+      }
+    }
   });
 });

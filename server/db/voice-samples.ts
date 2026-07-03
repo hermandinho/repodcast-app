@@ -2,7 +2,7 @@ import "server-only";
 
 import { MemberRole, Platform, type VoiceSample } from "@prisma/client";
 import { NotFoundError } from "@/server/auth/errors";
-import { requireRole, type TenantContext } from "@/server/auth/tenant";
+import { requireReadRole, requireRole, type TenantContext } from "@/server/auth/tenant";
 import { prisma } from "./client";
 
 const READ_ROLES = [
@@ -22,7 +22,7 @@ export async function listVoiceSamplesForShow(
   ctx: TenantContext,
   showId: string,
 ): Promise<VoiceSample[]> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   return prisma.voiceSample.findMany({
     where: {
       showId,
@@ -40,7 +40,7 @@ export async function countSamplesByPlatform(
   ctx: TenantContext,
   showId: string,
 ): Promise<Record<Platform, number>> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   const rows = await prisma.voiceSample.groupBy({
     by: ["platform"],
     where: {

@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Inter, JetBrains_Mono, Sora } from "next/font/google";
+import { ConsentBanner } from "@/components/consent/consent-banner";
 import { PostHogProvider } from "@/components/providers/posthog-provider";
+import { clerkAppearance } from "@/lib/clerk-appearance";
 import "./globals.css";
 
 const inter = Inter({
@@ -35,20 +37,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider
-      appearance={{
-        variables: {
-          colorPrimary: "#3A5BA0",
-          fontFamily: "var(--font-inter)",
-        },
-      }}
-    >
+    <ClerkProvider appearance={clerkAppearance} afterSignOutUrl="/">
       <html
         lang="en"
         className={`${inter.variable} ${sora.variable} ${jetBrainsMono.variable} h-full`}
       >
         <body className="min-h-full">
           <PostHogProvider>{children}</PostHogProvider>
+          <ConsentBanner />
         </body>
       </html>
     </ClerkProvider>

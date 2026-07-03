@@ -97,16 +97,20 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const to = parseDate(url.searchParams.get("to"));
   const platform = parsePlatform(url.searchParams.get("platform"));
   const status = parseStatus(url.searchParams.get("status"));
+  const showIdRaw = url.searchParams.get("showId");
+  const showId = showIdRaw && showIdRaw.length > 0 ? showIdRaw : undefined;
 
   const rows = await streamDeliverablesForClient(toTenantContext(auth), clientId, {
     from,
     to,
     platform,
     status,
+    showId,
   });
 
   const header = [
     "Output ID",
+    "Show",
     "Episode",
     "Recorded",
     "Platform",
@@ -122,6 +126,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     lines.push(
       csvLine([
         r.id,
+        r.episode.show.name,
         r.episode.title,
         dateOnly(r.episode.recordedAt),
         r.platform,

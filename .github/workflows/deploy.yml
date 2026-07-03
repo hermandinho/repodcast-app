@@ -1,0 +1,41 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main, dev]
+
+# Serialize per branch so two pushes can't race the same DB.
+# cancel-in-progress: false — let an in-flight migration finish before
+# the next one starts.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: Apply pending migrations
+        env:
+          DIRECT_URL: ${{ github.ref == 'refs/heads/main' && secrets.DIRECT_URL_PROD || secrets.DIRECT_URL_STAGING }}
+        run: npx prisma migrate deploy
+
+      - name: Trigger Vercel deploy
+        env:
+          HOOK: ${{ github.ref == 'refs/heads/main' && secrets.VERCEL_DEPLOY_HOOK_PROD || secrets.VERCEL_DEPLOY_HOOK_STAGING }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::error::Deploy hook secret missing for ${{ github.ref }}"
+            exit 1
+          fi
+          curl -fsSL --retry 3 -X POST "$HOOK"

@@ -1,17 +1,32 @@
-import { SignIn } from "@clerk/nextjs";
+import Link from "next/link";
+import { AuthShell } from "@/components/auth/auth-shell";
+import { ClerkSignInMount } from "@/components/auth/clerk-widget-mount";
 
-// Clerk's `<SignIn>` is wrapped in a `withClerk` HOC that returns `null` until
-// the client-side Clerk instance loads, then renders a `<div data-clerk-component="SignIn">`
-// portal mount target. The server-rendered HTML is empty for that subtree, so React
-// 19 flags the mismatch on hydration. `suppressHydrationWarning` is the canonical
-// escape hatch for third-party portal mounts whose first paint deliberately differs
-// from SSR. Scoped tightly to the Clerk subtree.
+// Clerk's `<SignIn>` is rendered client-only via `ClerkSignInMount` — under
+// React 19 the widget mismatches on hydration (see the wrapper's comment).
+// Theme still comes from `lib/clerk-appearance.ts` via <ClerkProvider> in
+// app/layout.tsx.
+//
+// `fallbackRedirectUrl` sends anyone without an explicit `?redirect_url=...`
+// through /after-sign-in, which resolves the caller's role (SystemAdmin,
+// paying member, unpaid member, no membership) and forwards to the right
+// surface. Keeps ROOT-only users out of the /dashboard → /onboarding loop.
 export default function SignInPage() {
   return (
-    <div className="bg-canvas flex min-h-screen items-center justify-center px-4 py-12">
-      <div suppressHydrationWarning>
-        <SignIn />
-      </div>
-    </div>
+    <AuthShell
+      altHref="/sign-up"
+      altLabel="Get started"
+      footNote={
+        <>
+          Trouble signing in?{" "}
+          <Link href="/pricing" className="underline" style={{ color: "#5A6473" }}>
+            Back to pricing
+          </Link>
+          .
+        </>
+      }
+    >
+      <ClerkSignInMount fallbackRedirectUrl="/after-sign-in" signUpUrl="/sign-up" />
+    </AuthShell>
   );
 }

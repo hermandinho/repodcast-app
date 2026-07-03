@@ -164,9 +164,19 @@ export async function regenerateOutputAction(
     auth.member.id,
   );
 
+  // Phase 3.5 — tag with plan + agencyId so `regenerate-output`'s
+  // priority.run bumps NETWORK ahead and the per-agency concurrency key
+  // keeps one agency's retry storm from starving other agencies. Reads
+  // plan straight off auth — same QoS-vs-enforcement tradeoff as the
+  // other Phase 3.5 dispatchers.
   await inngest.send({
     name: "episode/regenerate.output.requested",
-    data: { outputId: newOutput.id, instruction },
+    data: {
+      outputId: newOutput.id,
+      instruction,
+      plan: auth.agency.plan,
+      agencyId: auth.agency.id,
+    },
   });
 
   revalidatePath(`/episodes/${auth.agency.id}`);
@@ -360,7 +370,12 @@ export async function updateEpisodeTranscriptAction(
   if (wasAwaiting) {
     await inngest.send({
       name: "episode/generate.requested",
-      data: { episodeId, platforms },
+      data: {
+        episodeId,
+        platforms,
+        plan: auth.agency.plan,
+        agencyId: auth.agency.id,
+      },
     });
   }
 

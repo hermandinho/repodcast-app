@@ -9,7 +9,7 @@ import {
 } from "@prisma/client";
 import { z } from "zod";
 import { NotFoundError } from "@/server/auth/errors";
-import { requireRole, type TenantContext } from "@/server/auth/tenant";
+import { requireReadRole, type TenantContext } from "@/server/auth/tenant";
 import { prisma } from "./client";
 
 /**
@@ -42,6 +42,10 @@ export const listDeliverablesFilterInput = z.object({
   to: z.coerce.date().optional(),
   platform: z.nativeEnum(Platform).optional(),
   status: z.nativeEnum(OutputStatus).optional(),
+  /** Phase 3.8 — restrict to one show under the client. Composes with every
+   *  other filter; a cross-tenant showId collapses to zero matches via the
+   *  existing `episode.show.client.agencyId` guard. */
+  showId: z.string().min(1).optional(),
   take: z.number().int().min(1).max(500).default(25),
   skip: z.number().int().min(0).default(0),
 });
@@ -56,6 +60,7 @@ export type DeliverableRow = GeneratedOutput & {
     id: string;
     title: string;
     recordedAt: Date | null;
+    show: { id: string; name: string };
   };
   approvedByMember: {
     id: string;
@@ -86,6 +91,10 @@ function buildDeliverablesWhere(
     // the agency actually delivered.
     supersededAt: null,
     episode: {
+      // `showId` (when set) tightens to a single show; the outer
+      // `show.client.{id,agencyId}` guard still runs, so a mis-scoped
+      // showId can't leak across clients or tenants.
+      ...(filters.showId ? { showId: filters.showId } : {}),
       show: {
         client: {
           id: clientId,
@@ -127,7 +136,7 @@ export async function listDeliverablesForClient(
   clientId: string,
   raw: ListDeliverablesFilterInput,
 ): Promise<{ rows: DeliverableRow[]; total: number }> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   await assertClientInTenant(ctx, clientId);
   const where = buildDeliverablesWhere(ctx, clientId, raw);
 
@@ -138,7 +147,14 @@ export async function listDeliverablesForClient(
       take: raw.take,
       skip: raw.skip,
       include: {
-        episode: { select: { id: true, title: true, recordedAt: true } },
+        episode: {
+          select: {
+            id: true,
+            title: true,
+            recordedAt: true,
+            show: { select: { id: true, name: true } },
+          },
+        },
         approvedByMember: { select: { id: true, name: true, email: true } },
       },
     }),
@@ -158,14 +174,21 @@ export async function streamDeliverablesForClient(
   clientId: string,
   filters: Omit<ListDeliverablesFilterInput, "take" | "skip">,
 ): Promise<DeliverableRow[]> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   await assertClientInTenant(ctx, clientId);
   const where = buildDeliverablesWhere(ctx, clientId, filters);
   return prisma.generatedOutput.findMany({
     where,
     orderBy: { createdAt: "desc" },
     include: {
-      episode: { select: { id: true, title: true, recordedAt: true } },
+      episode: {
+        select: {
+          id: true,
+          title: true,
+          recordedAt: true,
+          show: { select: { id: true, name: true } },
+        },
+      },
       approvedByMember: { select: { id: true, name: true, email: true } },
     },
   });

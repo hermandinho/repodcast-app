@@ -1,4 +1,7 @@
 import { getAuthContext } from "@/server/auth/context";
+import { toTenantContext } from "@/server/auth/tenant";
+import { isLiveDb } from "@/server/data/source";
+import { countUnreadPortalFeedbackForAgency } from "@/server/db/client-portal";
 import { navItems } from "./nav-items";
 import { NavLink } from "./nav-link";
 
@@ -17,6 +20,17 @@ function roleLabel(role: string): string {
 
 export async function Sidebar() {
   const ctx = await getAuthContext();
+
+  // Phase 3.8 — agency-wide unread portal feedback drives the badge on the
+  // Clients nav item. Gated on `isLiveDb()` + a live tenant context; sample-
+  // data mode and unauthed edges collapse to zero (badge stays hidden).
+  // Any DB blip degrades the same way — never break the shell.
+  const unreadFeedbackCount =
+    ctx && isLiveDb()
+      ? await countUnreadPortalFeedbackForAgency(toTenantContext(ctx)).catch(() => 0)
+      : 0;
+
+  const badgeByHref: Record<string, number> = { "/clients": unreadFeedbackCount };
 
   return (
     <aside
@@ -38,7 +52,7 @@ export async function Sidebar() {
 
       <nav className="flex flex-col gap-[2px]">
         {navItems.map((item) => (
-          <NavLink key={item.href} item={item} />
+          <NavLink key={item.href} item={item} badgeCount={badgeByHref[item.href] ?? 0} />
         ))}
       </nav>
 

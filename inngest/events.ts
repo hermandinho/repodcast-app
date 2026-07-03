@@ -1,4 +1,4 @@
-import type { Platform } from "@prisma/client";
+import type { Plan, Platform } from "@prisma/client";
 
 /**
  * Typed event registry — fed into the Inngest client via EventSchemas so
@@ -6,12 +6,27 @@ import type { Platform } from "@prisma/client";
  *
  * Add new events here; the function definitions become type-checked
  * automatically.
+ *
+ * Phase 3.5 — several events carry an optional `plan` on `event.data`.
+ * It's read by the Inngest `priority.run` expression on `generate-episode`
+ * + `regenerate-output` (NETWORK jumps the queue). Optional so events
+ * fired by older code paths — or in-flight events during deploy — still
+ * enqueue at default priority instead of failing to serialize.
  */
 export type Events = {
   "episode/generate.requested": {
     data: {
       episodeId: string;
       platforms: Platform[];
+      /** Effective agency plan at dispatch time. Consumed by the
+       *  Inngest `priority.run` expression on `generate-episode`. */
+      plan?: Plan;
+      /** Denormalized agencyId — used as the per-agency concurrency key
+       *  on `generate-episode` so one agency's 20-episode batch can't
+       *  monopolize the global slot pool. Optional to keep old
+       *  dispatchers working; the concurrency key falls back to the
+       *  event id (effectively unlimited) when missing. */
+      agencyId?: string;
     };
   };
 
@@ -25,6 +40,8 @@ export type Events = {
     data: {
       episodeId: string;
       platforms: Platform[];
+      plan?: Plan;
+      agencyId?: string;
     };
   };
 
@@ -44,6 +61,27 @@ export type Events = {
       /** Show.rssUrl at dispatch time — pinned so a later edit doesn't shift the lookup. */
       feedUrl: string;
       platforms: Platform[];
+      plan?: Plan;
+      agencyId?: string;
+    };
+  };
+
+  /**
+   * Phase 3.2 — YouTube imports land here. The importer pulls the video's
+   * captions (auto-generated or manually uploaded) and emits
+   * `episode/generate.requested`. v1 has no audio-download fallback —
+   * YouTube fights the tools that extract audio streams (ytdl-core /
+   * youtubei.js), so we treat "no captions" as a terminal failure with an
+   * actionable failureReason instead of a brittle scrape.
+   */
+  "episode/youtube.import.requested": {
+    data: {
+      episodeId: string;
+      /** Full YouTube URL as the user provided it — parsed inside the fn. */
+      videoUrl: string;
+      platforms: Platform[];
+      plan?: Plan;
+      agencyId?: string;
     };
   };
 
@@ -61,6 +99,12 @@ export type Events = {
     data: {
       outputId: string;
       instruction?: string;
+      plan?: Plan;
+      /** Denormalized agencyId — used as the concurrency-limit key on
+       *  `regenerate-output` so one agency's batch retries can't starve
+       *  another agency's live single-output regenerates. Optional to
+       *  keep old dispatchers working. */
+      agencyId?: string;
     };
   };
 

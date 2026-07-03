@@ -17,14 +17,15 @@ import {
 } from "@prisma/client";
 import { ForbiddenError, NotFoundError, ValidationError } from "@/server/auth/errors";
 
-// Stub the plan-capacity helpers — `bulkGenerateEpisodes` (and
-// `createEpisode` upstream) calls them on the happy path. We don't
-// want to chase their internal Prisma queries through the mock harness
-// for every test; the dedicated plan-limits.test.ts covers that logic
-// in isolation.
+// Stub the plan-capacity helpers — `bulkGenerateEpisodes`, `updateAgencyBranding`,
+// `createPortalLink` (and `createEpisode` upstream) all call them on the happy
+// path. We don't want to chase their internal Prisma queries through the mock
+// harness for every test; the dedicated plan-limits.test.ts covers plan gates
+// (`assertMinPlan`) and capacity math (`assertPlanCapacity`) in isolation.
 vi.mock("@/server/billing/limits", () => ({
-  getAgencyPlan: vi.fn().mockResolvedValue(Plan.STUDIO),
+  getAgencyPlan: vi.fn().mockResolvedValue(Plan.NETWORK),
   assertPlanCapacity: vi.fn().mockResolvedValue(undefined),
+  assertMinPlan: vi.fn().mockReturnValue(undefined),
 }));
 import type { TenantContext } from "@/server/auth/tenant";
 
@@ -1238,7 +1239,14 @@ describe("deliverables repo — tenant filter + filter layering", () => {
     expect(findArgs.skip).toBe(0);
     expect(findArgs.orderBy).toEqual({ createdAt: "desc" });
     expect(findArgs.include).toEqual({
-      episode: { select: { id: true, title: true, recordedAt: true } },
+      episode: {
+        select: {
+          id: true,
+          title: true,
+          recordedAt: true,
+          show: { select: { id: true, name: true } },
+        },
+      },
       approvedByMember: { select: { id: true, name: true, email: true } },
     });
   });

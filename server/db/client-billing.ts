@@ -37,6 +37,11 @@ const optionalUrl = z
   .trim()
   .max(2000)
   .url({ message: "Enter a full URL (https://…)" })
+  // Reject non-http(s) protocols so a paste-error can't smuggle
+  // `javascript:` / `data:` URLs into a client-facing render.
+  .refine((v) => /^https?:\/\//i.test(v), {
+    message: "URL must start with http:// or https://",
+  })
   .optional()
   .or(z.literal("").transform(() => undefined));
 

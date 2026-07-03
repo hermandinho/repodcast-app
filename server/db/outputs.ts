@@ -1,9 +1,15 @@
 import "server-only";
 
-import { MemberRole, OutputStatus, type GeneratedOutput, type Platform } from "@prisma/client";
+import {
+  ExternalScheduler,
+  MemberRole,
+  OutputStatus,
+  type GeneratedOutput,
+  type Platform,
+} from "@prisma/client";
 import { z } from "zod";
 import { NotFoundError, ValidationError } from "@/server/auth/errors";
-import { requireRole, type TenantContext } from "@/server/auth/tenant";
+import { requireReadRole, requireRole, type TenantContext } from "@/server/auth/tenant";
 import { levenshtein } from "@/lib/edit-distance";
 import { prisma } from "./client";
 import { createSampleFromOutput } from "./voice-samples";
@@ -53,7 +59,7 @@ export async function listOutputsForEpisode(
   ctx: TenantContext,
   episodeId: string,
 ): Promise<GeneratedOutput[]> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   // Only return the current version of each platform slot — superseded rows
   // are kept for history but the grid always renders the latest.
   return prisma.generatedOutput.findMany({
@@ -67,7 +73,7 @@ export async function listOutputsForEpisode(
 }
 
 export async function getOutput(ctx: TenantContext, outputId: string): Promise<GeneratedOutput> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   const output = await prisma.generatedOutput.findFirst({
     where: {
       id: outputId,
@@ -89,7 +95,7 @@ export async function listVersionsForOutput(
   ctx: TenantContext,
   outputId: string,
 ): Promise<GeneratedOutput[]> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   const seed = await prisma.generatedOutput.findFirst({
     where: {
       id: outputId,
@@ -442,6 +448,344 @@ export async function markOutputRegenerating(
 }
 
 // ============================================================
+// Phase 3.3 — Scheduling helpers
+// ============================================================
+
+/** Roles allowed to schedule, unschedule, and mark-published outputs. */
+const SCHEDULE_ROLES = [MemberRole.OWNER, MemberRole.ADMIN, MemberRole.EDITOR] as const;
+
+export const scheduleOutputInput = z.object({
+  scheduledFor: z.coerce.date(),
+  externalScheduler: z.nativeEnum(ExternalScheduler),
+  externalPostId: z.string().min(1).optional(),
+  externalPostUrl: z.string().url().optional(),
+});
+
+/**
+ * APPROVED → SCHEDULED. The mode is provided by the caller after they've
+ * decided (based on Buffer availability + platform support) which backend
+ * takes this post. For Buffer-backed rows, the caller has already pushed
+ * to Buffer and passes the resulting update id + public URL.
+ *
+ * `scheduledFor` must be in the future — back-dating is what
+ * `markOutputPublished` is for.
+ */
+export async function scheduleOutput(
+  ctx: TenantContext,
+  outputId: string,
+  memberId: string,
+  input: z.infer<typeof scheduleOutputInput>,
+): Promise<GeneratedOutput> {
+  requireRole(ctx, SCHEDULE_ROLES);
+
+  const output = await prisma.generatedOutput.findFirst({
+    where: {
+      id: outputId,
+      episode: { show: { client: { agencyId: ctx.agencyId } } },
+    },
+    select: { id: true, status: true, supersededAt: true },
+  });
+  if (!output) throw new NotFoundError(`Output ${outputId} not found`);
+  if (output.supersededAt) {
+    throw new ValidationError(
+      `Output ${outputId} is a superseded version — schedule the current one.`,
+    );
+  }
+  if (output.status !== OutputStatus.APPROVED) {
+    throw new ValidationError(
+      `Output ${outputId} can't be scheduled from status ${output.status} — approve it first.`,
+    );
+  }
+  if (input.scheduledFor.getTime() <= Date.now()) {
+    throw new ValidationError("`scheduledFor` must be in the future.");
+  }
+
+  const [updated] = await prisma.$transaction([
+    prisma.generatedOutput.update({
+      where: { id: outputId },
+      data: {
+        status: OutputStatus.SCHEDULED,
+        scheduledFor: input.scheduledFor,
+        scheduledByMemberId: memberId,
+        externalScheduler: input.externalScheduler,
+        externalPostId: input.externalPostId ?? null,
+        externalPostUrl: input.externalPostUrl ?? null,
+      },
+    }),
+    prisma.outputTransition.create({
+      data: {
+        agencyId: ctx.agencyId,
+        outputId,
+        fromStatus: OutputStatus.APPROVED,
+        toStatus: OutputStatus.SCHEDULED,
+        byMemberId: memberId,
+        note: `Scheduled via ${input.externalScheduler} for ${input.scheduledFor.toISOString()}`,
+      },
+    }),
+  ]);
+  return updated;
+}
+
+/**
+ * SCHEDULED → APPROVED. Clears every scheduling column. Callers are
+ * responsible for tearing down the external post first (e.g. Buffer's
+ * `deleteUpdate`).
+ */
+export async function unscheduleOutput(
+  ctx: TenantContext,
+  outputId: string,
+  memberId: string,
+): Promise<GeneratedOutput> {
+  requireRole(ctx, SCHEDULE_ROLES);
+
+  const output = await prisma.generatedOutput.findFirst({
+    where: {
+      id: outputId,
+      episode: { show: { client: { agencyId: ctx.agencyId } } },
+    },
+    select: { id: true, status: true },
+  });
+  if (!output) throw new NotFoundError(`Output ${outputId} not found`);
+  if (output.status !== OutputStatus.SCHEDULED) {
+    throw new ValidationError(
+      `Output ${outputId} can't be unscheduled from status ${output.status}.`,
+    );
+  }
+
+  const [updated] = await prisma.$transaction([
+    prisma.generatedOutput.update({
+      where: { id: outputId },
+      data: {
+        status: OutputStatus.APPROVED,
+        scheduledFor: null,
+        scheduledByMemberId: null,
+        externalScheduler: null,
+        externalPostId: null,
+        externalPostUrl: null,
+      },
+    }),
+    prisma.outputTransition.create({
+      data: {
+        agencyId: ctx.agencyId,
+        outputId,
+        fromStatus: OutputStatus.SCHEDULED,
+        toStatus: OutputStatus.APPROVED,
+        byMemberId: memberId,
+      },
+    }),
+  ]);
+  return updated;
+}
+
+export const markPublishedInput = z.object({
+  publishedAt: z.coerce.date().optional(),
+  externalPostUrl: z.string().url().optional(),
+});
+
+/**
+ * SCHEDULED → PUBLISHED. Called by:
+ *   - The user hitting "Mark published" on a MANUAL-mode row (memberId set,
+ *     optional externalPostUrl for pasting the live-post URL after the fact).
+ *   - The `sync-scheduled-outputs` cron when Buffer confirms delivery
+ *     (memberId null, publishedAt from Buffer's `sent_at`).
+ *
+ * `memberId = null` is the cron-driven case; the transition row records it
+ * as a system-driven flip.
+ */
+export async function markOutputPublished(
+  ctx: TenantContext,
+  outputId: string,
+  memberId: string | null,
+  input: z.infer<typeof markPublishedInput>,
+): Promise<GeneratedOutput> {
+  // Human path enforces role; cron path skips (Inngest fn has its own gate).
+  if (memberId !== null) {
+    requireRole(ctx, SCHEDULE_ROLES);
+  }
+
+  const output = await prisma.generatedOutput.findFirst({
+    where: {
+      id: outputId,
+      episode: { show: { client: { agencyId: ctx.agencyId } } },
+    },
+    select: { id: true, status: true, externalPostUrl: true },
+  });
+  if (!output) throw new NotFoundError(`Output ${outputId} not found`);
+  if (output.status !== OutputStatus.SCHEDULED) {
+    throw new ValidationError(
+      `Output ${outputId} can't be marked published from status ${output.status}.`,
+    );
+  }
+
+  const publishedAt = input.publishedAt ?? new Date();
+  const nextUrl = input.externalPostUrl ?? output.externalPostUrl;
+
+  const [updated] = await prisma.$transaction([
+    prisma.generatedOutput.update({
+      where: { id: outputId },
+      data: {
+        status: OutputStatus.PUBLISHED,
+        publishedAt,
+        externalPostUrl: nextUrl,
+      },
+    }),
+    prisma.outputTransition.create({
+      data: {
+        agencyId: ctx.agencyId,
+        outputId,
+        fromStatus: OutputStatus.SCHEDULED,
+        toStatus: OutputStatus.PUBLISHED,
+        byMemberId: memberId,
+      },
+    }),
+  ]);
+  return updated;
+}
+
+export type CalendarOutput = {
+  id: string;
+  episodeId: string;
+  episodeTitle: string;
+  clientId: string;
+  clientHost: string;
+  showId: string;
+  showTitle: string;
+  platform: Platform;
+  content: string;
+  status: OutputStatus;
+  scheduledFor: Date | null;
+  publishedAt: Date | null;
+  externalScheduler: ExternalScheduler | null;
+  externalPostUrl: string | null;
+};
+
+export const listScheduledOutputsInput = z.object({
+  fromIso: z.string().datetime(),
+  toIso: z.string().datetime(),
+  clientId: z.string().min(1).optional(),
+  showId: z.string().min(1).optional(),
+  platform: z.string().min(1).optional(),
+});
+
+const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
+
+/**
+ * Calendar range read. Includes SCHEDULED (in-flight) + PUBLISHED (past),
+ * bounded to a 90-day window so a naive `?fromIso=1970-01-01` doesn't scan
+ * the world. Only current versions (`supersededAt: null`).
+ */
+export async function listScheduledOutputsForAgency(
+  ctx: TenantContext,
+  input: z.infer<typeof listScheduledOutputsInput>,
+): Promise<CalendarOutput[]> {
+  requireReadRole(ctx, READ_ROLES);
+  const from = new Date(input.fromIso);
+  const to = new Date(input.toIso);
+  if (to.getTime() <= from.getTime()) {
+    throw new ValidationError("`toIso` must be after `fromIso`.");
+  }
+  if (to.getTime() - from.getTime() > NINETY_DAYS_MS) {
+    throw new ValidationError("Calendar window is capped at 90 days.");
+  }
+
+  const rows = await prisma.generatedOutput.findMany({
+    where: {
+      supersededAt: null,
+      status: { in: [OutputStatus.SCHEDULED, OutputStatus.PUBLISHED] },
+      OR: [{ scheduledFor: { gte: from, lt: to } }, { publishedAt: { gte: from, lt: to } }],
+      episode: {
+        show: {
+          client: {
+            agencyId: ctx.agencyId,
+            ...(input.clientId ? { id: input.clientId } : {}),
+          },
+          ...(input.showId ? { id: input.showId } : {}),
+        },
+      },
+      ...(input.platform ? { platform: input.platform as Platform } : {}),
+    },
+    orderBy: [{ scheduledFor: "asc" }, { publishedAt: "asc" }],
+    include: {
+      episode: {
+        select: {
+          title: true,
+          showId: true,
+          show: {
+            select: {
+              name: true,
+              host: true,
+              client: { select: { id: true, name: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  return rows.map((r) => ({
+    id: r.id,
+    episodeId: r.episodeId,
+    episodeTitle: r.episode.title,
+    clientId: r.episode.show.client.id,
+    clientHost: r.episode.show.host,
+    showId: r.episode.showId,
+    showTitle: r.episode.show.name,
+    platform: r.platform,
+    content: r.content,
+    status: r.status,
+    scheduledFor: r.scheduledFor,
+    publishedAt: r.publishedAt,
+    externalScheduler: r.externalScheduler,
+    externalPostUrl: r.externalPostUrl,
+  }));
+}
+
+/**
+ * Cron-side scan: every SCHEDULED row currently in flight, across all
+ * agencies. Bounded to 500 rows per pass; the cron loops until empty.
+ */
+export async function listInFlightScheduledOutputs(limit = 500): Promise<
+  Array<{
+    id: string;
+    agencyId: string;
+    platform: Platform;
+    scheduledFor: Date;
+    externalScheduler: ExternalScheduler;
+    externalPostId: string | null;
+    createdAt: Date;
+  }>
+> {
+  const rows = await prisma.generatedOutput.findMany({
+    where: {
+      status: OutputStatus.SCHEDULED,
+      supersededAt: null,
+    },
+    orderBy: { scheduledFor: "asc" },
+    take: limit,
+    select: {
+      id: true,
+      platform: true,
+      scheduledFor: true,
+      externalScheduler: true,
+      externalPostId: true,
+      createdAt: true,
+      episode: { select: { show: { select: { client: { select: { agencyId: true } } } } } },
+    },
+  });
+  return rows
+    .filter((r) => r.scheduledFor !== null && r.externalScheduler !== null)
+    .map((r) => ({
+      id: r.id,
+      agencyId: r.episode.show.client.agencyId,
+      platform: r.platform,
+      scheduledFor: r.scheduledFor!,
+      externalScheduler: r.externalScheduler!,
+      externalPostId: r.externalPostId,
+      createdAt: r.createdAt,
+    }));
+}
+
+// ============================================================
 // Quality metrics — used by the Output Quality rail
 // ============================================================
 
@@ -451,7 +795,7 @@ export async function qualityByPlatformForEpisode(
   ctx: TenantContext,
   episodeId: string,
 ): Promise<QualityByPlatform> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   const rows = await prisma.generatedOutput.groupBy({
     by: ["platform"],
     where: {

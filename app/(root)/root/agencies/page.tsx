@@ -30,6 +30,15 @@ function parseStatus(raw: string | string[] | undefined): "active" | "suspended"
   return undefined;
 }
 
+function parseTrial(
+  raw: string | string[] | undefined,
+): "active" | "converted" | "expired" | "canceled" | undefined {
+  if (raw === "active" || raw === "converted" || raw === "expired" || raw === "canceled") {
+    return raw;
+  }
+  return undefined;
+}
+
 function parseDate(raw: string | string[] | undefined): Date | undefined {
   const s = parseString(raw);
   if (!s) return undefined;
@@ -74,6 +83,7 @@ export default async function RootAgenciesListPage({
   const search = parseString(params.q);
   const plan = parsePlan(params.plan);
   const status = parseStatus(params.status);
+  const trial = parseTrial(params.trial);
   const createdFrom = parseDate(params.from);
   const createdTo = parseDate(params.to);
 
@@ -81,6 +91,7 @@ export default async function RootAgenciesListPage({
     search,
     plan,
     status: status ?? "all",
+    trial: trial ?? "all",
     createdFrom,
     createdTo,
     take: PAGE_SIZE,
@@ -88,19 +99,22 @@ export default async function RootAgenciesListPage({
   });
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const isFiltered = Boolean(search || plan || status || createdFrom || createdTo);
+  const isFiltered = Boolean(search || plan || status || trial || createdFrom || createdTo);
 
   const linkFor = (nextPage: number) => {
     const qp = new URLSearchParams();
     if (search) qp.set("q", search);
     if (plan) qp.set("plan", plan);
     if (status) qp.set("status", status);
+    if (trial) qp.set("trial", trial);
     if (typeof params.from === "string") qp.set("from", params.from);
     if (typeof params.to === "string") qp.set("to", params.to);
     if (nextPage > 1) qp.set("page", String(nextPage));
     const qs = qp.toString();
     return qs ? `/root/agencies?${qs}` : "/root/agencies";
   };
+
+  const deletedName = parseString(params.deleted);
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-6">
@@ -115,6 +129,13 @@ export default async function RootAgenciesListPage({
           </p>
         </div>
       </header>
+
+      {deletedName ? (
+        <div className="rounded-lg border border-emerald-700/60 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-200">
+          Agency <span className="font-semibold">{deletedName}</span> was permanently deleted. R2
+          objects were quarantined; the audit row survives.
+        </div>
+      ) : null}
 
       <AgencyFilters />
 
@@ -131,6 +152,7 @@ export default async function RootAgenciesListPage({
               <tr>
                 <Th>Agency</Th>
                 <Th>Plan</Th>
+                <Th>Trial</Th>
                 <Th className="text-right">Members</Th>
                 <Th className="text-right">Episodes MTD</Th>
                 <Th className="text-right">Outputs MTD</Th>
@@ -162,6 +184,9 @@ export default async function RootAgenciesListPage({
                     >
                       {row.plan}
                     </span>
+                  </Td>
+                  <Td>
+                    <TrialCell status={row.trialStatus} trialEndsAt={row.trialEndsAt} />
                   </Td>
                   <Td className="text-right text-zinc-100 tabular-nums">{row.memberCount}</Td>
                   <Td className="text-right text-zinc-100 tabular-nums">{row.episodesMtd}</Td>
@@ -215,4 +240,49 @@ function Th({ children, className = "" }: { children: React.ReactNode; className
 
 function Td({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <td className={`px-4 py-3 ${className}`}>{children}</td>;
+}
+
+const TRIAL_STYLE: Record<
+  "NONE" | "ACTIVE" | "CONVERTED" | "EXPIRED" | "CANCELED",
+  { bg: string; label: (endsAt: Date | null) => string }
+> = {
+  NONE: { bg: "text-zinc-600", label: () => "—" },
+  ACTIVE: {
+    bg: "bg-emerald-500/20 text-emerald-200 ring-emerald-400/40",
+    label: (endsAt) => {
+      if (!endsAt) return "on trial";
+      const days = Math.max(0, Math.ceil((endsAt.getTime() - Date.now()) / 86_400_000));
+      return days === 0 ? "ends today" : `${days}d left`;
+    },
+  },
+  CONVERTED: {
+    bg: "bg-accent/20 text-accent-soft ring-accent/40",
+    label: () => "converted",
+  },
+  EXPIRED: {
+    bg: "bg-red-500/20 text-red-200 ring-red-400/40",
+    label: () => "expired",
+  },
+  CANCELED: {
+    bg: "bg-zinc-700/50 text-zinc-300 ring-zinc-600/40",
+    label: () => "canceled",
+  },
+};
+
+function TrialCell({
+  status,
+  trialEndsAt,
+}: {
+  status: "NONE" | "ACTIVE" | "CONVERTED" | "EXPIRED" | "CANCELED";
+  trialEndsAt: Date | null;
+}) {
+  const cfg = TRIAL_STYLE[status];
+  if (status === "NONE") return <span className={cfg.bg}>—</span>;
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-[2px] font-mono text-[10.5px] font-semibold tracking-wider uppercase ring-1 ${cfg.bg}`}
+    >
+      {cfg.label(trialEndsAt)}
+    </span>
+  );
 }

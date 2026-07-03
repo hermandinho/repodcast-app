@@ -20,7 +20,15 @@ function findActiveHref(pathname: string): string | null {
   return active?.href ?? null;
 }
 
-export function NavLink({ item }: { item: NavItem }) {
+/**
+ * Format a numeric badge for the sidebar. Anything above 99 caps to "99+"
+ * so the pill never wraps onto two lines or blows out the sidebar column.
+ */
+function formatBadge(n: number): string {
+  return n > 99 ? "99+" : String(n);
+}
+
+export function NavLink({ item, badgeCount = 0 }: { item: NavItem; badgeCount?: number }) {
   const pathname = usePathname();
   const active = findActiveHref(pathname) === item.href;
 
@@ -39,6 +47,14 @@ export function NavLink({ item }: { item: NavItem }) {
       )}
       {item.icon}
       <span>{item.label}</span>
+      {badgeCount > 0 && (
+        <span
+          className="bg-accent ml-auto inline-flex items-center justify-center rounded-full px-[7px] py-[1px] text-[10.5px] font-semibold text-white tabular-nums"
+          aria-label={`${badgeCount} unread`}
+        >
+          {formatBadge(badgeCount)}
+        </span>
+      )}
     </Link>
   );
 }

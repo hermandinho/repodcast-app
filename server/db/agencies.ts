@@ -1,10 +1,11 @@
 import "server-only";
 
-import { MemberRole, OnboardingStep, Plan, type Agency } from "@prisma/client";
+import { MemberRole, Plan, type Agency } from "@prisma/client";
 import { z } from "zod";
 import { NotFoundError } from "@/server/auth/errors";
 import { requireRole, type TenantContext } from "@/server/auth/tenant";
 import { SUPPORTED_CURRENCIES } from "@/lib/currencies";
+import { assertMinPlan, getAgencyPlan } from "@/server/billing/limits";
 import { sendWelcomeEmail } from "@/server/email/send";
 import { prisma } from "./client";
 
@@ -104,9 +105,6 @@ export async function createAgencyForUser(input: CreateAgencyForUserInput): Prom
       data: {
         name: input.agencyName,
         plan: input.plan,
-        // Step 1 (workspace) is what we just completed — next step the
-        // wizard advances to is teammates. Resume gate keys off this.
-        onboardingStep: OnboardingStep.TEAMMATES,
       },
     });
     await tx.member.create({
@@ -155,59 +153,40 @@ export async function userHasAnyMembership(clerkUserId: string): Promise<boolean
 }
 
 /**
- * Phase 2.10 — what step is the user's first agency on?
+ * Phase 3.x — snapshot used by the `/onboarding` router to decide which
+ * substep to send the user to.
  *
  * Returns:
- *  - `null` when the user has no Member yet (wizard starts at step 1)
- *  - the persisted `Agency.onboardingStep` otherwise
+ *  - `{ kind: "no-membership" }` — user hasn't created an agency yet →
+ *    /onboarding/workspace
+ *  - `{ kind: "no-subscription", agencyId, agencyName }` — has agency but
+ *    no live Stripe sub → /onboarding/plan
+ *  - `{ kind: "paying", agencyId, agencyName }` — sub is live → /dashboard
  *
- * Used by `/onboarding/{layout,page}` to redirect-or-resume. Picks the
- * *oldest* membership so a user with multiple agencies always lands on
- * their original onboarding (multi-agency UX is out of scope until the
- * topbar agency switcher ships).
+ * Scoped to the user's oldest agency, matching every other "which agency
+ * are we onboarding" helper. Multi-agency membership is a separate flow.
  */
-export async function getOnboardingStepForUser(
+export type OnboardingStateForUser =
+  | { kind: "no-membership" }
+  | { kind: "no-subscription"; agencyId: string; agencyName: string }
+  | { kind: "paying"; agencyId: string; agencyName: string };
+
+export async function getOnboardingStateForUser(
   clerkUserId: string,
-): Promise<OnboardingStep | null> {
+): Promise<OnboardingStateForUser> {
   const member = await prisma.member.findFirst({
     where: { clerkUserId },
     orderBy: { createdAt: "asc" },
-    select: { agency: { select: { onboardingStep: true } } },
+    select: {
+      agency: { select: { id: true, name: true, stripeSubscriptionId: true } },
+    },
   });
-  return member?.agency.onboardingStep ?? null;
-}
-
-/**
- * Phase 2.10 — advance the wizard's persisted step. Called from
- * `setOnboardingStepAction` after each in-wizard advance/skip/finish.
- * Scoped to the user's oldest agency (matches `getOnboardingStepForUser`),
- * since the wizard only ever runs against the founding agency.
- *
- * Tolerant of races: if the row already exists at a later step (e.g. a
- * second tab raced ahead), this no-ops — we never move the step backwards.
- */
-const STEP_ORDER: Record<OnboardingStep, number> = {
-  [OnboardingStep.WORKSPACE]: 0,
-  [OnboardingStep.TEAMMATES]: 1,
-  [OnboardingStep.CLIENT]: 2,
-  [OnboardingStep.DONE]: 3,
-};
-
-export async function setOnboardingStepForUser(
-  clerkUserId: string,
-  next: OnboardingStep,
-): Promise<void> {
-  const member = await prisma.member.findFirst({
-    where: { clerkUserId },
-    orderBy: { createdAt: "asc" },
-    select: { agencyId: true, agency: { select: { onboardingStep: true } } },
-  });
-  if (!member) return;
-  if (STEP_ORDER[next] <= STEP_ORDER[member.agency.onboardingStep]) return;
-  await prisma.agency.update({
-    where: { id: member.agencyId },
-    data: { onboardingStep: next },
-  });
+  if (!member) return { kind: "no-membership" };
+  const { agency } = member;
+  if (agency.stripeSubscriptionId) {
+    return { kind: "paying", agencyId: agency.id, agencyName: agency.name };
+  }
+  return { kind: "no-subscription", agencyId: agency.id, agencyName: agency.name };
 }
 
 /**
@@ -265,16 +244,20 @@ export async function updatePreferredCurrency(
 }
 
 /**
- * Phase 2.5 — agency white-label branding setter. OWNER/ADMIN only;
- * `updateMany` keeps the write tenant-scoped atomically. Empty values
- * are coerced to NULL by the Zod input so a "clear" gesture lands as a
- * real unset (UI falls back to Repodcast defaults on null).
+ * Phase 2.5 — agency white-label branding setter. OWNER/ADMIN only, and
+ * gated to Agency+ plans (Studio is the entry tier; white-label is one of
+ * the AGENCY-and-up differentiators). `updateMany` keeps the write
+ * tenant-scoped atomically. Empty values are coerced to NULL by the Zod
+ * input so a "clear" gesture lands as a real unset (UI falls back to
+ * Repodcast defaults on null).
  */
 export async function updateAgencyBranding(
   ctx: TenantContext,
   patch: UpdateAgencyBrandingInput,
 ): Promise<Agency> {
   requireRole(ctx, WRITE_ROLES);
+  const plan = await getAgencyPlan(ctx.agencyId);
+  assertMinPlan(plan, Plan.AGENCY);
   const { count } = await prisma.agency.updateMany({
     where: { id: ctx.agencyId },
     data: {

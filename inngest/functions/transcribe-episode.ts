@@ -9,12 +9,16 @@ import { inngest } from "../client";
 /**
  * Phase 2.7 — audio → transcript pipeline.
  *
- * Inputs: an Episode row created with `source = UPLOAD` and `audioUrl`
- * holding the R2 object key (NOT a URL — we sign one on demand).
+ * Inputs: an Episode row with `audioUrl` holding the R2 object key (NOT
+ * a URL — we sign one on demand). Source is UPLOAD (direct upload),
+ * RSS (audio-fallback path from `import-rss-episode` when the publisher
+ * didn't ship a transcript), or YOUTUBE (audio-fallback path from
+ * `import-youtube-episode` when the video didn't have usable captions).
  *
  * Steps:
- *   1. Load + validate (source must be UPLOAD, audioUrl must be set,
- *      transcript must be empty so reruns don't clobber edits).
+ *   1. Load + validate (source must be UPLOAD / RSS / YOUTUBE, audioUrl
+ *      must be set, transcript must be empty so reruns don't clobber
+ *      edits).
  *   2. Flip Episode → PROCESSING so the UI knows work is happening.
  *   3. Sign a 30-minute R2 GET URL — Deepgram fetches the audio itself.
  *   4. POST to Deepgram; persist the resulting transcript onto Episode.
@@ -40,7 +44,12 @@ export const transcribeEpisode = inngest.createFunction(
     retries: 3,
   },
   async ({ event, step }) => {
-    const { episodeId, platforms } = event.data as Events["episode/transcribe.requested"]["data"];
+    const {
+      episodeId,
+      platforms,
+      plan,
+      agencyId: agencyIdFromEvent,
+    } = event.data as Events["episode/transcribe.requested"]["data"];
 
     // ---- 1. Load + validate ----
     const episode = await prisma.episode.findUnique({
@@ -57,9 +66,13 @@ export const transcribeEpisode = inngest.createFunction(
     if (!episode) {
       throw new NonRetriableError(`Episode ${episodeId} not found`);
     }
-    if (episode.source !== TranscriptSource.UPLOAD) {
+    if (
+      episode.source !== TranscriptSource.UPLOAD &&
+      episode.source !== TranscriptSource.RSS &&
+      episode.source !== TranscriptSource.YOUTUBE
+    ) {
       throw new NonRetriableError(
-        `Episode ${episodeId} source is ${episode.source}, not UPLOAD — refusing to transcribe`,
+        `Episode ${episodeId} source is ${episode.source}, not UPLOAD/RSS/YOUTUBE — refusing to transcribe`,
       );
     }
     if (!episode.audioUrl) {
@@ -67,12 +80,13 @@ export const transcribeEpisode = inngest.createFunction(
         `Episode ${episodeId} has no audio object key — upload didn't complete?`,
       );
     }
+    const agencyId = agencyIdFromEvent ?? episode.show.client.agencyId;
     if (episode.transcript.trim().length > 0) {
       // Already has a transcript. Skip Deepgram + fire generate directly so
       // a re-fired event still kicks the generation pipeline.
       await step.sendEvent("emit-generate", {
         name: "episode/generate.requested",
-        data: { episodeId, platforms },
+        data: { episodeId, platforms, plan, agencyId },
       });
       return { episodeId, skippedTranscription: true };
     }
@@ -133,7 +147,7 @@ export const transcribeEpisode = inngest.createFunction(
     // ---- 5. Hand off to the existing generation pipeline ----
     await step.sendEvent("emit-generate", {
       name: "episode/generate.requested",
-      data: { episodeId, platforms },
+      data: { episodeId, platforms, plan, agencyId },
     });
 
     return {

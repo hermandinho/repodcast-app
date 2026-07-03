@@ -64,6 +64,16 @@ enum OutputStatus {
   FAILED
 }
 
+/// Phase 3.3 — where a scheduled output actually publishes. BUFFER = the
+/// agency has connected their own Buffer account and we POST to Buffer's
+/// API. MANUAL = we track the intent in Repodcast; the user posts elsewhere
+/// (or Buffer doesn't support the platform — e.g. SHOW_NOTES / BLOG /
+/// NEWSLETTER) and flips PUBLISHED themselves.
+enum ExternalScheduler {
+  BUFFER
+  MANUAL
+}
+
 enum TranscriptSource {
   PASTE
   UPLOAD
@@ -95,6 +105,15 @@ enum ClientStatus {
   CHURNED
 }
 
+/// Phase 3.x — cadence of the Repodcast SaaS subscription the agency carries
+/// with us. Distinct from `BillingCycle` above (which is the *agency's* per-
+/// client billing cadence). Defaults `MONTHLY`; flips to `ANNUAL` when the
+/// Stripe webhook sees a sub keyed to one of the annual Price IDs.
+enum BillingCadence {
+  MONTHLY
+  ANNUAL
+}
+
 enum MemberTransitionKind {
   INVITED
   INVITE_ACCEPTED
@@ -111,16 +130,25 @@ enum InviteStatus {
   EXPIRED
 }
 
-/// Phase 2.10 — the wizard step the user last cleared. `DONE` means the user
-/// has either finished or explicitly skipped past step 3. The /onboarding
-/// gate redirects to /dashboard iff step is `DONE`, so bailing mid-flow
-/// resumes the wizard exactly where it was left. Existing pre-2.10 rows
-/// default to `DONE` so they're not yanked back into the wizard on next sign-in.
-enum OnboardingStep {
-  WORKSPACE
-  TEAMMATES
-  CLIENT
-  DONE
+/// Phase 3.9 — trial lifecycle for the card-required free trial (length is
+/// `TRIAL_DAYS` in `lib/plans.ts` — currently 7 days).
+///
+/// - NONE       — agency has never been on trial (default for legacy agencies
+///                that signed up before trials, and for future paid-first flows).
+/// - ACTIVE     — inside the trial window. Stripe subscription exists in
+///                `trialing` status; `Agency.trialEndsAt` is in the future.
+/// - CONVERTED  — trial ended with a successful first invoice charge. Agency
+///                is now a paying customer on their chosen plan.
+/// - EXPIRED    — trial ended without a successful charge (payment_failed).
+///                Agency was auto-downgraded to STUDIO via the same path as a
+///                canceled subscription.
+/// - CANCELED   — user canceled the trial before it ended. No charge occurred.
+enum TrialStatus {
+  NONE
+  ACTIVE
+  CONVERTED
+  EXPIRED
+  CANCELED
 }
 
 // ============================================================
@@ -128,36 +156,54 @@ enum OnboardingStep {
 // ============================================================
 
 model Agency {
-  id                   String   @id @default(cuid())
-  name                 String
-  plan                 Plan     @default(STUDIO)
-  clerkOrgId           String?  @unique
-  stripeCustomerId     String?  @unique
-  stripeSubscriptionId String?  @unique
+  id                      String         @id @default(cuid())
+  name                    String
+  plan                    Plan           @default(STUDIO)
+  clerkOrgId              String?        @unique
+  stripeCustomerId        String?        @unique
+  stripeSubscriptionId    String?        @unique
   /// Phase 2.13.6 — opt-out flag for the renewals cron. Defaults on; the
   /// agency-settings page exposes a toggle.
-  renewalRemindersEnabled Boolean @default(true)
+  renewalRemindersEnabled Boolean        @default(true)
   /// Preferred display + billing currency for Repodcast's own SaaS plans.
   /// 3-letter ISO-4217. Used as the default in `createCheckoutSessionAction`;
   /// the billing page exposes a picker. Free-form String (not enum) so we
   /// can add currencies without a migration — `lib/currencies.ts` is the
   /// UI-side allowlist.
-  preferredCurrency    String   @default("USD")
+  preferredCurrency       String         @default("USD")
   /// Phase 2.5 — white-label assets used by the client-facing surfaces
   /// (portal, branded exports). Logo is an R2 public URL (same scheme as
   /// `Client.artworkUrl`); accent color is a 7-char hex string. Both
   /// nullable; client-facing renders fall back to Repodcast defaults when
   /// unset.
-  brandLogoUrl         String?
-  brandAccentColor     String?
-  /// Phase 2.10 — the wizard step the founding OWNER last cleared. Written
-  /// to `TEAMMATES` by `createAgencyForUser` (step 1 finishes when the row
-  /// is created) and advanced from the wizard via `setOnboardingStepAction`.
-  /// The /onboarding layout redirects to /dashboard only when this is `DONE`.
-  /// Default `DONE` so existing rows aren't dragged back into the wizard.
-  onboardingStep       OnboardingStep @default(DONE)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  brandLogoUrl            String?
+  brandAccentColor        String?
+  /// Phase 3.x — cadence of the active Stripe sub. Webhook writes this from
+  /// the chosen Price ID (monthly Price → `MONTHLY`, annual Price → `ANNUAL`).
+  /// Used by the /pricing + /onboarding/plan flow to round-trip the picker
+  /// state, and by `/settings/billing` to label the current sub.
+  billingCadence          BillingCadence @default(MONTHLY)
+  /// Phase 3.6.5 — ROOT-side suspension tombstone. Non-null = the agency is
+  /// currently suspended; the tenant dashboard bounces to a "your account
+  /// is suspended" screen. Read-only surfaces (data export) still resolve.
+  /// Set by `suspendAgency`, cleared by `unsuspendAgency`, both audit-logged.
+  suspendedAt             DateTime?
+  /// Phase 3.6.5 — comp plan-override. When set, `getAgencyPlan()` returns
+  /// this in place of `plan`. Used to grant an agency capacity above (or
+  /// below) their paid tier without touching Stripe — comp accounts,
+  /// partners, support escalations. Every grant / revoke lands an audit row
+  /// with the operator's justification.
+  planOverride            Plan?
+  /// Phase 3.9 — trial lifecycle. `trialEndsAt` mirrors Stripe's
+  /// `subscription.trial_end`; the webhook stamps it on `syncSubscription`.
+  /// Null on agencies that never trialed (legacy + paid-first). `trialStatus`
+  /// is the derived-but-persisted flag `banner`s and the ROOT filter read.
+  /// Trial-eligibility check is `stripeCustomerId IS NULL` — one trial per
+  /// Stripe customer, enforced in `checkoutFromOnboardingAction`.
+  trialEndsAt             DateTime?
+  trialStatus             TrialStatus    @default(NONE)
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
 
   members              Member[]
   clients              Client[]
@@ -168,7 +214,16 @@ model Agency {
   memberTransitions    MemberTransition[]
   billingRemindersSent BillingReminderSent[]
   onboardingNudgesSent OnboardingNudgeSent[]
+  trialNudgesSent      TrialNudgeSent[]
   usageSnapshots       AgencyUsageSnapshot[]
+  limitOverrides       AgencyLimitOverride[]
+  integrations         AgencyIntegration[]
+
+  /// Same hot-path index as declared inline in the migration — mirrored here
+  /// so `prisma migrate diff` stays clean on the next migration boundary.
+  @@index([suspendedAt])
+  /// Hot path for the "trial ending soon" cron scan and the ROOT filter.
+  @@index([trialStatus, trialEndsAt])
 }
 
 model Member {
@@ -183,18 +238,26 @@ model Member {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
-  agency             Agency             @relation(fields: [agencyId], references: [id], onDelete: Cascade)
-  approvedOutputs    GeneratedOutput[]  @relation("OutputApprover")
-  authoredTransitions OutputTransition[] @relation("TransitionAuthor")
-  authoredInvites    MemberInvite[]     @relation("InviteAuthor")
+  agency                    Agency                 @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  approvedOutputs           GeneratedOutput[]      @relation("OutputApprover")
+  authoredTransitions       OutputTransition[]     @relation("TransitionAuthor")
+  authoredInvites           MemberInvite[]         @relation("InviteAuthor")
   /// MemberTransition rows where this member did the action (changed a role, removed someone, etc.).
-  actorOfMemberTransitions  MemberTransition[] @relation("MemberTransitionActor")
+  actorOfMemberTransitions  MemberTransition[]     @relation("MemberTransitionActor")
   /// MemberTransition rows that targeted this member (e.g. their role changed, they were removed).
-  targetOfMemberTransitions MemberTransition[] @relation("MemberTransitionTarget")
+  targetOfMemberTransitions MemberTransition[]     @relation("MemberTransitionTarget")
   /// Phase 2.13 — client statements this member generated.
-  authoredStatements        ClientStatement[]  @relation("StatementAuthor")
+  authoredStatements        ClientStatement[]      @relation("StatementAuthor")
   /// Phase 2.13 — client-portal links this member minted.
-  authoredPortalLinks       ClientPortalLink[] @relation("PortalLinkAuthor")
+  authoredPortalLinks       ClientPortalLink[]     @relation("PortalLinkAuthor")
+  /// Phase 3.3 — outputs this member queued for publishing.
+  scheduledOutputs          GeneratedOutput[]      @relation("OutputScheduler")
+  /// Phase 3.3 — integrations this member connected (Buffer OAuth, etc.).
+  connectedIntegrations     AgencyIntegration[]    @relation("IntegrationConnector")
+  /// Phase 3.8 — portal feedback this member has triaged / acknowledged.
+  readPortalFeedback        ClientPortalFeedback[] @relation("PortalFeedbackReader")
+  /// Phase 3.8 — statements this member published to the client portal.
+  sharedStatements          ClientStatement[]      @relation("StatementPortalPublisher")
 
   @@unique([agencyId, clerkUserId])
   @@index([agencyId])
@@ -206,24 +269,24 @@ model Member {
 /// teammate access. Tokens are opaque cuids — they're sent verbatim in the
 /// invite email and matched verbatim on the /invite/[token] accept page.
 model MemberInvite {
-  id                String       @id @default(cuid())
-  agencyId          String
-  email             String
-  role              MemberRole   @default(EDITOR)
+  id                    String       @id @default(cuid())
+  agencyId              String
+  email                 String
+  role                  MemberRole   @default(EDITOR)
   /// Opaque token used in the invite link. Unique across all agencies.
-  token             String       @unique @default(cuid())
-  status            InviteStatus @default(PENDING)
-  invitedByMemberId String?
+  token                 String       @unique @default(cuid())
+  status                InviteStatus @default(PENDING)
+  invitedByMemberId     String?
   /// Hard expiry — accept-page treats invites past this as `EXPIRED`.
-  expiresAt         DateTime
-  acceptedAt        DateTime?
+  expiresAt             DateTime
+  acceptedAt            DateTime?
   /// Clerk user id of whoever accepted, for audit. Null until accept.
   acceptedByClerkUserId String?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
 
-  agency          Agency  @relation(fields: [agencyId], references: [id], onDelete: Cascade)
-  invitedByMember Member? @relation("InviteAuthor", fields: [invitedByMemberId], references: [id], onDelete: SetNull)
+  agency          Agency             @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  invitedByMember Member?            @relation("InviteAuthor", fields: [invitedByMemberId], references: [id], onDelete: SetNull)
   transitions     MemberTransition[]
 
   @@index([agencyId, status])
@@ -254,8 +317,8 @@ model Client {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  agency Agency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
-  shows  Show[]
+  agency               Agency                @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  shows                Show[]
   /// Phase 2.13 — at most one billing profile per client; nullable on the
   /// Client side because v1 doesn't require agencies to fill one in.
   billingProfile       ClientBillingProfile?
@@ -311,28 +374,28 @@ model ShowPlatformInstruction {
 // ============================================================
 
 model Episode {
-  id          String           @id @default(cuid())
-  showId      String
-  title       String
-  transcript  String
-  source      TranscriptSource
-  audioUrl    String?
-  externalUrl String?
-  status      EpisodeStatus    @default(DRAFT)
+  id            String           @id @default(cuid())
+  showId        String
+  title         String
+  transcript    String
+  source        TranscriptSource
+  audioUrl      String?
+  externalUrl   String?
+  status        EpisodeStatus    @default(DRAFT)
   /// Free-text reason populated when a pipeline non-retriable error trips
   /// (RSS import 404, transcribe 4xx, etc.). Pairs with `status = FAILED`
   /// so the episode page can render a "what went wrong" banner with a
   /// retry / pick-a-different-source affordance.
   failureReason String?
-  recordedAt  DateTime?
-  durationSec Int?
+  recordedAt    DateTime?
+  durationSec   Int?
   /// Cached `KeyMoment[]` (server/ai/key-moments.ts) extracted from the
   /// transcript during the generate pipeline. Surfaced on the episode page
   /// as clip suggestions so the user doesn't have to re-call Claude or
   /// scrub the transcript by hand. Null until generate-episode has run.
-  keyMoments  Json?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  keyMoments    Json?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
 
   show         Show              @relation(fields: [showId], references: [id], onDelete: Cascade)
   outputs      GeneratedOutput[]
@@ -344,46 +407,72 @@ model Episode {
 }
 
 model GeneratedOutput {
-  id                 String       @id @default(cuid())
-  episodeId          String
-  platform           Platform
-  content            String
-  status             OutputStatus @default(GENERATING)
+  id                  String             @id @default(cuid())
+  episodeId           String
+  platform            Platform
+  content             String
+  status              OutputStatus       @default(GENERATING)
   /// 1-indexed version within an (episode, platform) slot. Regenerating
   /// creates a new row with version+1 and stamps `supersededAt` on the prior
   /// row, so we keep the full history without losing tenant scoping.
-  version            Int          @default(1)
-  quality            Int?
+  version             Int                @default(1)
+  quality             Int?
   /// Cumulative Levenshtein distance of every in-place content edit on this
   /// version. `0` = the user approved exactly what the model wrote.
   /// Drives the dashboard's hero "Posted with no edits" KPI and is a more
   /// honest signal than the prior `version == 1` proxy, which mis-classified
   /// edited-then-approved v1 rows as untouched.
-  editDistance       Int          @default(0)
+  editDistance        Int                @default(0)
   /// Free-text instruction that triggered this version's generation.
-  lastInstruction    String?
-  approvedAt         DateTime?
-  approvedByMemberId String?
+  lastInstruction     String?
+  approvedAt          DateTime?
+  approvedByMemberId  String?
   /// When a newer version replaced this row. `null` on the current version.
-  supersededAt       DateTime?
+  supersededAt        DateTime?
   /// Self-pointer to the prior version (null on v1). Held by the new row.
-  previousVersionId  String?
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  previousVersionId   String?
+  /// Phase 3.6.10 — moderation flag columns. Populated when a tenant member
+  /// (Phase 4 UI) or a ROOT operator (v1 manual entry) flags an output for
+  /// review. `flaggedByMemberId` is a plain String — no FK — so a hard-deleted
+  /// Member doesn't cascade-wipe the flag history.
+  flagReason          String?
+  flaggedByMemberId   String?
+  flaggedAt           DateTime?
+  /// Phase 3.3 — scheduling surface. All four are populated together when
+  /// APPROVED → SCHEDULED, cleared on unschedule, and `publishedAt` stamps
+  /// on the terminal transition to PUBLISHED. `externalPostId` is Buffer's
+  /// update id (or a Typefully draft id in a future provider). Null for
+  /// MANUAL rows — the user is publishing elsewhere; we only track intent.
+  scheduledFor        DateTime?
+  scheduledByMemberId String?
+  externalScheduler   ExternalScheduler?
+  externalPostId      String?
+  externalPostUrl     String?
+  publishedAt         DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
 
-  episode          Episode            @relation(fields: [episodeId], references: [id], onDelete: Cascade)
-  approvedByMember Member?            @relation("OutputApprover", fields: [approvedByMemberId], references: [id], onDelete: SetNull)
-  previousVersion  GeneratedOutput?   @relation("OutputVersionHistory", fields: [previousVersionId], references: [id], onDelete: SetNull)
-  nextVersions     GeneratedOutput[]  @relation("OutputVersionHistory")
-  voiceSamples     VoiceSample[]
-  transitions      OutputTransition[]
+  episode           Episode            @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  approvedByMember  Member?            @relation("OutputApprover", fields: [approvedByMemberId], references: [id], onDelete: SetNull)
+  scheduledByMember Member?            @relation("OutputScheduler", fields: [scheduledByMemberId], references: [id], onDelete: SetNull)
+  previousVersion   GeneratedOutput?   @relation("OutputVersionHistory", fields: [previousVersionId], references: [id], onDelete: SetNull)
+  nextVersions      GeneratedOutput[]  @relation("OutputVersionHistory")
+  voiceSamples      VoiceSample[]
+  transitions       OutputTransition[]
 
   @@index([episodeId])
   @@index([episodeId, platform, supersededAt])
   @@index([platform])
   @@index([status])
   @@index([approvedByMemberId])
+  @@index([scheduledByMemberId])
   @@index([previousVersionId])
+  /// Hot path: "list all unresolved flagged outputs" on `/root/quality`.
+  @@index([flaggedAt])
+  /// Phase 3.3 — powers the /schedule calendar range query + the
+  /// sync-scheduled-outputs cron scan.
+  @@index([scheduledFor])
+  @@index([status, scheduledFor])
 }
 
 /// Append-only log of status changes on `GeneratedOutput`. Powers the
@@ -391,7 +480,7 @@ model GeneratedOutput {
 /// denormalized so the most common query (latest N transitions for an
 /// agency, time-ordered) is a single-table read.
 model OutputTransition {
-  id         String       @id @default(cuid())
+  id         String        @id @default(cuid())
   agencyId   String
   outputId   String
   /// Null on system-driven pipeline transitions (Inngest functions).
@@ -401,7 +490,7 @@ model OutputTransition {
   toStatus   OutputStatus
   /// Optional free-text note (rejection reason, regenerate instruction, etc.).
   note       String?
-  createdAt  DateTime     @default(now())
+  createdAt  DateTime      @default(now())
 
   agency Agency          @relation(fields: [agencyId], references: [id], onDelete: Cascade)
   output GeneratedOutput @relation(fields: [outputId], references: [id], onDelete: Cascade)
@@ -534,26 +623,26 @@ model Invoice {
 /// application layer (the form is a radio); both nullable so a brand-new
 /// client can exist without one set.
 model ClientBillingProfile {
-  id                    String       @id @default(cuid())
-  clientId              String       @unique
-  billingContactName    String?
-  billingContactEmail   String?
-  retainerCents         Int?
-  ratePerEpisodeCents   Int?
-  billingCycle          BillingCycle @default(MONTHLY)
+  id                  String       @id @default(cuid())
+  clientId            String       @unique
+  billingContactName  String?
+  billingContactEmail String?
+  retainerCents       Int?
+  ratePerEpisodeCents Int?
+  billingCycle        BillingCycle @default(MONTHLY)
   /// ISO-4217 currency code (e.g. "USD"). Free-form to keep migrations
   /// cheap if we add support for non-listed currencies.
-  currency              String       @default("USD")
-  contractStartDate     DateTime?
-  contractRenewalDate   DateTime?
-  status                ClientStatus @default(ACTIVE)
+  currency            String       @default("USD")
+  contractStartDate   DateTime?
+  contractRenewalDate DateTime?
+  status              ClientStatus @default(ACTIVE)
   /// External URL the agency lists for its own payment page (Stripe
   /// payment-link, custom checkout, etc.). Surfaced as the only money-shaped
   /// CTA in the client portal — Repodcast does **not** process the payment.
-  paymentLinkUrl        String?
-  internalNotes         String?
-  createdAt             DateTime     @default(now())
-  updatedAt             DateTime     @updatedAt
+  paymentLinkUrl      String?
+  internalNotes       String?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
 
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
@@ -568,7 +657,7 @@ model ClientBillingProfile {
 /// same PDF the agency signed off on, even if the underlying outputs were
 /// later edited or removed).
 model ClientStatement {
-  id                  String   @id @default(cuid())
+  id                  String    @id @default(cuid())
   clientId            String
   /// Inclusive lower bound of the reporting window.
   periodStart         DateTime
@@ -587,7 +676,7 @@ model ClientStatement {
   /// Cost-to-serve in USD cents — sum of `UsageLog.costCents` joined via
   /// Episode → Show → Client across the window.
   costCents           Int
-  generatedAt         DateTime @default(now())
+  generatedAt         DateTime  @default(now())
   generatedByMemberId String?
   /// R2 object key for the rendered PDF; null until the renderer finishes.
   pdfStorageKey       String?
@@ -598,13 +687,25 @@ model ClientStatement {
   /// Id returned by the agency's webhook handler (e.g. the QuickBooks /
   /// Xero invoice id). Surfaced in the UI as "Delivered to <tool>".
   webhookExternalRef  String?
+  /// Phase 3.8 — explicit publish to the client portal. Null keeps the
+  /// statement agency-only; setting the timestamp makes it visible on
+  /// `/portal/[token]` for any active portal link on this client. An
+  /// operator can unshare by nulling both fields — the portal read
+  /// re-checks on every render, so revocation is immediate.
+  sharedWithPortalAt  DateTime?
+  sharedByMemberId    String?
 
   client            Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
   generatedByMember Member? @relation("StatementAuthor", fields: [generatedByMemberId], references: [id], onDelete: SetNull)
+  sharedByMember    Member? @relation("StatementPortalPublisher", fields: [sharedByMemberId], references: [id], onDelete: SetNull)
 
   @@index([clientId, periodStart(sort: Desc)])
   @@index([clientId, generatedAt(sort: Desc)])
   @@index([generatedByMemberId])
+  /// Portal list read filters by client + `sharedWithPortalAt IS NOT NULL`
+  /// ordered by period. Composite index keeps that pattern seek-only.
+  @@index([clientId, sharedWithPortalAt(sort: Desc)])
+  @@index([sharedByMemberId])
 }
 
 /// Tokenized read-only access to the client portal. Pattern mirrors the
@@ -612,19 +713,20 @@ model ClientStatement {
 /// of band; the `/portal/[token]` route lookups go through `getByToken`
 /// (public, no `TenantContext`).
 model ClientPortalLink {
-  id                 String    @id @default(cuid())
-  clientId           String
-  token              String    @unique @default(cuid())
-  expiresAt          DateTime
-  createdByMemberId  String?
-  revokedAt          DateTime?
-  lastAccessedAt     DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  id                String    @id @default(cuid())
+  clientId          String
+  token             String    @unique @default(cuid())
+  expiresAt         DateTime
+  createdByMemberId String?
+  revokedAt         DateTime?
+  lastAccessedAt    DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   client          Client                  @relation(fields: [clientId], references: [id], onDelete: Cascade)
   createdByMember Member?                 @relation("PortalLinkAuthor", fields: [createdByMemberId], references: [id], onDelete: SetNull)
   accessLogs      ClientPortalAccessLog[]
+  feedback        ClientPortalFeedback[]
 
   @@index([clientId, expiresAt])
   @@index([createdByMemberId])
@@ -636,15 +738,46 @@ model ClientPortalLink {
 /// header string. Both nullable since a real client view in a hardened
 /// browser may strip either.
 model ClientPortalAccessLog {
-  id            String   @id @default(cuid())
-  portalLinkId  String
-  viewedAt      DateTime @default(now())
-  ipHash        String?
-  userAgent     String?
+  id           String   @id @default(cuid())
+  portalLinkId String
+  viewedAt     DateTime @default(now())
+  ipHash       String?
+  userAgent    String?
 
   portalLink ClientPortalLink @relation(fields: [portalLinkId], references: [id], onDelete: Cascade)
 
   @@index([portalLinkId, viewedAt(sort: Desc)])
+}
+
+/// Feedback submitted by a portal viewer against a specific deliverable
+/// (or general feedback when `outputId` is null). Append-only; the agency
+/// reads these on the client billing surface. Rate limit + body cap live
+/// inline in `submitPortalFeedback` — token is already the access
+/// credential, so we don't require an email. `readByMemberId` / `readAt`
+/// track when someone on the agency side triaged it.
+model ClientPortalFeedback {
+  id             String    @id @default(cuid())
+  portalLinkId   String
+  /// Nullable — general portal feedback isn't tied to any single output.
+  outputId       String?
+  /// Optional reporter email, captured only when the client volunteers one.
+  fromEmail      String?
+  /// Free-text body from the portal form. Length-capped in `submitPortalFeedback`.
+  body           String
+  createdAt      DateTime  @default(now())
+  /// Agency-side triage: which member acknowledged the feedback, and when.
+  readByMemberId String?
+  readAt         DateTime?
+
+  portalLink   ClientPortalLink @relation(fields: [portalLinkId], references: [id], onDelete: Cascade)
+  /// Deliberately no FK on outputId — an operator regenerating the output
+  /// creates a new row and supersedes the old one; the feedback should stay
+  /// visible against the historical version. Nullable + orphan-tolerant.
+  readByMember Member?          @relation("PortalFeedbackReader", fields: [readByMemberId], references: [id], onDelete: SetNull)
+
+  @@index([portalLinkId, createdAt(sort: Desc)])
+  @@index([outputId])
+  @@index([readByMemberId])
 }
 
 /// Dedupe ledger for the renewals cron (Phase 2.13.6). The cron fires at the
@@ -652,12 +785,12 @@ model ClientPortalAccessLog {
 /// once across daily runs. A row's presence means the email was sent —
 /// missing row + window-open = next run sends.
 model BillingReminderSent {
-  id        String   @id @default(cuid())
-  agencyId  String
-  clientId  String
+  id       String   @id @default(cuid())
+  agencyId String
+  clientId String
   /// The pre-renewal marker that fired: "30d" or "7d".
-  marker    String
-  sentAt    DateTime @default(now())
+  marker   String
+  sentAt   DateTime @default(now())
 
   agency Agency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade, map: "BillingReminderSent_client_fkey")
@@ -676,6 +809,25 @@ model OnboardingNudgeSent {
   id       String   @id @default(cuid())
   agencyId String
   /// The drop-off marker that fired: "24h" (finish setup) or "72h" (first client).
+  marker   String
+  sentAt   DateTime @default(now())
+
+  agency Agency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+
+  @@unique([agencyId, marker])
+  @@index([sentAt])
+}
+
+/// Phase 3.9 — dedupe ledger for the mid-trial nudge cron. Currently a
+/// single marker (`day_2` — portal-preview nudge halfway through a 7-day
+/// trial), but keyed by string so we can add more markers without a
+/// migration. Same claim-before-send pattern as `OnboardingNudgeSent`.
+model TrialNudgeSent {
+  id       String   @id @default(cuid())
+  agencyId String
+  /// Which mid-trial marker fired. Presently only "day_2" — the day-8
+  /// outcome mail is event-driven off Stripe, and the T-3 nudge is driven
+  /// by `customer.subscription.trial_will_end`, so no cron for those.
   marker   String
   sentAt   DateTime @default(now())
 
@@ -773,7 +925,17 @@ model SystemAdmin {
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
-  authoredAuditEntries SystemAuditLog[] @relation("AuditAuthor")
+  authoredAuditEntries   SystemAuditLog[]      @relation("AuditAuthor")
+  /// Phase 3.6.11 — SystemConfig rows this admin last wrote. `updatedBy` FK
+  /// uses `Restrict` so a soft-delete via `deactivatedAt` is the only teardown
+  /// (see the FK block in the migration).
+  authoredConfigWrites   SystemConfig[]        @relation("ConfigAuthor")
+  /// Phase 3.6.11 — agency plan-limit overrides this admin granted.
+  authoredLimitOverrides AgencyLimitOverride[] @relation("LimitOverrideAuthor")
+  /// Phase 3.6.10 — abuse reports currently assigned to this admin.
+  /// `onDelete: SetNull` on the FK so a soft-delete drops the queue link
+  /// without losing the report itself.
+  assignedAbuseReports   AbuseReport[]         @relation("AbuseAssignee")
 
   @@index([role])
   @@index([deactivatedAt])
@@ -841,28 +1003,28 @@ model AgencyUsageSnapshot {
 /// `before` / `after` snapshot the row(s) touched. Stored as Json so we can
 /// capture arbitrarily-shaped pre/post images without inventing a column.
 model SystemAuditLog {
-  id                String   @id @default(cuid())
-  bySystemAdminId   String
+  id               String   @id @default(cuid())
+  bySystemAdminId  String
   /// Dotted action key. See `server/db/system/audit-actions.ts`.
-  action            String
-  targetAgencyId    String?
-  targetMemberId    String?
+  action           String
+  targetAgencyId   String?
+  targetMemberId   String?
   /// Free-form entity-type tag (e.g. "agency", "subscription", "member"). Pairs
   /// with `targetEntityId` so we can audit rows the schema doesn't have a
   /// dedicated FK column for.
-  targetEntityType  String?
-  targetEntityId    String?
-  before            Json?
-  after             Json?
+  targetEntityType String?
+  targetEntityId   String?
+  before           Json?
+  after            Json?
   /// Free-text reason the operator typed in the confirm dialog. Required for
   /// destructive actions at the action layer.
-  note              String?
+  note             String?
   /// Source IP at the time of the action. Raw (not hashed) — this is internal
   /// audit, not user-facing telemetry. Stripped to first non-trusted-proxy hop
   /// at the action layer.
-  ipAddress         String?
-  userAgent         String?
-  createdAt         DateTime @default(now())
+  ipAddress        String?
+  userAgent        String?
+  createdAt        DateTime @default(now())
 
   bySystemAdmin SystemAdmin @relation("AuditAuthor", fields: [bySystemAdminId], references: [id], onDelete: Restrict)
 
@@ -870,4 +1032,196 @@ model SystemAuditLog {
   @@index([targetAgencyId, createdAt(sort: Desc)])
   @@index([action, createdAt(sort: Desc)])
   @@index([createdAt(sort: Desc)])
+}
+
+// ============================================================
+// Phase 3.6.11 — Platform configuration + per-agency overrides
+// ============================================================
+//
+// SystemConfig is a flat key/value bag for platform-wide toggles that don't
+// warrant their own column (feature flags not shipped through PostHog,
+// Anthropic model defaults, cost-cap overrides per plan, the CAC entry for
+// LTV:CAC, marketing copy). `value` is Json so an operator can change a
+// value's SHAPE without a schema migration; the audit log's before/after
+// captures every mutation.
+//
+// AgencyLimitOverride grants a specific agency a resource ceiling different
+// from its plan's default (e.g. "give Acme 100 episodes/month even though
+// they're on STUDIO"). Consumed by `planCapacity()` in
+// `server/billing/limits.ts`.
+
+/// Which of the four metered resources an override applies to. Mirrors the
+/// `LimitedResource` union in `server/billing/limits.ts`; keep them in sync.
+enum LimitOverrideResource {
+  SHOWS
+  MEMBERS
+  EPISODES
+  GENERATIONS
+}
+
+/// Flat key/value bag for platform-wide toggles. See §3.6.11.
+///
+/// - `key` is the operator-facing identifier (e.g. `RSS_IMPORT_ENABLED`,
+///   `CAC_USD_MONTHLY`, `ANTHROPIC_DEFAULT_MODEL`). No enum — arbitrary keys
+///   land here so we don't need a migration per new config surface.
+/// - `value` is Json to survive shape changes. Callers cast on read; the
+///   admin UI edits raw JSON so mistakes surface loudly.
+/// - `updatedBySystemAdminId` is Restrict on delete so audit attribution
+///   survives even if a ROOT is soft-deleted. Nullable so the initial
+///   bootstrap seed (no admin yet) can still write rows.
+model SystemConfig {
+  id                     String   @id @default(cuid())
+  key                    String   @unique
+  value                  Json
+  /// Free-text description of what the key controls. Rendered in the admin
+  /// UI so the next operator doesn't have to grep the codebase to find out
+  /// what `RSS_IMPORT_ENABLED` gates.
+  description            String?
+  updatedBySystemAdminId String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  updatedBy SystemAdmin? @relation("ConfigAuthor", fields: [updatedBySystemAdminId], references: [id], onDelete: Restrict)
+
+  @@index([updatedBySystemAdminId])
+}
+
+/// Per-agency resource-limit override. One row per (agencyId, resource) at a
+/// time — the operator updates the row to change the value, sets `expiresAt`
+/// to end it, or hard-deletes to revoke immediately (with an audit note).
+///
+/// Consumed by `planCapacity()`: if a live row exists for a resource and its
+/// `expiresAt` hasn't passed, its `value` replaces the plan default. If the
+/// override is LOWER than the plan default, that's intentional — operators
+/// use it to cap an abusing agency without downgrading the plan.
+model AgencyLimitOverride {
+  id              String                @id @default(cuid())
+  agencyId        String
+  resource        LimitOverrideResource
+  /// New cap for the resource. Absolute value — not additive on top of the
+  /// plan default. `0` = fully disable the resource for this agency.
+  value           Int
+  /// When the override stops applying. Null = indefinite. Past-timestamped
+  /// rows are ignored by `planCapacity()` but retained for audit.
+  expiresAt       DateTime?
+  /// Free-text reason (e.g. "comp for support case #123"). Surfaced in the
+  /// admin table + captured on the initial audit row.
+  note            String?
+  bySystemAdminId String
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  agency Agency      @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  by     SystemAdmin @relation("LimitOverrideAuthor", fields: [bySystemAdminId], references: [id], onDelete: Restrict)
+
+  /// One live override per (agency, resource). Editing an existing override
+  /// updates the row in place; audit captures the history.
+  @@unique([agencyId, resource])
+  @@index([expiresAt])
+  @@index([bySystemAdminId])
+}
+
+// ============================================================
+// Phase 3.6.10 — Quality, abuse, and moderation
+// ============================================================
+//
+// AbuseReport is the durable queue for inbound complaints — spam, copyright,
+// brand impersonation, harassment. Two ingress paths (both funnel into the
+// same table):
+//   1. Public `/legal/report` form (Phase 4 — inbound anonymous). Populates
+//      `reportedByEmail` from the form.
+//   2. Manual entry by a ROOT / OPERATOR from `/root/quality` — for phoned-in
+//      complaints logged after the fact. `reportedByEmail` may be null.
+//
+// The `target*` columns are plain nullable Strings — no FK — so hard-deleting
+// an agency, member, or output doesn't cascade-wipe reports that referenced
+// it. Same posture as `SystemAuditLog.targetAgencyId`.
+
+/// Category the reporter picked (or the intake operator inferred).
+enum AbuseReportCategory {
+  SPAM
+  COPYRIGHT
+  IMPERSONATION
+  HARASSMENT
+  OTHER
+}
+
+/// Triage state. `OPEN` = untouched, `IN_REVIEW` = an operator is on it,
+/// `RESOLVED` = action taken (see `resolution`), `DISMISSED` = no action
+/// needed (e.g. wrong URL, spam-of-a-report). Both terminal states stamp
+/// `resolvedAt`.
+enum AbuseReportStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+model AbuseReport {
+  id                      String              @id @default(cuid())
+  /// Reporter's email as provided on the intake form. Nullable so a phoned-in
+  /// complaint logged manually still lands here.
+  reportedByEmail         String?
+  category                AbuseReportCategory
+  /// Free-text complaint body from the intake form.
+  body                    String
+  status                  AbuseReportStatus   @default(OPEN)
+  /// Nullable target pointers — no FK (see the header note).
+  targetAgencyId          String?
+  targetMemberId          String?
+  targetOutputId          String?
+  /// The SystemAdmin currently on it. Set when triage flips to IN_REVIEW /
+  /// RESOLVED / DISMISSED.
+  assignedToSystemAdminId String?
+  /// Free-text summary of what the operator did (used the "resolve" action).
+  /// Null on OPEN / IN_REVIEW / DISMISSED.
+  resolution              String?
+  createdAt               DateTime            @default(now())
+  /// Stamped when status flips to RESOLVED or DISMISSED.
+  resolvedAt              DateTime?
+  updatedAt               DateTime            @updatedAt
+
+  assignedTo SystemAdmin? @relation("AbuseAssignee", fields: [assignedToSystemAdminId], references: [id], onDelete: SetNull)
+
+  /// Queue hot path: paginated OPEN list sorted by age.
+  @@index([status, createdAt])
+  @@index([assignedToSystemAdminId, status])
+  @@index([targetAgencyId, createdAt])
+  @@index([category, status])
+}
+
+/// Phase 3.3 — per-agency scheduling-provider connection. Currently only
+/// Buffer, but the shape is provider-generic so Typefully or a future
+/// first-party integration slots in without a migration. `accessToken` is
+/// AES-256-GCM encrypted at the app layer (see `server/crypto/token-vault.ts`)
+/// — nothing else in this table is secret. `meta` holds provider-specific
+/// bookkeeping such as Buffer profile ids keyed by our `Platform` enum.
+model AgencyIntegration {
+  id                  String            @id @default(cuid())
+  agencyId            String
+  provider            ExternalScheduler
+  /// Encrypted, opaque to callers — always route through the token vault.
+  accessToken         String
+  /// Only populated on providers with refreshable tokens (Buffer v2 / OAuth 2).
+  refreshToken        String?
+  expiresAt           DateTime?
+  /// Provider-specific bag. For Buffer: `{ profiles: { TWITTER: "abc123", ... } }`.
+  meta                Json?
+  /// Per-agency setting: auto-flip SCHEDULED → PUBLISHED for MANUAL rows
+  /// whose `scheduledFor` is past. Buffer-backed rows always sync from the
+  /// provider regardless of this flag.
+  autoMarkPublished   Boolean           @default(true)
+  connectedByMemberId String?
+  lastSyncedAt        DateTime?
+  lastSyncError       String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  agency      Agency  @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  connectedBy Member? @relation("IntegrationConnector", fields: [connectedByMemberId], references: [id], onDelete: SetNull)
+
+  /// One row per (agency, provider) — a second connect from the same agency
+  /// overwrites the token via upsert rather than creating a duplicate row.
+  @@unique([agencyId, provider])
+  @@index([agencyId])
 }

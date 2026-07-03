@@ -1,6 +1,12 @@
 import "server-only";
 
-import { MemberRole, OutputStatus, type ClientStatement, type Prisma } from "@prisma/client";
+import {
+  MemberRole,
+  OutputStatus,
+  Platform,
+  type ClientStatement,
+  type Prisma,
+} from "@prisma/client";
 import { z } from "zod";
 import { NotFoundError, ValidationError } from "@/server/auth/errors";
 import { requireRole, type TenantContext } from "@/server/auth/tenant";
@@ -92,6 +98,7 @@ export async function listClientStatements(
 export type ClientStatementWithContext = ClientStatement & {
   client: { id: string; name: string; agencyId: string };
   generatedByMember: { id: string; name: string | null; email: string } | null;
+  sharedByMember: { id: string; name: string | null; email: string } | null;
 };
 
 export async function getClientStatement(
@@ -107,10 +114,264 @@ export async function getClientStatement(
     include: {
       client: { select: { id: true, name: true, agencyId: true } },
       generatedByMember: { select: { id: true, name: true, email: true } },
+      sharedByMember: { select: { id: true, name: true, email: true } },
     },
   });
   if (!row) throw new NotFoundError(`Statement ${statementId} not found`);
   return row;
+}
+
+/**
+ * Load a statement with the extra agency-branding context the PDF renderer
+ * needs (agency name + brand accent). Same role/tenant guard as
+ * `getClientStatement` — the PDF is billing material, OWNER/ADMIN only.
+ */
+export type ClientStatementForPdf = ClientStatement & {
+  client: {
+    id: string;
+    name: string;
+    agencyId: string;
+    agency: { id: string; name: string; brandAccentColor: string | null };
+  };
+  generatedByMember: { id: string; name: string | null; email: string } | null;
+};
+
+export async function getClientStatementForPdf(
+  ctx: TenantContext,
+  statementId: string,
+): Promise<ClientStatementForPdf> {
+  requireRole(ctx, ADMIN_ROLES);
+  const row = await prisma.clientStatement.findFirst({
+    where: {
+      id: statementId,
+      client: { agencyId: ctx.agencyId },
+    },
+    include: {
+      client: {
+        select: {
+          id: true,
+          name: true,
+          agencyId: true,
+          agency: { select: { id: true, name: true, brandAccentColor: true } },
+        },
+      },
+      generatedByMember: { select: { id: true, name: true, email: true } },
+    },
+  });
+  if (!row) throw new NotFoundError(`Statement ${statementId} not found`);
+  return row;
+}
+
+// ============================================================
+// Portal publish (Phase 3.8)
+// ============================================================
+
+/**
+ * Flip a statement to portal-visible. Idempotent — a second call updates
+ * `sharedByMemberId` to the newer publisher but leaves the original
+ * `sharedWithPortalAt` timestamp alone (client-side "first shared at" is
+ * the intent, so re-publishing doesn't reset the clock).
+ *
+ * Returns the current shared timestamp so the caller can render "Shared
+ * on <date>" without a second fetch.
+ */
+export async function shareStatementWithPortal(
+  ctx: TenantContext,
+  statementId: string,
+  byMemberId: string,
+): Promise<{ sharedWithPortalAt: Date }> {
+  requireRole(ctx, ADMIN_ROLES);
+  // updateMany so the tenant filter (client.agencyId) lives in the where
+  // clause atomically — a cross-tenant id collapses to a 0-count miss.
+  const now = new Date();
+  const { count } = await prisma.clientStatement.updateMany({
+    where: {
+      id: statementId,
+      sharedWithPortalAt: null,
+      client: { agencyId: ctx.agencyId },
+    },
+    data: {
+      sharedWithPortalAt: now,
+      sharedByMemberId: byMemberId,
+    },
+  });
+  if (count === 0) {
+    // Either not found (cross-tenant / bad id) or already shared. Discern
+    // so already-shared is a no-op success and missing is a 404.
+    const current = await prisma.clientStatement.findFirst({
+      where: { id: statementId, client: { agencyId: ctx.agencyId } },
+      select: { sharedWithPortalAt: true },
+    });
+    if (!current) throw new NotFoundError(`Statement ${statementId} not found`);
+    if (current.sharedWithPortalAt) {
+      // Refresh the publisher stamp only — sharedWithPortalAt is sticky.
+      await prisma.clientStatement.update({
+        where: { id: statementId },
+        data: { sharedByMemberId: byMemberId },
+      });
+      return { sharedWithPortalAt: current.sharedWithPortalAt };
+    }
+  }
+  return { sharedWithPortalAt: now };
+}
+
+/**
+ * Reverse the publish flag. Nulls both fields so the row falls out of
+ * every portal read on the next request. Idempotent when already unshared.
+ */
+export async function unshareStatementFromPortal(
+  ctx: TenantContext,
+  statementId: string,
+): Promise<void> {
+  requireRole(ctx, ADMIN_ROLES);
+  const { count } = await prisma.clientStatement.updateMany({
+    where: {
+      id: statementId,
+      client: { agencyId: ctx.agencyId },
+    },
+    data: {
+      sharedWithPortalAt: null,
+      sharedByMemberId: null,
+    },
+  });
+  if (count === 0) throw new NotFoundError(`Statement ${statementId} not found`);
+}
+
+// ============================================================
+// Portal-side reads (no TenantContext — caller must have validated a token)
+// ============================================================
+
+export type PortalStatementRow = {
+  id: string;
+  periodStart: Date;
+  periodEnd: Date;
+  generatedAt: Date;
+  sharedWithPortalAt: Date;
+  episodeCount: number;
+  outputCount: number;
+  approvedCount: number;
+  approvalRatePct: number;
+  costCents: number;
+};
+
+/**
+ * Public read — statements the agency has explicitly published to the
+ * portal for `clientId`. Callable only after the portal token has been
+ * validated (the token IS the auth check); this function trusts the
+ * clientId to come from a validated `ClientPortalLink`.
+ */
+export async function listSharedStatementsForClient(
+  clientId: string,
+): Promise<PortalStatementRow[]> {
+  const rows = await prisma.clientStatement.findMany({
+    where: { clientId, sharedWithPortalAt: { not: null } },
+    orderBy: { periodStart: "desc" },
+    select: {
+      id: true,
+      periodStart: true,
+      periodEnd: true,
+      generatedAt: true,
+      sharedWithPortalAt: true,
+      episodeCount: true,
+      outputCount: true,
+      approvedCount: true,
+      approvalRatePct: true,
+      costCents: true,
+    },
+  });
+  // Prisma types sharedWithPortalAt as nullable even with the not-null
+  // filter — narrow here so the row type is truthful.
+  return rows.map((r) => ({
+    ...r,
+    sharedWithPortalAt: r.sharedWithPortalAt!,
+  }));
+}
+
+/**
+ * Public PDF fetch. Verifies the statement is (a) shared and (b) belongs
+ * to `clientId` — both filters live in the where clause so a mis-scoped
+ * id short-circuits to null rather than exposing another client's PDF.
+ */
+export type SharedStatementForPortalPdf = ClientStatement & {
+  client: {
+    id: string;
+    name: string;
+    agency: { id: string; name: string; brandAccentColor: string | null };
+  };
+  generatedByMember: { name: string | null; email: string } | null;
+};
+
+export async function getSharedStatementForPortalPdf(
+  clientId: string,
+  statementId: string,
+): Promise<SharedStatementForPortalPdf | null> {
+  return prisma.clientStatement.findFirst({
+    where: {
+      id: statementId,
+      clientId,
+      sharedWithPortalAt: { not: null },
+    },
+    include: {
+      client: {
+        select: {
+          id: true,
+          name: true,
+          agency: { select: { id: true, name: true, brandAccentColor: true } },
+        },
+      },
+      generatedByMember: { select: { name: true, email: true } },
+    },
+  });
+}
+
+// ============================================================
+// Per-platform breakdown (shared by CSV + PDF exporters)
+// ============================================================
+
+const BREAKDOWN_PLATFORMS: Platform[] = [
+  Platform.TWITTER,
+  Platform.LINKEDIN,
+  Platform.INSTAGRAM,
+  Platform.TIKTOK,
+  Platform.SHOW_NOTES,
+  Platform.BLOG,
+  Platform.NEWSLETTER,
+];
+
+export type PlatformBreakdownRow = { platform: Platform; total: number; approved: number };
+
+/**
+ * Compute the per-platform total / approved counts inside the statement's
+ * window. Not tenant-scoped — the caller (CSV route, PDF route) has
+ * already resolved a specific statement + client and passes them in.
+ */
+export async function computeStatementPlatformBreakdown(params: {
+  clientId: string;
+  agencyId: string;
+  periodStart: Date;
+  periodEnd: Date;
+}): Promise<PlatformBreakdownRow[]> {
+  const groups = await prisma.generatedOutput.groupBy({
+    by: ["platform", "status"],
+    where: {
+      supersededAt: null,
+      episode: {
+        show: { client: { id: params.clientId, agencyId: params.agencyId } },
+      },
+      createdAt: { gte: params.periodStart, lte: params.periodEnd },
+    },
+    _count: { _all: true },
+  });
+
+  const byPlatform = new Map<Platform, { total: number; approved: number }>();
+  for (const p of BREAKDOWN_PLATFORMS) byPlatform.set(p, { total: 0, approved: 0 });
+  for (const g of groups) {
+    const slot = byPlatform.get(g.platform);
+    if (!slot) continue;
+    slot.total += g._count._all;
+    if (g.status === OutputStatus.APPROVED) slot.approved += g._count._all;
+  }
+  return BREAKDOWN_PLATFORMS.map((p) => ({ platform: p, ...byPlatform.get(p)! }));
 }
 
 // ============================================================

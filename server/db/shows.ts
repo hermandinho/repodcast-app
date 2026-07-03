@@ -3,7 +3,7 @@ import "server-only";
 import { MemberRole, type Show } from "@prisma/client";
 import { z } from "zod";
 import { NotFoundError } from "@/server/auth/errors";
-import { requireRole, type TenantContext } from "@/server/auth/tenant";
+import { requireReadRole, requireRole, type TenantContext } from "@/server/auth/tenant";
 import { assertPlanCapacity, getAgencyPlan } from "@/server/billing/limits";
 import { prisma } from "./client";
 
@@ -43,7 +43,7 @@ const WRITE_ROLES = [MemberRole.OWNER, MemberRole.ADMIN] as const;
 // ============================================================
 
 export async function listShows(ctx: TenantContext): Promise<Show[]> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   return prisma.show.findMany({
     where: { client: { agencyId: ctx.agencyId } },
     orderBy: { createdAt: "desc" },
@@ -51,7 +51,7 @@ export async function listShows(ctx: TenantContext): Promise<Show[]> {
 }
 
 export async function listShowsForClient(ctx: TenantContext, clientId: string): Promise<Show[]> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   return prisma.show.findMany({
     where: {
       clientId,
@@ -62,7 +62,7 @@ export async function listShowsForClient(ctx: TenantContext, clientId: string): 
 }
 
 export async function getShow(ctx: TenantContext, showId: string): Promise<Show> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   const show = await prisma.show.findFirst({
     where: {
       id: showId,

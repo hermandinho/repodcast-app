@@ -2,8 +2,8 @@
 
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
-import { Plan } from "@prisma/client";
 import { z } from "zod";
+import { BillingCadence, Plan } from "@/lib/enums";
 import { requireAuthContext } from "@/server/auth/context";
 import { ValidationError } from "@/server/auth/errors";
 import { assertRole } from "@/server/auth/context";
@@ -18,6 +18,7 @@ import { prisma } from "@/server/db/client";
 import { updatePreferredCurrency, updatePreferredCurrencyInput } from "@/server/db/agencies";
 import { priceIdFor } from "@/server/billing/prices";
 import { requireStripeClient } from "@/server/billing/stripe";
+import { trackServer } from "@/server/analytics/track";
 
 const checkoutInput = z.object({
   plan: z.nativeEnum(Plan),
@@ -27,6 +28,8 @@ const checkoutInput = z.object({
    * `SUPPORTED_CURRENCIES`, so Checkout switches by this param.
    */
   currency: z.enum(SUPPORTED_CURRENCIES).optional(),
+  /** Monthly vs annual. Defaults to MONTHLY for back-compat. */
+  cadence: z.nativeEnum(BillingCadence).default(BillingCadence.MONTHLY),
 });
 
 export type ActionResult<T = void> = { ok: true; data: T } | { ok: false; error: string };
@@ -52,7 +55,7 @@ export async function createCheckoutSessionAction(
   if (!parsed.success) {
     throw new ValidationError("Invalid checkout input", parsed.error.issues);
   }
-  const { plan } = parsed.data;
+  const { plan, cadence } = parsed.data;
 
   const auth = await requireAuthContext();
   assertRole(auth, ["OWNER", "ADMIN"]);
@@ -65,16 +68,16 @@ export async function createCheckoutSessionAction(
   // the one we pass via the `currency` param.
   const agency = await prisma.agency.findUnique({
     where: { id: auth.agency.id },
-    select: { preferredCurrency: true },
+    select: { preferredCurrency: true, plan: true },
   });
   const resolvedCurrency =
     parsed.data.currency ?? asSupportedCurrency(agency?.preferredCurrency) ?? DEFAULT_CURRENCY;
 
-  const priceId = priceIdFor(plan);
+  const priceId = priceIdFor(plan, cadence);
   if (!priceId) {
     return {
       ok: false,
-      error: `No Stripe price configured for ${plan}. Set NEXT_PUBLIC_STRIPE_${plan}_PRICE_ID.`,
+      error: `No Stripe price configured for ${plan} (${cadence}). Set NEXT_PUBLIC_STRIPE_${plan}_${cadence}_PRICE_ID.`,
     };
   }
 
@@ -91,9 +94,9 @@ export async function createCheckoutSessionAction(
     cancel_url: `${url}/settings/billing?canceled=true`,
     customer_email: auth.user.email || undefined,
     client_reference_id: auth.agency.id,
-    metadata: { agencyId: auth.agency.id, plan, currency: resolvedCurrency },
+    metadata: { agencyId: auth.agency.id, plan, cadence, currency: resolvedCurrency },
     subscription_data: {
-      metadata: { agencyId: auth.agency.id, plan, currency: resolvedCurrency },
+      metadata: { agencyId: auth.agency.id, plan, cadence, currency: resolvedCurrency },
     },
     allow_promotion_codes: true,
   });
@@ -101,6 +104,22 @@ export async function createCheckoutSessionAction(
   if (!session.url) {
     return { ok: false, error: "Stripe did not return a checkout URL." };
   }
+
+  // Phase 3.7 — funnel signal. Fired synchronously so it lands before we
+  // redirect the user to Stripe's hosted page; `trackServer` bounds itself
+  // to 2s so a PostHog outage can't slow the checkout kick-off.
+  await trackServer(
+    "upgrade_started",
+    {
+      agencyId: auth.agency.id,
+      fromPlan: agency?.plan ?? Plan.STUDIO,
+      toPlan: plan,
+      cadence,
+      currency: resolvedCurrency,
+    },
+    { distinctId: `agency:${auth.agency.id}`, agencyId: auth.agency.id },
+  );
+
   return { ok: true, data: { url: session.url } };
 }
 

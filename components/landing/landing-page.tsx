@@ -1,6 +1,10 @@
 import Link from "next/link";
+import { PricingPicker } from "@/components/pricing/pricing-picker";
+import { DEFAULT_TRUSTED_BY, type LandingTrustedBy } from "@/lib/landing-trusted-by";
 import { ClientPicker } from "./client-picker";
 import { FAQAccordion } from "./faq-accordion";
+import { LandingFooter } from "./footer";
+import { LandingNav } from "./nav";
 
 /**
  * Marketing landing (Phase 3.1). Layout mirrors
@@ -15,141 +19,34 @@ import { FAQAccordion } from "./faq-accordion";
  * its own palette and the inline-style pattern matches the dashboard's
  * defensive approach so a stale Tailwind cache can't break the visual.
  */
-export function LandingPage({ isSignedIn = false }: { isSignedIn?: boolean }) {
+export function LandingPage({
+  isSignedIn = false,
+  trustedBy = DEFAULT_TRUSTED_BY,
+}: {
+  isSignedIn?: boolean;
+  /**
+   * Managed from `/root/config` under the `LANDING_TRUSTED_BY` key. Server
+   * fetch + fallback lives in `lib/landing-trusted-by.ts`; the landing page
+   * itself just renders what it's given.
+   */
+  trustedBy?: LandingTrustedBy & { heading: string };
+}) {
   return (
     <div className="w-full overflow-x-hidden">
-      <Nav isSignedIn={isSignedIn} />
-      <Hero isSignedIn={isSignedIn} />
+      <LandingNav isSignedIn={isSignedIn} />
+      <Hero isSignedIn={isSignedIn} trustedBy={trustedBy} />
       <Problem />
       <HowItWorks />
       <VoiceEngine />
       <Pillars />
+      <Compare />
       <Outputs />
       <SocialProof />
       <Pricing isSignedIn={isSignedIn} />
       <FAQ />
       <FinalCTA isSignedIn={isSignedIn} />
-      <Footer />
+      <LandingFooter />
     </div>
-  );
-}
-
-/* ============================================================
-   Nav
-   ============================================================ */
-
-function BrandMark({ darkBg = false }: { darkBg?: boolean }) {
-  return (
-    <div className="flex items-center gap-[9px]">
-      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-        <rect x="0.5" y="0.5" width="21" height="21" rx="6" fill={darkBg ? "#3A5BA0" : "#1A2A4A"} />
-        <rect x="7" y="9" width="2" height="4" rx="1" fill="#fff" />
-        <rect x="10" y="6" width="2" height="10" rx="1" fill="#fff" />
-        <rect x="13" y="8" width="2" height="6" rx="1" fill="#fff" />
-      </svg>
-      <span
-        className="text-[17.5px] font-bold"
-        style={{
-          fontFamily: "var(--font-display)",
-          color: darkBg ? "#FFFFFF" : "#1A2A4A",
-          letterSpacing: "-0.03em",
-        }}
-      >
-        Repodcast
-      </span>
-    </div>
-  );
-}
-
-function Nav({ isSignedIn }: { isSignedIn: boolean }) {
-  return (
-    <header
-      className="sticky top-0 z-50"
-      style={{
-        background: "rgba(255,255,255,0.85)",
-        backdropFilter: "saturate(180%) blur(16px)",
-        WebkitBackdropFilter: "saturate(180%) blur(16px)",
-        borderBottom: "1px solid #ECEEF3",
-      }}
-    >
-      <nav
-        className="mx-auto flex items-center justify-between gap-6 px-7 py-[15px]"
-        style={{ maxWidth: 1180 }}
-      >
-        <div className="flex items-center gap-[38px]">
-          <BrandMark />
-          <div
-            className="hidden items-center gap-[26px] text-[14px] font-normal md:flex"
-            style={{ color: "#5A6473" }}
-          >
-            <a
-              href="#how"
-              className="no-underline transition-colors hover:text-[#1A2A4A]"
-              style={{ color: "inherit" }}
-            >
-              How it works
-            </a>
-            <a
-              href="#voice"
-              className="no-underline transition-colors hover:text-[#1A2A4A]"
-              style={{ color: "inherit" }}
-            >
-              Voice Engine
-            </a>
-            <a
-              href="#pricing"
-              className="no-underline transition-colors hover:text-[#1A2A4A]"
-              style={{ color: "inherit" }}
-            >
-              Pricing
-            </a>
-            <a
-              href="#faq"
-              className="no-underline transition-colors hover:text-[#1A2A4A]"
-              style={{ color: "inherit" }}
-            >
-              FAQ
-            </a>
-          </div>
-        </div>
-        <div className="flex items-center gap-[18px]">
-          {isSignedIn ? (
-            <Link
-              href="/dashboard"
-              className="rounded-lg text-[14px] font-medium no-underline transition-colors"
-              style={{
-                background: "#1A2A4A",
-                color: "#FFFFFF",
-                padding: "9px 17px",
-              }}
-            >
-              Open dashboard
-            </Link>
-          ) : (
-            <>
-              <Link
-                href="/sign-in"
-                className="text-[14px] font-medium no-underline"
-                style={{ color: "#1A2A4A" }}
-              >
-                Sign in
-              </Link>
-              <Link
-                href="/sign-up"
-                className="rounded-lg text-[14px] font-medium no-underline transition-colors"
-                style={{
-                  background: "#1A2A4A",
-                  color: "#FFFFFF",
-                  padding: "9px 17px",
-                }}
-              >
-                Start free
-              </Link>
-            </>
-          )}
-        </div>
-      </nav>
-    </header>
   );
 }
 
@@ -157,7 +54,13 @@ function Nav({ isSignedIn }: { isSignedIn: boolean }) {
    Hero
    ============================================================ */
 
-function Hero({ isSignedIn }: { isSignedIn: boolean }) {
+function Hero({
+  isSignedIn,
+  trustedBy,
+}: {
+  isSignedIn: boolean;
+  trustedBy: LandingTrustedBy & { heading: string };
+}) {
   return (
     <section
       className="relative overflow-hidden"
@@ -238,7 +141,7 @@ function Hero({ isSignedIn }: { isSignedIn: boolean }) {
           </p>
           <div className="mb-[22px] flex items-center gap-3">
             <Link
-              href={isSignedIn ? "/dashboard" : "/sign-up"}
+              href={isSignedIn ? "/after-sign-in" : "/pricing"}
               className="rounded-[9px] text-[15px] font-medium no-underline transition-colors"
               style={{
                 background: "#1A2A4A",
@@ -246,7 +149,7 @@ function Hero({ isSignedIn }: { isSignedIn: boolean }) {
                 padding: "13px 24px",
               }}
             >
-              {isSignedIn ? "Open dashboard" : "Start free"}
+              {isSignedIn ? "Continue" : "Get started"}
             </Link>
             <Link
               href="#voice"
@@ -263,7 +166,7 @@ function Hero({ isSignedIn }: { isSignedIn: boolean }) {
           </div>
           {!isSignedIn && (
             <p className="m-0 text-[13px]" style={{ color: "#9AA3B2", letterSpacing: 0 }}>
-              No credit card · 14-day trial · Cancel anytime
+              Monthly or annual · Cancel any time · 5 currencies
             </p>
           )}
         </div>
@@ -271,40 +174,55 @@ function Hero({ isSignedIn }: { isSignedIn: boolean }) {
         <HeroProductPanel />
       </div>
 
-      {/* Logo strip */}
-      <div style={{ borderTop: "1px solid #ECEEF3" }}>
-        <div
-          className="mx-auto flex flex-wrap items-center gap-10 px-7 py-[22px]"
-          style={{ maxWidth: 1180 }}
-        >
-          <span
-            className="text-[11px] font-medium uppercase"
-            style={{
-              fontFamily: "var(--font-mono)",
-              color: "#A6AEBC",
-              letterSpacing: "0.1em",
-            }}
+      {/* Logo strip — admin sets `studios: []` in the LANDING_TRUSTED_BY
+          SystemConfig row to hide it entirely. */}
+      {trustedBy.studios.length > 0 && (
+        <div style={{ borderTop: "1px solid #ECEEF3" }}>
+          <div
+            className="mx-auto flex flex-wrap items-center gap-10 px-7 py-[22px]"
+            style={{ maxWidth: 1180 }}
           >
-            Trusted by growing studios
-          </span>
-          <div className="flex flex-wrap items-center gap-[34px]" style={{ opacity: 0.65 }}>
-            {["Northwind Audio", "Tightrope", "Frequency Lab", "Open Mic Co.", "Halftone"].map(
-              (n) => (
-                <span
-                  key={n}
-                  className="text-[15px] font-semibold"
-                  style={{
-                    fontFamily: "var(--font-display)",
-                    color: "#7E8799",
-                  }}
-                >
-                  {n}
-                </span>
-              ),
-            )}
+            <span
+              className="text-[11px] font-medium uppercase"
+              style={{
+                fontFamily: "var(--font-mono)",
+                color: "#A6AEBC",
+                letterSpacing: "0.1em",
+              }}
+            >
+              {trustedBy.heading}
+            </span>
+            <div className="flex flex-wrap items-center gap-[34px]" style={{ opacity: 0.65 }}>
+              {trustedBy.studios.map((s) => {
+                const label = (
+                  <span
+                    className="text-[15px] font-semibold"
+                    style={{
+                      fontFamily: "var(--font-display)",
+                      color: "#7E8799",
+                    }}
+                  >
+                    {s.name}
+                  </span>
+                );
+                return s.href ? (
+                  <Link
+                    key={s.name}
+                    href={s.href}
+                    className="no-underline"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {label}
+                  </Link>
+                ) : (
+                  <span key={s.name}>{label}</span>
+                );
+              })}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </section>
   );
 }
@@ -1052,156 +970,92 @@ function SocialProof() {
    ============================================================ */
 
 function Pricing({ isSignedIn }: { isSignedIn: boolean }) {
-  const ctaLabel = isSignedIn ? "Open dashboard" : "Start free";
-  const ctaHref = isSignedIn ? "/dashboard" : "/sign-up";
-  const plans = [
-    {
-      name: "Studio",
-      tagline: "For solo operators getting started.",
-      price: "$99",
-      cta: ctaLabel,
-      ctaStyle: "ghost" as const,
-      features: ["3 client shows", "2 seats", "All 7 output formats", "Per-client voice engine"],
-      tone: "light" as const,
-    },
-    {
-      name: "Agency",
-      tagline: "For studios running a roster of clients.",
-      price: "$249",
-      cta: ctaLabel,
-      ctaStyle: "white" as const,
-      features: [
-        "10 client shows",
-        "5 seats",
-        "White-label output",
-        "Approval workflow",
-        "Everything in Studio",
-      ],
-      tone: "dark" as const,
-      badge: "Most popular",
-    },
-    {
-      name: "Network",
-      tagline: "For multi-studio networks at scale.",
-      price: "$499",
-      cta: ctaLabel,
-      ctaStyle: "ghost" as const,
-      features: [
-        "25 client shows",
-        "Unlimited seats",
-        "Batch processing",
-        "Priority generation",
-        "Everything in Agency",
-      ],
-      tone: "light" as const,
-    },
-  ];
-
   return (
     <section
       id="pricing"
-      className="px-7 py-[72px]"
+      className="relative overflow-hidden px-7 py-[76px]"
       style={{ background: "#FBFCFE", borderBottom: "1px solid #ECEEF3" }}
     >
-      <div className="mx-auto" style={{ maxWidth: 1180 }}>
+      <div
+        className="pointer-events-none absolute inset-0"
+        aria-hidden
+        style={{
+          backgroundImage: "radial-gradient(#3A5BA0 0.6px, transparent 0.6px)",
+          backgroundSize: "26px 26px",
+          opacity: 0.045,
+        }}
+      />
+      <div className="relative mx-auto" style={{ maxWidth: 1180 }}>
         <div className="mb-10 text-center">
           <Kicker>Pricing</Kicker>
           <H2>Priced per studio, not per post.</H2>
-          <p className="m-0 mt-3 text-[16px]" style={{ color: "#5A6473" }}>
-            One episode of saved contractor time usually covers the month.
+          <p
+            className="m-0 mt-3 text-[16px]"
+            style={{ color: "#5A6473", maxWidth: 620, marginLeft: "auto", marginRight: "auto" }}
+          >
+            One episode of saved contractor time usually covers the month. Toggle to annual for two
+            months free.
           </p>
         </div>
-        <div
-          className="grid items-stretch gap-[18px]"
-          style={{ gridTemplateColumns: "repeat(3,1fr)" }}
-        >
-          {plans.map((p) => {
-            const dark = p.tone === "dark";
-            const textColor = dark ? "#FFFFFF" : "#1A2A4A";
-            const subColor = dark ? "#A9B6D4" : "#9AA3B2";
-            const featColor = dark ? "#E8EDF6" : "#2A3445";
-            const arrowColor = dark ? "#7FE3B0" : "#3A5BA0";
-            return (
-              <div
-                key={p.name}
-                className="relative"
-                style={{
-                  background: dark ? "#1A2A4A" : "#FFFFFF",
-                  border: dark ? "none" : "1px solid #E4E8F0",
-                  borderRadius: 16,
-                  padding: 32,
-                  boxShadow: dark ? "0 30px 60px -30px rgba(26,42,74,0.5)" : "none",
-                }}
-              >
-                {p.badge && (
-                  <span
-                    className="absolute top-6 right-6 rounded-md text-[10.5px] font-medium uppercase"
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      letterSpacing: "0.06em",
-                      color: "#1A2A4A",
-                      background: "#7FE3B0",
-                      padding: "5px 10px",
-                    }}
-                  >
-                    {p.badge}
-                  </span>
-                )}
-                <div
-                  className="text-[17px] font-semibold"
-                  style={{ fontFamily: "var(--font-display)", color: textColor }}
-                >
-                  {p.name}
-                </div>
-                <p
-                  className="m-0 mt-[6px] text-[13.5px]"
-                  style={{ color: subColor, marginBottom: 22 }}
-                >
-                  {p.tagline}
-                </p>
-                <div className="mb-[22px] flex items-baseline gap-1">
-                  <span
-                    className="font-bold"
-                    style={{
-                      fontFamily: "var(--font-display)",
-                      fontSize: 42,
-                      color: textColor,
-                      letterSpacing: "-0.03em",
-                    }}
-                  >
-                    {p.price}
-                  </span>
-                  <span className="text-[14px]" style={{ color: subColor }}>
-                    /mo
-                  </span>
-                </div>
-                <Link
-                  href={ctaHref}
-                  className="mb-[26px] block rounded-[9px] text-center text-[14px] font-medium no-underline"
-                  style={{
-                    background: p.ctaStyle === "white" ? "#FFFFFF" : dark ? "#1A2A4A" : "#FFFFFF",
-                    color: p.ctaStyle === "white" ? "#1A2A4A" : "#1A2A4A",
-                    border: p.ctaStyle === "ghost" ? "1px solid #DDE2EC" : "none",
-                    padding: 12,
-                  }}
-                >
-                  {p.cta}
-                </Link>
-                <div className="flex flex-col gap-[13px]">
-                  {p.features.map((f) => (
-                    <div
-                      key={f}
-                      className="flex gap-[11px] text-[14px]"
-                      style={{ color: featColor }}
-                    >
-                      <span style={{ color: arrowColor }}>→</span> {f}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
+
+        <PricingPicker />
+
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-4 text-[12.5px]">
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              color: "#8B95A6",
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+            }}
+          >
+            All plans include
+          </span>
+          {[
+            "7 output formats",
+            "Per-client voice",
+            "Approval workflow",
+            "Role-based permissions",
+          ].map((t) => (
+            <span
+              key={t}
+              className="rounded-md"
+              style={{
+                padding: "5px 11px",
+                background: "#FFFFFF",
+                border: "1px solid #E4E8F0",
+                color: "#1A2A4A",
+                fontWeight: 500,
+              }}
+            >
+              {t}
+            </span>
+          ))}
         </div>
+
+        <div className="mt-7 flex justify-center">
+          <Link
+            href="/pricing#compare"
+            className="inline-flex items-center gap-[7px] rounded-[9px] text-[14px] font-medium no-underline transition-colors"
+            style={{
+              background: "#FFFFFF",
+              color: "#1A2A4A",
+              padding: "11px 20px",
+              border: "1px solid #DDE2EC",
+            }}
+          >
+            View full plan comparison
+            <span aria-hidden style={{ color: "#3A5BA0" }}>
+              →
+            </span>
+          </Link>
+        </div>
+
+        {!isSignedIn && (
+          <p className="m-0 mt-4 text-center text-[12.5px]" style={{ color: "#9AA3B2" }}>
+            Prices exclude local tax. Enterprise volume? Contact us.
+          </p>
+        )}
       </div>
     </section>
   );
@@ -1290,27 +1144,27 @@ function FinalCTA({ isSignedIn }: { isSignedIn: boolean }) {
               lineHeight: 1.6,
             }}
           >
-            Start free, connect your first show, and watch one transcript become a week of content —
-            in your client&apos;s voice.
+            Pick a plan, connect your first show, and watch one transcript become a week of content
+            — in your client&apos;s voice.
           </p>
         </div>
         <div className="flex items-center gap-3">
           {isSignedIn ? (
             <Link
-              href="/dashboard"
+              href="/after-sign-in"
               className="rounded-[9px] text-[15px] font-medium whitespace-nowrap no-underline"
               style={{ background: "#FFFFFF", color: "#1A2A4A", padding: "14px 26px" }}
             >
-              Open dashboard
+              Continue
             </Link>
           ) : (
             <>
               <Link
-                href="/sign-up"
+                href="/pricing"
                 className="rounded-[9px] text-[15px] font-medium whitespace-nowrap no-underline"
                 style={{ background: "#FFFFFF", color: "#1A2A4A", padding: "14px 26px" }}
               >
-                Start free
+                Get started
               </Link>
               <Link
                 href="/sign-in"
@@ -1333,102 +1187,169 @@ function FinalCTA({ isSignedIn }: { isSignedIn: boolean }) {
 }
 
 /* ============================================================
-   Footer
+   Compare
    ============================================================ */
 
-function Footer() {
-  const columns = [
+function Compare() {
+  const rows: Array<{
+    label: string;
+    diy: string;
+    freelancers: string;
+    generic: string;
+    us: string;
+    highlight?: boolean;
+  }> = [
     {
-      title: "Product",
-      links: [
-        { label: "Voice Engine", href: "#voice" },
-        { label: "How it works", href: "#how" },
-        { label: "Pricing", href: "#pricing" },
-        { label: "Integrations", href: "#" },
-      ],
+      label: "Turnaround per episode",
+      diy: "6–9 hours",
+      freelancers: "2–4 days",
+      generic: "20 min",
+      us: "< 60 seconds",
+      highlight: true,
     },
     {
-      title: "Company",
-      links: [
-        { label: "About", href: "#" },
-        { label: "Blog", href: "#" },
-        { label: "Careers", href: "#" },
-        { label: "Contact", href: "#" },
-      ],
+      label: "Voice fidelity",
+      diy: "You",
+      freelancers: "Drifts each hire",
+      generic: "Generic AI",
+      us: "Per-client model",
     },
     {
-      title: "Legal",
-      links: [
-        { label: "Privacy", href: "#" },
-        { label: "Terms", href: "#" },
-        { label: "Security", href: "#" },
-      ],
+      label: "Cost per episode",
+      diy: "Your time",
+      freelancers: "$40–70",
+      generic: "Per-word tokens",
+      us: "Flat plan",
+    },
+    {
+      label: "Formats produced",
+      diy: "Whatever fits",
+      freelancers: "2–3 platforms",
+      generic: "1 at a time",
+      us: "7 in one pass",
+      highlight: true,
+    },
+    {
+      label: "Improves with use",
+      diy: "No",
+      freelancers: "No",
+      generic: "No",
+      us: "Yes — every approval",
+    },
+    {
+      label: "White-label for clients",
+      diy: "Manual",
+      freelancers: "Manual",
+      generic: "No",
+      us: "Built in",
     },
   ];
 
+  const headers: Array<{
+    label: string;
+    key: "diy" | "freelancers" | "generic" | "us";
+    accent?: boolean;
+  }> = [
+    { label: "Doing it yourself", key: "diy" },
+    { label: "Contract freelancers", key: "freelancers" },
+    { label: "Generic AI tool", key: "generic" },
+    { label: "Repodcast", key: "us", accent: true },
+  ];
+
   return (
-    <footer className="px-7" style={{ background: "#13203B", padding: "56px 28px 38px" }}>
+    <section
+      className="px-7 py-[76px]"
+      style={{ background: "#FBFCFE", borderBottom: "1px solid #ECEEF3" }}
+    >
       <div className="mx-auto" style={{ maxWidth: 1180 }}>
-        <div
-          className="grid gap-10 pb-[42px]"
-          style={{
-            gridTemplateColumns: "1.6fr 1fr 1fr 1fr",
-            borderBottom: "1px solid #2A3C60",
-          }}
-        >
-          <div>
-            <div className="mb-[14px]">
-              <BrandMark darkBg />
-            </div>
-            <p
-              className="m-0 text-[13.5px]"
-              style={{ color: "#8794B5", lineHeight: 1.6, maxWidth: 280 }}
-            >
-              Platform-ready content from every client episode — in their voice, sharper every time.
+        <div className="mb-10 flex flex-wrap items-end justify-between gap-6">
+          <div style={{ maxWidth: 580 }}>
+            <Kicker>Compared</Kicker>
+            <H2>Why not just do it the way you already do?</H2>
+            <p className="m-0 mt-3" style={{ fontSize: 16, lineHeight: 1.62, color: "#5A6473" }}>
+              Every alternative has the same trade-off: it scales your workload, not your margins.
+              Here&apos;s the honest side-by-side.
             </p>
           </div>
-          {columns.map((col) => (
-            <div key={col.title}>
+        </div>
+        <div
+          className="overflow-hidden"
+          style={{
+            border: "1px solid #E4E8F0",
+            borderRadius: 16,
+            background: "#FFFFFF",
+          }}
+        >
+          <div
+            className="grid text-[12.5px] font-medium uppercase"
+            style={{
+              gridTemplateColumns: "1.4fr repeat(4,1fr)",
+              background: "#F5F7FB",
+              borderBottom: "1px solid #E8EBF1",
+              color: "#5A6473",
+              fontFamily: "var(--font-mono)",
+              letterSpacing: "0.06em",
+            }}
+          >
+            <div style={{ padding: "18px 22px" }}>&nbsp;</div>
+            {headers.map((h) => (
               <div
-                className="mb-4 text-[11px] font-medium uppercase"
+                key={h.key}
                 style={{
-                  fontFamily: "var(--font-mono)",
-                  color: "#6B7BA3",
-                  letterSpacing: "0.06em",
+                  padding: "18px 20px",
+                  color: h.accent ? "#1A2A4A" : undefined,
+                  background: h.accent ? "#FFFFFF" : undefined,
+                  fontWeight: h.accent ? 700 : undefined,
+                  borderLeft: "1px solid #E8EBF1",
+                  fontSize: h.accent ? 13.5 : undefined,
                 }}
               >
-                {col.title}
+                {h.label}
               </div>
-              <div className="flex flex-col gap-[11px] text-[13.5px]">
-                {col.links.map((l) => (
-                  <a
-                    key={l.label}
-                    href={l.href}
-                    className="no-underline transition-colors hover:text-white"
-                    style={{ color: "#A9B6D4" }}
+            ))}
+          </div>
+          {rows.map((row, i) => (
+            <div
+              key={row.label}
+              className="grid"
+              style={{
+                gridTemplateColumns: "1.4fr repeat(4,1fr)",
+                borderBottom: i < rows.length - 1 ? "1px solid #EEF0F5" : "none",
+              }}
+            >
+              <div
+                style={{
+                  padding: "18px 22px",
+                  color: "#1A2A4A",
+                  fontWeight: 500,
+                  fontSize: "14px",
+                  background: row.highlight ? "#F9FBFD" : undefined,
+                }}
+              >
+                {row.label}
+              </div>
+              {headers.map((h) => {
+                const isUs = h.accent;
+                return (
+                  <div
+                    key={h.key}
+                    style={{
+                      padding: "18px 20px",
+                      borderLeft: "1px solid #EEF0F5",
+                      color: isUs ? "#1A2A4A" : "#5A6473",
+                      fontSize: 13.5,
+                      fontWeight: isUs ? 600 : 400,
+                      background: isUs ? "#F1F6FF" : row.highlight ? "#F9FBFD" : undefined,
+                    }}
                   >
-                    {l.label}
-                  </a>
-                ))}
-              </div>
+                    {row[h.key]}
+                  </div>
+                );
+              })}
             </div>
           ))}
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-6">
-          <span
-            className="text-[12px]"
-            style={{ fontFamily: "var(--font-mono)", color: "#6B7BA3" }}
-          >
-            © 2026 Repodcast, Inc.
-          </span>
-          <span
-            className="text-[12px]"
-            style={{ fontFamily: "var(--font-mono)", color: "#6B7BA3" }}
-          >
-            Made for the studios doing the work.
-          </span>
-        </div>
       </div>
-    </footer>
+    </section>
   );
 }

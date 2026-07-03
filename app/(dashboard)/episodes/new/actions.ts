@@ -39,6 +39,12 @@ const createInput = z
     rssFeedUrl: z.string().url().optional(),
     /** Title pre-filled from the publisher feed — surfaced as default. */
     rssTitle: z.string().min(1).max(240).optional(),
+    /**
+     * Phase 3.2 — YouTube path. The wizard collects a full URL; the
+     * importer parses it inside the Inngest fn so a mis-typed URL fails
+     * with a clear error the episode page can render.
+     */
+    youtubeUrl: z.string().url().optional(),
     platforms: z.array(z.string()).min(1, "Pick at least one platform"),
   })
   .superRefine((data, ctx) => {
@@ -73,6 +79,13 @@ const createInput = z
         message: "Pick an episode from the connected feed before generating.",
       });
     }
+    if (data.source === TranscriptSource.YOUTUBE && !data.youtubeUrl) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["youtubeUrl"],
+        message: "Paste a YouTube URL before generating.",
+      });
+    }
   });
 
 export type CreateEpisodeInput = z.infer<typeof createInput>;
@@ -87,15 +100,16 @@ export type CreateEpisodeResult = { ok: true; episodeId: string } | { ok: false;
  * without env vars.
  *
  * Live mode, by source:
- *   - PASTE:  Episode created with the supplied transcript → fires
- *             `episode/generate.requested` immediately.
- *   - UPLOAD: Episode created with empty transcript + R2 object key →
- *             fires `episode/transcribe.requested`; the transcribe
- *             pipeline writes the transcript and then fires
- *             `episode/generate.requested` itself.
- *
- * Other sources (RSS, YOUTUBE) are still wizard-stubbed; their action
- * paths land in Phase 2.8 / 3.2.
+ *   - PASTE:   Episode created with the supplied transcript → fires
+ *              `episode/generate.requested` immediately.
+ *   - UPLOAD:  Episode created with empty transcript + R2 object key →
+ *              fires `episode/transcribe.requested`; the transcribe
+ *              pipeline writes the transcript and then fires
+ *              `episode/generate.requested` itself.
+ *   - RSS:     Episode created with empty transcript + rssGuid pinned →
+ *              fires `episode/rss.import.requested`.
+ *   - YOUTUBE: Episode created with empty transcript + youtubeUrl on
+ *              `externalUrl` → fires `episode/youtube.import.requested`.
  */
 export async function createEpisodeAction(raw: unknown): Promise<CreateEpisodeResult> {
   const parsed = createInput.safeParse(raw);
@@ -114,6 +128,16 @@ export async function createEpisodeAction(raw: unknown): Promise<CreateEpisodeRe
   const auth = await requireAuthContext();
   const tenant = toTenantContext(auth);
 
+  // Phase 3.5 — carry plan + agencyId through the Inngest event so the
+  // priority.run + per-agency concurrency keys on the downstream fns
+  // pick them up at enqueue time. We read plan straight off auth (already
+  // loaded) rather than round-tripping through `getAgencyPlan` — that
+  // helper resolves `planOverride`, which matters for hard capacity
+  // enforcement but not for priority-queue tagging (QoS bump). Slight
+  // staleness while ROOT is comping a plan is acceptable here.
+  const plan = auth.agency.plan;
+  const agencyId = tenant.agencyId;
+
   // Pick a sensible title: explicit > publisher-provided > placeholder.
   const resolvedTitle = input.title ?? input.rssTitle ?? "Untitled episode";
 
@@ -126,16 +150,22 @@ export async function createEpisodeAction(raw: unknown): Promise<CreateEpisodeRe
     transcript: input.transcript,
     source: input.source,
     audioUrl: input.audioObjectKey ?? null,
-    // For RSS, stash the publisher GUID on `externalUrl` — it gives the
-    // import pipeline a stable lookup key and lets us de-dupe re-imports
-    // of the same episode in a future cleanup pass.
-    externalUrl: input.source === TranscriptSource.RSS ? (input.rssGuid ?? null) : null,
+    // externalUrl: source-specific stable pointer.
+    //   RSS     → publisher GUID (deterministic lookup key on retries).
+    //   YOUTUBE → the pasted video URL (so the episode page can link
+    //             back to the source video before the importer runs).
+    externalUrl:
+      input.source === TranscriptSource.RSS
+        ? (input.rssGuid ?? null)
+        : input.source === TranscriptSource.YOUTUBE
+          ? (input.youtubeUrl ?? null)
+          : null,
   });
 
   if (input.source === TranscriptSource.UPLOAD) {
     await inngest.send({
       name: "episode/transcribe.requested",
-      data: { episodeId: episode.id, platforms },
+      data: { episodeId: episode.id, platforms, plan, agencyId },
     });
   } else if (input.source === TranscriptSource.RSS) {
     await inngest.send({
@@ -146,12 +176,25 @@ export async function createEpisodeAction(raw: unknown): Promise<CreateEpisodeRe
         guid: input.rssGuid!,
         feedUrl: input.rssFeedUrl!,
         platforms,
+        plan,
+        agencyId,
+      },
+    });
+  } else if (input.source === TranscriptSource.YOUTUBE) {
+    await inngest.send({
+      name: "episode/youtube.import.requested",
+      data: {
+        episodeId: episode.id,
+        videoUrl: input.youtubeUrl!,
+        platforms,
+        plan,
+        agencyId,
       },
     });
   } else {
     await inngest.send({
       name: "episode/generate.requested",
-      data: { episodeId: episode.id, platforms },
+      data: { episodeId: episode.id, platforms, plan, agencyId },
     });
   }
 

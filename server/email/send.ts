@@ -19,7 +19,20 @@ import {
   OnboardingFirstClientEmail,
   type OnboardingFirstClientEmailProps,
 } from "./templates/onboarding-first-client";
+import { PasswordResetEmail, type PasswordResetEmailProps } from "./templates/password-reset";
+import { TrialDay2Email, type TrialDay2EmailProps } from "./templates/trial-day-2";
+import { TrialConvertedEmail, type TrialConvertedEmailProps } from "./templates/trial-converted";
+import {
+  TrialEndingSoonEmail,
+  type TrialEndingSoonEmailProps,
+} from "./templates/trial-ending-soon";
+import { TrialExpiredEmail, type TrialExpiredEmailProps } from "./templates/trial-expired";
+import { TrialWelcomeEmail, type TrialWelcomeEmailProps } from "./templates/trial-welcome";
 import { WelcomeEmail, type WelcomeEmailProps } from "./templates/welcome";
+
+const APP_BASE_URL =
+  process.env.NEXT_PUBLIC_APP_URL ??
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
 type SendResult = { ok: true; id: string } | { ok: false; reason: string };
 
@@ -66,6 +79,23 @@ export async function sendWelcomeEmail(to: string, props: WelcomeEmailProps): Pr
   return send({
     to,
     subject: `Welcome to Repodcast, ${props.firstName}`,
+    html,
+  });
+}
+
+/**
+ * Phase 3.6.9 — support-initiated one-click sign-in link. Fired only
+ * from `/root/users` by ROOT/OPERATOR; every send lands a
+ * `SUPPORT_RESET_PASSWORD` audit row.
+ */
+export async function sendPasswordResetEmail(
+  to: string,
+  props: PasswordResetEmailProps,
+): Promise<SendResult> {
+  const html = await render(PasswordResetEmail(props));
+  return send({
+    to,
+    subject: `Sign back in to Repodcast, ${props.firstName}`,
     html,
   });
 }
@@ -142,6 +172,101 @@ export async function sendOnboardingFirstClientEmail(
   return send({
     to,
     subject: `Add your first client to ${props.agencyName}`,
+    html,
+  });
+}
+
+// ============================================================
+// Trial lifecycle — T-3 nudge (Phase 3.9)
+// ============================================================
+
+/**
+ * Sent from the Stripe `customer.subscription.trial_will_end` handler.
+ * Recipients are all OWNER/ADMIN members of the agency — anyone with
+ * card-management authority. Stripe fires this ~72h before the trial
+ * ends; we defer to Stripe's timer rather than owning a cron.
+ */
+export async function sendTrialEndingSoonEmail(
+  to: string | string[],
+  props: Omit<TrialEndingSoonEmailProps, "billingUrl">,
+): Promise<SendResult> {
+  const billingUrl = `${APP_BASE_URL}/settings/billing`;
+  const html = await render(TrialEndingSoonEmail({ ...props, billingUrl }));
+  return send({
+    to,
+    subject: `${props.agencyName}: your trial ends ${props.trialEndsAt.toDateString()}`,
+    html,
+  });
+}
+
+/**
+ * Day 0 — sent immediately from the webhook on `subscription.created` with
+ * status `trialing`. Sets expectations for the day-15 charge and links to a
+ * quick-start checklist.
+ */
+export async function sendTrialWelcomeEmail(
+  to: string,
+  props: Omit<TrialWelcomeEmailProps, "dashboardUrl">,
+): Promise<SendResult> {
+  const dashboardUrl = `${APP_BASE_URL}/dashboard`;
+  const html = await render(TrialWelcomeEmail({ ...props, dashboardUrl }));
+  return send({
+    to,
+    subject: `${props.agencyName}: your ${props.plan} trial is live`,
+    html,
+  });
+}
+
+/**
+ * Day 15 conversion success — sent from the webhook on the `trialing →
+ * active` transition. Also serves as an ambient "your first invoice is
+ * ready" nudge.
+ */
+export async function sendTrialConvertedEmail(
+  to: string | string[],
+  props: Omit<TrialConvertedEmailProps, "billingUrl">,
+): Promise<SendResult> {
+  const billingUrl = `${APP_BASE_URL}/settings/billing`;
+  const html = await render(TrialConvertedEmail({ ...props, billingUrl }));
+  return send({
+    to,
+    subject: `${props.agencyName}: your trial converted to ${props.plan}`,
+    html,
+  });
+}
+
+/**
+ * Trial ended without a successful charge — sent from the webhook on
+ * `subscription.deleted` when we mark the agency EXPIRED (see
+ * `handleSubscriptionDeleted`). Skipped for user-initiated cancellations.
+ */
+export async function sendTrialExpiredEmail(
+  to: string | string[],
+  props: Omit<TrialExpiredEmailProps, "billingUrl">,
+): Promise<SendResult> {
+  const billingUrl = `${APP_BASE_URL}/settings/billing`;
+  const html = await render(TrialExpiredEmail({ ...props, billingUrl }));
+  return send({
+    to,
+    subject: `${props.agencyName}: your trial ended`,
+    html,
+  });
+}
+
+/**
+ * Day-2 mid-trial portal-preview nudge. Fired by the `check-trial-nudges`
+ * cron. The dedupe row in `TrialNudgeSent` guarantees exactly-once delivery
+ * per (agency, "day_2") across cron retries and window slippage.
+ */
+export async function sendTrialDay2Email(
+  to: string,
+  props: Omit<TrialDay2EmailProps, "clientsUrl">,
+): Promise<SendResult> {
+  const clientsUrl = `${APP_BASE_URL}/clients`;
+  const html = await render(TrialDay2Email({ ...props, clientsUrl }));
+  return send({
+    to,
+    subject: `${props.agencyName}: here's what your client sees`,
     html,
   });
 }

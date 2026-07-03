@@ -1,4 +1,4 @@
-import { Plan } from "@prisma/client";
+import { BillingCadence, Plan } from "@/lib/enums";
 import { DEFAULT_CURRENCY, type SupportedCurrency } from "@/lib/currencies";
 
 /**
@@ -6,11 +6,12 @@ import { DEFAULT_CURRENCY, type SupportedCurrency } from "@/lib/currencies";
  * the `assertPlanCapacity` guard, and the Inngest cost-cap.
  *
  * Numbers chosen to align with the marketing tiers in PLAN.md:
- * STUDIO $99, AGENCY $249, NETWORK $499 (baseline USD). Non-USD numbers are
- * sensible launch placeholders — `scripts/configure-stripe-plans.ts` writes
- * them into each plan's Stripe Price `currency_options`, so the dashboard
- * is the source of truth once provisioned. Tune after launch as we learn
- * real-world generation costs.
+ * STUDIO $99, AGENCY $249, NETWORK $499 (baseline USD monthly). Non-USD
+ * numbers are sensible launch placeholders. Annual = monthly × 10 ("two
+ * months free"). `scripts/configure-stripe-plans.ts` writes the same
+ * numbers into each plan's Stripe Price `currency_options`, so the
+ * dashboard is the source of truth once provisioned. Tune after launch as
+ * we learn real-world generation costs.
  */
 export type PlanLimits = {
   /** Max client shows. */
@@ -51,24 +52,50 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
 
 export type PlanPrices = Record<SupportedCurrency, number>;
 
+export type PlanPricesByCadence = {
+  /** Whole currency units per month. */
+  monthly: PlanPrices;
+  /**
+   * Whole currency units per year. By construction `annual = monthly × 10`
+   * ("two months free"), so the discount math reads as "Save 2 months" on
+   * the pricing page. If you flip to a percentage discount instead, also
+   * flip the copy on `/pricing`.
+   */
+  annual: PlanPrices;
+};
+
 export type PlanDisplay = {
   name: string;
-  prices: PlanPrices;
+  prices: PlanPricesByCadence;
   tagline: string;
   highlights: string[];
 };
 
+function annualOf(monthly: PlanPrices): PlanPrices {
+  return {
+    USD: monthly.USD * 10,
+    EUR: monthly.EUR * 10,
+    GBP: monthly.GBP * 10,
+    CAD: monthly.CAD * 10,
+    AUD: monthly.AUD * 10,
+  };
+}
+
+const STUDIO_MONTHLY: PlanPrices = { USD: 99, EUR: 99, GBP: 79, CAD: 139, AUD: 149 };
+const AGENCY_MONTHLY: PlanPrices = { USD: 249, EUR: 249, GBP: 199, CAD: 349, AUD: 379 };
+const NETWORK_MONTHLY: PlanPrices = { USD: 499, EUR: 499, GBP: 399, CAD: 699, AUD: 749 };
+
 /**
- * Per-plan, per-currency monthly prices in whole currency units (not cents).
- * The Stripe Price for each plan carries these inside `currency_options`;
- * the script in `scripts/configure-stripe-plans.ts` syncs from here to
- * Stripe (idempotent). PLAN_DISPLAY reads from this map so the UI never
- * drifts from what's billed.
+ * Per-plan, per-currency, per-cadence prices in whole currency units. The
+ * Stripe Price for each (plan × cadence) carries these inside its
+ * `currency_options`; `scripts/configure-stripe-plans.ts` syncs from here
+ * to Stripe (idempotent). PLAN_DISPLAY reads from this map so the UI never
+ * drifts from what's actually billed.
  */
-export const PLAN_PRICES_BY_CURRENCY: Record<Plan, PlanPrices> = {
-  STUDIO: { USD: 99, EUR: 99, GBP: 79, CAD: 139, AUD: 149 },
-  AGENCY: { USD: 249, EUR: 249, GBP: 199, CAD: 349, AUD: 379 },
-  NETWORK: { USD: 499, EUR: 499, GBP: 399, CAD: 699, AUD: 749 },
+export const PLAN_PRICES_BY_CURRENCY: Record<Plan, PlanPricesByCadence> = {
+  STUDIO: { monthly: STUDIO_MONTHLY, annual: annualOf(STUDIO_MONTHLY) },
+  AGENCY: { monthly: AGENCY_MONTHLY, annual: annualOf(AGENCY_MONTHLY) },
+  NETWORK: { monthly: NETWORK_MONTHLY, annual: annualOf(NETWORK_MONTHLY) },
 };
 
 export const PLAN_DISPLAY: Record<Plan, PlanDisplay> = {
@@ -106,14 +133,53 @@ export function planDisplayFor(plan: Plan): PlanDisplay {
 }
 
 /**
- * Per-plan price in a given currency, falling back to USD if the currency
- * isn't priced (defensive — should never happen with `SupportedCurrency`,
- * but keeps callers safe if the prices map is ever loosened to a partial).
+ * Per-plan price in a given currency + cadence, falling back to USD if the
+ * currency isn't priced (defensive — should never happen with
+ * `SupportedCurrency`, but keeps callers safe if the prices map is ever
+ * loosened to a partial). Cadence defaults to `MONTHLY` so call-sites that
+ * predate annual pricing keep working unchanged.
  */
-export function priceFor(plan: Plan, currency: SupportedCurrency = DEFAULT_CURRENCY): number {
-  const prices = PLAN_PRICES_BY_CURRENCY[plan];
+export function priceFor(
+  plan: Plan,
+  currency: SupportedCurrency = DEFAULT_CURRENCY,
+  cadence: BillingCadence = "MONTHLY",
+): number {
+  const prices =
+    cadence === "ANNUAL"
+      ? PLAN_PRICES_BY_CURRENCY[plan].annual
+      : PLAN_PRICES_BY_CURRENCY[plan].monthly;
   return prices[currency] ?? prices[DEFAULT_CURRENCY];
+}
+
+/**
+ * Effective monthly price for the (plan, cadence) pair — annual amortized
+ * by 12. Used by the pricing page to show "$X/mo billed annually". Returns
+ * whole currency units (the same scale as `priceFor`); fractional cents
+ * stay inside since this is a display helper only.
+ */
+export function effectiveMonthlyPrice(
+  plan: Plan,
+  currency: SupportedCurrency = DEFAULT_CURRENCY,
+  cadence: BillingCadence = "MONTHLY",
+): number {
+  if (cadence === "ANNUAL") {
+    return priceFor(plan, currency, "ANNUAL") / 12;
+  }
+  return priceFor(plan, currency, "MONTHLY");
 }
 
 /** Ordered list — used by the upgrade UI. */
 export const PLAN_ORDER: Plan[] = [Plan.STUDIO, Plan.AGENCY, Plan.NETWORK];
+
+/**
+ * Free-trial length in days. Passed to Stripe as `trial_period_days` on the
+ * onboarding Checkout Session; also drives the T-3 reminder cron and the
+ * in-app "X days left" banner. See MarketingStrategy.md §1.
+ */
+export const TRIAL_DAYS = 7;
+
+/**
+ * Which plan tier a trial unlocks. AGENCY (not STUDIO) so trialists reach
+ * the client-portal + branding "aha" — the features that convert them.
+ */
+export const TRIAL_PLAN: Plan = Plan.AGENCY;

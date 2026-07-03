@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MemberRole } from "@prisma/client";
+import { MemberRole } from "@/lib/enums";
 import { PlatformBadge } from "@/components/ui/platform-badge";
 import { VoiceStrengthBars } from "@/components/ui/voice-strength-bars";
 import { ClipMomentsPanel } from "@/components/episodes/clip-moments-panel";
@@ -11,6 +11,7 @@ import { EditableTitle } from "@/components/episodes/editable-title";
 import { ImportFailedPanel } from "@/components/episodes/import-failed-panel";
 import { ImportingPanel } from "@/components/episodes/importing-panel";
 import { OutputCard, type OutputState } from "@/components/episodes/output-card";
+import { OutputDrawer } from "@/components/episodes/output-drawer";
 import { TranscribingPanel } from "@/components/episodes/transcribing-panel";
 import type { SampleShow } from "@/lib/sample-data/shows";
 import type { SampleEpisode } from "@/lib/sample-data/episode-outputs";
@@ -84,6 +85,66 @@ function mergeOutput(prev: LiveOutput, payload: StreamOutputPayload): LiveOutput
   };
 }
 
+/**
+ * Reconcile a fresh server `SampleOutput` prop into an existing local row.
+ * Runs from the prop-sync effect below whenever `episode.outputs` gets a
+ * new reference — i.e. after a `router.refresh()` following schedule /
+ * unschedule / approve / etc. Server-authoritative fields (status,
+ * scheduledForIso, publishedAtIso, externalScheduler, externalPostUrl,
+ * quality, version, versionCount, failureReason) overwrite local; editing
+ * drafts and other transient UI state are preserved so a stale refresh
+ * doesn't blow away in-progress work.
+ */
+function mergeOutputFromProp(
+  prev: LiveOutput,
+  incoming: SampleEpisode["outputs"][number],
+): LiveOutput {
+  const stillGenerating = incoming.status === "generating";
+  return {
+    ...prev,
+    id: incoming.id,
+    status: incoming.status,
+    quality: incoming.quality,
+    content: prev.editing ? prev.content : incoming.content,
+    version: incoming.version,
+    versionCount: incoming.versionCount,
+    failureReason: incoming.failureReason ?? null,
+    scheduledForIso: incoming.scheduledForIso ?? null,
+    publishedAtIso: incoming.publishedAtIso ?? null,
+    externalScheduler: incoming.externalScheduler ?? null,
+    externalPostUrl: incoming.externalPostUrl ?? null,
+    progress: stillGenerating ? prev.progress : 100,
+    _startAt: stillGenerating ? prev._startAt : undefined,
+    _target: stillGenerating ? prev._target : undefined,
+  };
+}
+
+function buildNewRowFromProp(incoming: SampleEpisode["outputs"][number]): LiveOutput {
+  return {
+    key: incoming.key,
+    id: incoming.id,
+    status: incoming.status,
+    quality: incoming.quality,
+    content: incoming.content,
+    meta: incoming.meta,
+    version: incoming.version,
+    versionCount: incoming.versionCount,
+    editing: false,
+    draft: "",
+    showRegen: false,
+    regenText: "",
+    lastInstruction: "",
+    progress: incoming.status === "generating" ? 0 : 100,
+    justCopied: false,
+    justApproved: false,
+    failureReason: incoming.failureReason ?? null,
+    scheduledForIso: incoming.scheduledForIso ?? null,
+    publishedAtIso: incoming.publishedAtIso ?? null,
+    externalScheduler: incoming.externalScheduler ?? null,
+    externalPostUrl: incoming.externalPostUrl ?? null,
+  };
+}
+
 function buildNewRowFromPayload(payload: StreamOutputPayload): LiveOutput {
   return {
     key: payload.key,
@@ -111,6 +172,9 @@ export function OutputsView({
   episode,
   viewerRole = MemberRole.OWNER,
   streamUrl = null,
+  readOnly = false,
+  bufferConnected = false,
+  bufferConnectedPlatforms = [],
 }: {
   client: SampleShow;
   episode: SampleEpisode;
@@ -121,6 +185,27 @@ export function OutputsView({
    * opened — the optimistic ticker is the only driver of progress.
    */
   streamUrl?: string | null;
+  /**
+   * When true, every mutation action is gated at the UI layer. Set by
+   * `page.tsx` from `tenant.impersonation.mode === "read"` — SystemAdmins
+   * browsing a tenant in read-only mode used to see optimistic success on
+   * approve/reject/edit/regen even though the server was rejecting the
+   * request with ForbiddenError. This flag prevents the optimistic flip
+   * and grays out the controls so the truth matches what the server does.
+   */
+  readOnly?: boolean;
+  /**
+   * Phase 3.3 — whether the agency has an active Buffer integration.
+   * Gates the "Force Buffer" radio in the schedule popover.
+   */
+  bufferConnected?: boolean;
+  /**
+   * Phase 3.3 — which platforms actually have a Buffer channel behind
+   * them. `bufferConnected` reflects the account-level OAuth; this list
+   * reflects per-channel presence so the Buffer radio can gray out on
+   * platforms Buffer hasn't been given a channel for.
+   */
+  bufferConnectedPlatforms?: import("@prisma/client").Platform[];
 }) {
   const router = useRouter();
   const [outputs, setOutputs] = useState<LiveOutput[]>(() =>
@@ -142,6 +227,13 @@ export function OutputsView({
       justCopied: false,
       justApproved: false,
       failureReason: o.failureReason ?? null,
+      // Phase 3.3 — scheduling fields flow straight from the DB read so
+      // the OutputCard can render lifecycle rows + state-driven CTAs
+      // without a second data fetch.
+      scheduledForIso: o.scheduledForIso ?? null,
+      publishedAtIso: o.publishedAtIso ?? null,
+      externalScheduler: o.externalScheduler ?? null,
+      externalPostUrl: o.externalPostUrl ?? null,
     })),
   );
 
@@ -154,8 +246,75 @@ export function OutputsView({
   // pattern replaces an earlier `useState` + `setGeneratingAll(false)` in
   // an effect, which Next 16's react-hooks/set-state-in-effect rule flags.
   const [generateAllRequested, setGenerateAllRequested] = useState(false);
+  const [railTab, setRailTab] = useState<"voice" | "quality">("voice");
+  /** Which output's drawer is open. `null` = closed. */
+  const [drawerKey, setDrawerKey] = useState<string | null>(null);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Prop-sync: when the parent RSC re-renders (e.g. after a `router.refresh()`
+  // following schedule / unschedule / mark-published), `episode.outputs`
+  // arrives as a new reference with the fresh server truth. `useState`'s
+  // initializer only ran on mount, so without this the local `outputs`
+  // state stays stale — the UI keeps showing the pre-schedule state and
+  // lets the user re-schedule a post that's already booked. We reconcile
+  // server-authoritative fields (status, scheduling metadata, quality,
+  // version, etc.) into local rows via `mergeOutputFromProp`, preserving
+  // transient UI state (drafts, drawer, optimistic tickers).
+  const lastSyncedOutputsRef = useRef(episode.outputs);
+  useEffect(() => {
+    if (lastSyncedOutputsRef.current === episode.outputs) return;
+    lastSyncedOutputsRef.current = episode.outputs;
+    setOutputs((prev) => {
+      const byKey = new Map(prev.map((o) => [o.key, o]));
+      return episode.outputs.map((incoming) => {
+        const local = byKey.get(incoming.key);
+        return local ? mergeOutputFromProp(local, incoming) : buildNewRowFromProp(incoming);
+      });
+    });
+  }, [episode.outputs]);
+
+  // Background refresh for SCHEDULED rows. Once a row is scheduled the SSE
+  // stream terminates (no ticker) — but the sync cron will later flip the
+  // status to PUBLISHED (or FAILED) via a Buffer poll. Nothing on the page
+  // observes that transition, so without this the UI stays on SCHEDULED
+  // and lets the user click Unschedule on a post Buffer has already sent,
+  // producing the "can't be unscheduled from status PUBLISHED" error from
+  // `unscheduleOutput`. We fix it by nudging `router.refresh()` on tab
+  // return (immediate) and every SCHEDULED_POLL_MS while the tab is
+  // visible. `router.refresh()` re-fetches the RSC tree; the prop-sync
+  // effect above then reconciles the new statuses into local state.
+  const hasScheduled = outputs.some((o) => o.status === "scheduled");
+  useEffect(() => {
+    if (!hasScheduled) return;
+    const SCHEDULED_POLL_MS = 30_000;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    const startInterval = () => {
+      if (intervalId !== null) return;
+      intervalId = setInterval(() => {
+        if (document.visibilityState === "visible") router.refresh();
+      }, SCHEDULED_POLL_MS);
+    };
+    const stopInterval = () => {
+      if (intervalId === null) return;
+      clearInterval(intervalId);
+      intervalId = null;
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        router.refresh();
+        startInterval();
+      } else {
+        stopInterval();
+      }
+    };
+    if (document.visibilityState === "visible") startInterval();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      stopInterval();
+    };
+  }, [hasScheduled, router]);
 
   const tickerActive = outputs.some((o) => o.status === "generating");
   // True whenever the user just kicked off a regen/generation that the
@@ -173,6 +332,11 @@ export function OutputsView({
   // placeholder rows landing) reaches the page without a hard refresh.
   const awaitingPipeline =
     episode.pipeline?.status === "draft" || episode.pipeline?.status === "processing";
+  // Broader "pipeline is still doing something" flag used to disable
+  // Generate all — a user clicking regen before transcript / import finishes
+  // would race against the initial generation pass.
+  const pipelineRunning = awaitingPipeline || episode.pipeline?.awaitingTranscript === true;
+  const generateAllDisabled = readOnly || generatingAll || pipelineRunning || outputs.length === 0;
 
   // ----------------------------------------------------------------
   // SSE — server-pushed status/content updates during generation.
@@ -338,21 +502,29 @@ export function OutputsView({
   };
 
   const onEdit = (key: string) => {
+    if (readOnly) return;
     const o = outputs.find((x) => x.key === key);
     if (!o) return;
     update(key, { editing: true, draft: o.content, showRegen: false });
   };
 
   const onSaveEdit = (key: string) => {
+    if (readOnly) return;
     const o = outputs.find((x) => x.key === key);
     if (!o) return;
+    const prevContent = o.content;
     setOutputs((prev) =>
       prev.map((p) => (p.key === key ? { ...p, editing: false, content: p.draft } : p)),
     );
     // Fire-and-forget server save. Action is a no-op in sample-data mode.
+    // On server rejection (e.g. read-only impersonation slipping past the UI
+    // gate) we roll back to the pre-edit content so the UI matches truth.
     void updateOutputContentAction({ outputId: o.id, content: o.draft })
       .then((result) => {
-        if (!result.ok) return;
+        if (!result.ok) {
+          update(key, { content: prevContent });
+          return;
+        }
         // Only fire the analytics event when the save actually changed
         // bytes — `delta === 0` means the user "saved" the same content.
         if (result.data.delta > 0) {
@@ -364,12 +536,16 @@ export function OutputsView({
           });
         }
       })
-      .catch((err) => console.error("updateOutputContentAction failed", err));
+      .catch((err) => {
+        console.error("updateOutputContentAction failed", err);
+        update(key, { content: prevContent });
+      });
   };
 
   const onCancelEdit = (key: string) => update(key, { editing: false });
   const onDraftChange = (key: string, next: string) => update(key, { draft: next });
   const onToggleRegen = (key: string) => {
+    if (readOnly) return;
     const o = outputs.find((x) => x.key === key);
     if (!o) return;
     update(key, { showRegen: !o.showRegen, editing: false });
@@ -377,6 +553,7 @@ export function OutputsView({
   const onRegenTextChange = (key: string, next: string) => update(key, { regenText: next });
 
   const regenerate = (key: string, instruction: string) => {
+    if (readOnly) return;
     const o = outputs.find((x) => x.key === key);
     if (!o) return;
     // `regenerate` is an event-handler closure — `Date.now()` is called on
@@ -388,6 +565,14 @@ export function OutputsView({
     // Mirror the server's nextStatus rule in regenerate-output.ts:
     // an instruction routes to IN_REVIEW; a clean retry routes to READY.
     const target: EpisodeStatus = trimmed ? "review" : "ready";
+    // Snapshot state we'd need to restore if the server rejects the write.
+    const snapshot = {
+      status: o.status,
+      version: o.version,
+      versionCount: o.versionCount,
+      lastInstruction: o.lastInstruction,
+      failureReason: o.failureReason ?? null,
+    };
     // Optimistic: bump version + versionCount so the switcher controls
     // appear immediately, even before the server returns the new id.
     update(key, {
@@ -411,9 +596,33 @@ export function OutputsView({
         // subsequent edits/approves/version-history calls hit the right row.
         if (result?.ok) {
           update(key, { id: result.data.outputId });
+        } else {
+          // Server rejected — revert the optimistic status + version bumps.
+          update(key, {
+            status: snapshot.status,
+            version: snapshot.version,
+            versionCount: snapshot.versionCount,
+            lastInstruction: snapshot.lastInstruction,
+            failureReason: snapshot.failureReason,
+            progress: 100,
+            _startAt: undefined,
+            _target: undefined,
+          });
         }
       })
-      .catch((err) => console.error("regenerateOutputAction failed", err));
+      .catch((err) => {
+        console.error("regenerateOutputAction failed", err);
+        update(key, {
+          status: snapshot.status,
+          version: snapshot.version,
+          versionCount: snapshot.versionCount,
+          lastInstruction: snapshot.lastInstruction,
+          failureReason: snapshot.failureReason,
+          progress: 100,
+          _startAt: undefined,
+          _target: undefined,
+        });
+      });
   };
 
   const onApplyRegen = (key: string) => {
@@ -427,9 +636,11 @@ export function OutputsView({
   const onRetry = (key: string) => regenerate(key, "");
 
   const onApprove = (key: string) => {
+    if (readOnly) return;
     const o = outputs.find((x) => x.key === key);
     if (!o) return;
     if (o.status !== "ready" && o.status !== "review") return;
+    const prevStatus = o.status;
     update(key, {
       status: "approved",
       justApproved: true,
@@ -442,9 +653,24 @@ export function OutputsView({
       [o.key]: (ps[o.key as PlatformKey] ?? 0) + 1,
     }));
     window.setTimeout(() => update(key, { justApproved: false }), 1900);
+    // Roll back the optimistic approval if the server rejects (e.g. read-
+    // only impersonation slipping past the UI gate). This is the specific
+    // bug that motivated the readOnly flag — the optimistic UI used to show
+    // "Approved" indefinitely even when the API returned ForbiddenError.
+    const rollback = () => {
+      update(key, { status: prevStatus, justApproved: false });
+      setSamples((s) => Math.max(0, s - 1));
+      setPlatformSamples((ps) => ({
+        ...ps,
+        [o.key]: Math.max(0, (ps[o.key as PlatformKey] ?? 0) - 1),
+      }));
+    };
     void approveOutputAction({ outputId: o.id })
       .then((result) => {
-        if (!result.ok) return;
+        if (!result.ok) {
+          rollback();
+          return;
+        }
         track("output_approved", {
           outputId: result.data.outputId,
           platform: o.key,
@@ -452,28 +678,46 @@ export function OutputsView({
           editDistance: result.data.editDistance,
         });
       })
-      .catch((err) => console.error("approveOutputAction failed", err));
+      .catch((err) => {
+        console.error("approveOutputAction failed", err);
+        rollback();
+      });
   };
 
   const onRequestReview = (key: string) => {
+    if (readOnly) return;
     const o = outputs.find((x) => x.key === key);
     if (!o || o.status !== "ready") return;
+    const prevStatus = o.status;
     update(key, { status: "review", showRegen: false, editing: false });
-    void requestReviewOutputAction({ outputId: o.id }).catch((err) =>
-      console.error("requestReviewOutputAction failed", err),
-    );
+    void requestReviewOutputAction({ outputId: o.id })
+      .then((result) => {
+        if (!result.ok) update(key, { status: prevStatus });
+      })
+      .catch((err) => {
+        console.error("requestReviewOutputAction failed", err);
+        update(key, { status: prevStatus });
+      });
   };
 
   const onReject = (key: string) => {
+    if (readOnly) return;
     const o = outputs.find((x) => x.key === key);
     if (!o || o.status !== "review") return;
+    const prevStatus = o.status;
     update(key, { status: "ready", showRegen: false, editing: false });
-    void rejectOutputAction({ outputId: o.id }).catch((err) =>
-      console.error("rejectOutputAction failed", err),
-    );
+    void rejectOutputAction({ outputId: o.id })
+      .then((result) => {
+        if (!result.ok) update(key, { status: prevStatus });
+      })
+      .catch((err) => {
+        console.error("rejectOutputAction failed", err);
+        update(key, { status: prevStatus });
+      });
   };
 
   const onRegenAll = () => {
+    if (readOnly) return;
     if (generatingAll) return;
     const now = Date.now();
     setOutputs((prev) =>
@@ -537,41 +781,32 @@ export function OutputsView({
           </span>
         </nav>
 
-        {/* Episode header */}
-        <div className="mb-[22px] flex flex-wrap items-start gap-6">
+        {/* Episode header — title row + action buttons */}
+        <div className="mb-[14px] flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-[300px] flex-1">
             <EditableTitle episodeId={episode.id} initial={episode.episode} />
-            <div className="text-muted mt-[7px] text-[13.5px]">
+            <div className="text-muted mt-[6px] text-[13px]">
               {client.name} · {episode.episodeMeta}
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-[14px]">
-            <div className="border-border bg-surface flex items-center gap-[11px] rounded-xl border px-[13px] py-[9px]">
-              <div>
-                <div className="text-muted-2 mb-[3px] font-sans text-[10.5px] font-semibold tracking-[0.06em] uppercase">
-                  Client voice
-                </div>
-                <div className="flex items-center gap-2">
-                  <VoiceStrengthBars samples={samples} size="sm" />
-                  <span
-                    className="font-sans text-[13px] font-semibold"
-                    style={{ color: voiceTextColor(samples) }}
-                  >
-                    {voiceLabel(samples)}
-                  </span>
-                  <span className="text-muted-2 text-[12px]">· {samples} samples</span>
-                </div>
-              </div>
-            </div>
-
+          <div className="flex flex-shrink-0 flex-wrap items-center gap-[10px]">
             <button
               type="button"
               onClick={onRegenAll}
-              disabled={generatingAll}
-              className="shadow-card flex items-center gap-2 rounded-[10px] px-4 py-[11px] font-sans text-[13.5px] font-semibold transition-[filter]"
+              disabled={generateAllDisabled}
+              title={
+                readOnly
+                  ? "Read-only impersonation — writes are disabled"
+                  : pipelineRunning
+                    ? "Waiting for episode to finish importing"
+                    : outputs.length === 0
+                      ? "No outputs to regenerate yet"
+                      : undefined
+              }
+              className="shadow-card flex items-center gap-2 rounded-[10px] px-4 py-[10px] font-sans text-[13px] font-semibold transition-[filter]"
               style={
-                generatingAll
+                generateAllDisabled
                   ? { background: "#EEF1F6", color: "#A6AEBD", border: "1px solid #E6EBF3" }
                   : {
                       background: "var(--color-accent)",
@@ -580,18 +815,22 @@ export function OutputsView({
                     }
               }
             >
-              <span className="text-[11px]">{generatingAll ? "◴" : "▶"}</span>
-              {generatingAll ? "Generating…" : "Generate all"}
+              <span className="text-[11px]">{generatingAll || pipelineRunning ? "◴" : "▶"}</span>
+              {generatingAll
+                ? "Generating…"
+                : pipelineRunning
+                  ? "Waiting for episode…"
+                  : "Generate all"}
             </button>
 
-            {/* Phase 2.5 — branded HTML export. Live mode only (sample-data
-                mode would 503 the route); approved-only — gated on at
-                least one approval so the export isn't an empty receipt. */}
+            {/* Branded HTML export. Live mode only (sample-data mode would
+                503 the route); approved-only — gated on at least one
+                approval so the export isn't an empty receipt. */}
             {streamUrl !== null && approvedCount > 0 && (
               <a
                 href={`/api/episodes/${episode.id}/export`}
                 download
-                className="border-border text-ink hover:bg-canvas shadow-card flex items-center gap-2 rounded-[10px] border bg-white px-4 py-[11px] font-sans text-[13.5px] font-semibold transition-colors"
+                className="border-border text-ink hover:bg-canvas shadow-card flex items-center gap-2 rounded-[10px] border bg-white px-4 py-[10px] font-sans text-[13px] font-semibold transition-colors"
                 title="Download a branded HTML deliverables receipt to send to the client"
               >
                 <svg
@@ -614,23 +853,51 @@ export function OutputsView({
           </div>
         </div>
 
-        {/* Progress strip */}
-        <div className="border-border bg-surface mb-5 flex items-center gap-[14px] rounded-xl border px-4 py-[13px]">
-          <div className="text-muted text-[13px]">
-            <span className="text-ink font-semibold">
-              {approvedCount} of {totalCount}
-            </span>{" "}
-            outputs approved
+        {/* KPI strip — approval progress · avg quality · voice status.
+            Vertical dividers separate the three groups per ref, and the
+            trainer copy lives on the right so the eye reads the row as
+            "state on the left, provenance on the right". */}
+        <div className="border-border bg-surface mb-[22px] flex flex-wrap items-center gap-x-[22px] gap-y-[10px] rounded-[14px] border px-[22px] py-[15px]">
+          <div className="flex min-w-[200px] flex-1 items-center gap-[12px]">
+            <div className="text-[14px] whitespace-nowrap text-[#5A6473]">
+              <span className="font-display text-ink text-[15px] font-bold">
+                {approvedCount} of {totalCount}
+              </span>{" "}
+              approved
+            </div>
+            <div className="h-[8px] min-w-[120px] flex-1 overflow-hidden rounded-[5px] bg-[#EAEEF4]">
+              <div
+                className="h-full rounded-[5px] bg-[#1F8A5B] transition-[width] duration-500 ease-out"
+                style={{ width: `${approvedPct}%` }}
+              />
+            </div>
           </div>
-          <div className="h-[6px] max-w-[340px] flex-1 overflow-hidden rounded-md bg-[#EEF1F6]">
-            <div
-              className="h-full rounded-md bg-[#2E9E5B] transition-[width] duration-500 ease-out"
-              style={{ width: `${approvedPct}%` }}
-            />
+
+          <span className="hidden h-[26px] w-px bg-[#E8EBF1] sm:block" />
+
+          <div className="flex items-center gap-[6px] text-[14px] whitespace-nowrap text-[#5A6473]">
+            <span>Avg quality</span>
+            <span className="font-display text-ink text-[15px] font-bold">
+              {avgQuality === null ? "—" : avgQuality}
+            </span>
           </div>
-          <div className="text-muted-2 text-[12.5px]">
-            Each approval trains <span className="text-muted">{client.host}&apos;s</span> voice
-            engine
+
+          <span className="hidden h-[26px] w-px bg-[#E8EBF1] sm:block" />
+
+          <div className="flex items-center gap-[8px] whitespace-nowrap">
+            <VoiceStrengthBars samples={samples} size="sm" />
+            <span
+              className="font-sans text-[13.5px] font-semibold"
+              style={{ color: voiceTextColor(samples) }}
+            >
+              {voiceLabel(samples)}
+            </span>
+            <span className="text-muted-2 font-mono text-[12px]">· {samples} samples</span>
+          </div>
+
+          <div className="text-muted-2 basis-full text-[13px] sm:ml-auto sm:basis-auto">
+            Each approval trains{" "}
+            <span className="text-muted font-medium">{client.host}&apos;s</span> voice engine
           </div>
         </div>
 
@@ -658,39 +925,87 @@ export function OutputsView({
         {/* Clip moments — null/empty rendering handled inside the panel */}
         <ClipMomentsPanel moments={episode.keyMoments} />
 
-        {/* Output grid */}
+        {/* Output grid — per ref/details-full.html, `minmax(272px, 1fr)`
+             yields 3 columns at typical main widths and 4 on very wide
+             screens, giving each tile enough room for the preview box +
+             signals + button row without cramping. */}
         <div
-          className="grid gap-[18px]"
-          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))" }}
+          className="grid items-stretch gap-[18px]"
+          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(272px, 1fr))" }}
         >
           {outputs.map((o) => {
             const platform = platformByKey.get(o.key)!;
+            const cardActions = {
+              onCopy: () => onCopy(o.key),
+              onEdit: () => onEdit(o.key),
+              onSaveEdit: () => onSaveEdit(o.key),
+              onCancelEdit: () => onCancelEdit(o.key),
+              onDraftChange: (next: string) => onDraftChange(o.key, next),
+              onToggleRegen: () => onToggleRegen(o.key),
+              onRegenTextChange: (next: string) => onRegenTextChange(o.key, next),
+              onApplyRegen: () => onApplyRegen(o.key),
+              onQuickRegen: (inst: string) => onQuickRegen(o.key, inst),
+              onApprove: () => onApprove(o.key),
+              onRequestReview: () => onRequestReview(o.key),
+              onReject: () => onReject(o.key),
+              onRetry: () => onRetry(o.key),
+            };
             return (
               <OutputCard
                 key={o.key}
                 platform={platform}
                 hostName={client.host}
                 state={o}
+                episodeId={episode.id}
                 viewerRole={viewerRole}
-                actions={{
-                  onCopy: () => onCopy(o.key),
-                  onEdit: () => onEdit(o.key),
-                  onSaveEdit: () => onSaveEdit(o.key),
-                  onCancelEdit: () => onCancelEdit(o.key),
-                  onDraftChange: (next) => onDraftChange(o.key, next),
-                  onToggleRegen: () => onToggleRegen(o.key),
-                  onRegenTextChange: (next) => onRegenTextChange(o.key, next),
-                  onApplyRegen: () => onApplyRegen(o.key),
-                  onQuickRegen: (inst) => onQuickRegen(o.key, inst),
-                  onApprove: () => onApprove(o.key),
-                  onRequestReview: () => onRequestReview(o.key),
-                  onReject: () => onReject(o.key),
-                  onRetry: () => onRetry(o.key),
-                }}
+                readOnly={readOnly}
+                bufferConnected={bufferConnected}
+                bufferConnectedPlatforms={bufferConnectedPlatforms}
+                onOpen={() => setDrawerKey(o.key)}
+                actions={cardActions}
               />
             );
           })}
         </div>
+
+        {/* Details drawer — one instance across all cards; opened via
+             `setDrawerKey`. Renders `null` when nothing is open so it
+             stays out of the a11y tree. */}
+        {(() => {
+          if (drawerKey === null) return null;
+          const o = outputs.find((row) => row.key === drawerKey);
+          if (!o) return null;
+          const platform = platformByKey.get(o.key)!;
+          const drawerActions = {
+            onCopy: () => onCopy(o.key),
+            onEdit: () => onEdit(o.key),
+            onSaveEdit: () => onSaveEdit(o.key),
+            onCancelEdit: () => onCancelEdit(o.key),
+            onDraftChange: (next: string) => onDraftChange(o.key, next),
+            onToggleRegen: () => onToggleRegen(o.key),
+            onRegenTextChange: (next: string) => onRegenTextChange(o.key, next),
+            onApplyRegen: () => onApplyRegen(o.key),
+            onQuickRegen: (inst: string) => onQuickRegen(o.key, inst),
+            onApprove: () => onApprove(o.key),
+            onRequestReview: () => onRequestReview(o.key),
+            onReject: () => onReject(o.key),
+            onRetry: () => onRetry(o.key),
+          };
+          return (
+            <OutputDrawer
+              platform={platform}
+              hostName={client.host}
+              state={o}
+              episodeId={episode.id}
+              viewerRole={viewerRole}
+              readOnly={readOnly}
+              bufferConnected={bufferConnected}
+              bufferConnectedPlatforms={bufferConnectedPlatforms}
+              onClose={() => setDrawerKey(null)}
+              actions={drawerActions}
+            />
+          );
+        })()}
       </div>
 
       {/* RIGHT RAIL */}
@@ -750,72 +1065,110 @@ export function OutputsView({
           <div className="text-subtle mt-3 text-[11.5px]">Last trained {episode.lastTrained}</div>
         </div>
 
-        {/* Voice by platform */}
-        <div className="border-border bg-surface mb-[18px] rounded-2xl border p-[18px]">
-          <div className="font-display text-ink text-[14px] font-semibold">Voice by platform</div>
-          <div className="text-muted-2 mt-1 mb-[14px] text-[12px]">
-            Each platform trains independently
-          </div>
-          <div className="flex flex-col gap-[13px]">
-            {platforms.map((p) => {
-              const n = platformSamples[p.key] ?? 0;
-              return (
-                <div key={p.key} className="flex items-center gap-[11px]">
-                  <PlatformBadge platform={p} size="sm" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[12.5px] font-medium text-[#39435A]">
-                      {p.name}
-                    </div>
-                  </div>
-                  <VoiceStrengthBars samples={n} size="sm" />
-                  <span
-                    className="w-[62px] text-right font-sans text-[11px] font-medium"
-                    style={{ color: voiceTextColor(n) }}
-                  >
-                    {voiceLabel(n)}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Output quality */}
+        {/* Per-platform card — merges the old "Voice by platform" + "Output
+            quality" cards into one tabbed panel. Both rendered the same
+            per-platform row shape (badge + label + horizontal bar); tabbing
+            them halves the rail's vertical footprint without losing data. */}
         <div className="border-border bg-surface rounded-2xl border p-[18px]">
-          <div className="font-display text-ink text-[14px] font-semibold">Output quality</div>
-          <div className="text-muted-2 mt-1 mb-[14px] text-[12px]">
-            This episode · avg{" "}
-            <span className="text-muted font-semibold">
-              {avgQuality === null ? "—" : avgQuality}
-            </span>
-          </div>
-          <div className="flex flex-col gap-3">
-            {railRows.map((r) => {
-              const qc = qualityColor(r.quality);
-              return (
-                <div key={r.key} className="flex items-center gap-[11px]">
-                  <PlatformBadge platform={r.platform} size="sm" />
-                  <div className="min-w-0 flex-1">
-                    <div className="mb-[5px] truncate text-[12.5px] font-medium text-[#39435A]">
-                      {r.platform.name}
-                    </div>
-                    <div className="h-[5px] overflow-hidden rounded-md bg-[#EEF1F6]">
-                      <div
-                        className="h-full rounded-md"
-                        style={{ width: `${r.quality}%`, background: qc }}
-                      />
-                    </div>
-                  </div>
-                  <span
-                    className="w-6 text-right font-sans text-[12.5px] font-semibold"
-                    style={{ color: qc }}
+          <div className="mb-[12px] flex items-center justify-between gap-3">
+            <div className="font-display text-ink text-[14px] font-semibold">Per platform</div>
+            <div
+              role="tablist"
+              aria-label="Per-platform metric"
+              className="flex items-center gap-[2px] rounded-[8px] bg-[#F1F4F9] p-[3px]"
+            >
+              {(["voice", "quality"] as const).map((tab) => {
+                const active = railTab === tab;
+                return (
+                  <button
+                    key={tab}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setRailTab(tab)}
+                    className="rounded-[6px] px-[10px] py-[4px] font-sans text-[11.5px] font-semibold capitalize transition-colors"
+                    style={
+                      active
+                        ? {
+                            background: "#fff",
+                            color: "#2A3550",
+                            boxShadow: "0 1px 2px rgba(26,42,74,.08)",
+                          }
+                        : { color: "#7A8496" }
+                    }
                   >
-                    {r.quality}
-                  </span>
-                </div>
-              );
-            })}
+                    {tab}
+                  </button>
+                );
+              })}
+            </div>
           </div>
+
+          <div className="text-muted-2 mb-[14px] text-[12px]">
+            {railTab === "voice" ? (
+              "Each platform trains independently"
+            ) : (
+              <>
+                This episode · avg{" "}
+                <span className="text-muted font-semibold">
+                  {avgQuality === null ? "—" : avgQuality}
+                </span>
+              </>
+            )}
+          </div>
+
+          {railTab === "voice" ? (
+            <div className="flex flex-col gap-[13px]">
+              {platforms.map((p) => {
+                const n = platformSamples[p.key] ?? 0;
+                return (
+                  <div key={p.key} className="flex items-center gap-[11px]">
+                    <PlatformBadge platform={p} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[12.5px] font-medium text-[#39435A]">
+                        {p.name}
+                      </div>
+                    </div>
+                    <VoiceStrengthBars samples={n} size="sm" />
+                    <span
+                      className="w-[62px] text-right font-sans text-[11px] font-medium"
+                      style={{ color: voiceTextColor(n) }}
+                    >
+                      {voiceLabel(n)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {railRows.map((r) => {
+                const qc = qualityColor(r.quality);
+                return (
+                  <div key={r.key} className="flex items-center gap-[11px]">
+                    <PlatformBadge platform={r.platform} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-[5px] truncate text-[12.5px] font-medium text-[#39435A]">
+                        {r.platform.name}
+                      </div>
+                      <div className="h-[5px] overflow-hidden rounded-md bg-[#EEF1F6]">
+                        <div
+                          className="h-full rounded-md"
+                          style={{ width: `${r.quality}%`, background: qc }}
+                        />
+                      </div>
+                    </div>
+                    <span
+                      className="w-6 text-right font-sans text-[12.5px] font-semibold"
+                      style={{ color: qc }}
+                    >
+                      {r.quality}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </aside>
     </div>

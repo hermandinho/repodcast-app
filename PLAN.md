@@ -724,49 +724,47 @@ Three forward-only steps: **Workspace → Teammates → First client**. The trai
 
 ### Typography
 
-- [ ] Add **JetBrains Mono** via `next/font/google` (weights 400/500) and expose as `--font-mono` in the `@theme` block. Used for kicker eyebrows ("FOR PODCAST AGENCIES"), section labels, code-like accents.
-- [ ] Sora 700 for hero/section headlines with `letter-spacing: -0.035em` — the existing Sora wire-up covers this.
+- [x] **JetBrains Mono** wired via `next/font/google` in `app/layout.tsx` + exposed as `--font-mono` in `globals.css`.
+- [x] Sora 700 hero/section headlines with tight tracking — reuses the existing Sora setup.
 
-### Sections (mapped to `ref/UI/Landing/Repodcast Landing.dc.html`)
+### Sections (all landed in `components/landing/landing-page.tsx`, ~1300 lines)
 
-- [ ] **Nav** — sticky, `backdrop-filter: saturate(180%) blur(16px)` semi-transparent white. Brand mark (SVG waveform + "Repodcast" wordmark) + 4 nav links (`How it works`, `Voice Engine`, `Pricing`, `FAQ`) + `Sign in` ghost link + `Start free` primary.
-- [ ] **Hero** — split grid (1.02 / 0.98). LEFT: mono kicker, Sora 700 56px headline ("Sounds exactly like you. / Gets better every episode."), sub, dual CTA, "No credit card · 14-day trial" caption. RIGHT: product mockup with episode header + "Voice: Strong" pill, animated waveform on dark band, platform tabs (LinkedIn active), generated sample, "generated in 48s" + Approve / Tweak buttons. Background: radial gradient + dotted texture + floating accent orb.
-- [ ] **Logo strip** — "Trusted by growing studios" + 5 studio names in Sora 600 at reduced opacity.
-- [ ] **Problem** — split grid. LEFT: kicker + 38px headline + paragraph. RIGHT: 3-column stat panel (`6–9h`, `3+`, `$40–70`) inside a bordered card.
-- [ ] **How it works** — 3 numbered cards in a single hairline-grid container. Each: mono number ("01"), Sora 600 20px title, paragraph, mono pill tags.
-- [ ] **Voice Engine** (dark showpiece) — `#1A2A4A` background, `#13203B` panel inset. Decorative blob + concentric rings + dotted texture. Two-column panel inside: LEFT client picker, RIGHT split (LinkedIn sample card + voice-strength panel with progress bar, "Learned traits" bullet list). Active client state drives the right panel.
-- [ ] **Three Pillars** — 3 hairline-grid cards: "In your client's voice, not the AI's." / "Built for agencies, full stop." / "Gets better the more you use it."
-- [ ] **Outputs** — header + tagline "7× the output, one drop-in." 4-col grid of 8 cards: 7 platforms + a dark inset card "All written in the client's voice."
-- [ ] **Social Proof** — 3 testimonials in hairline grid: quote, avatar circle (initials on `#1A2A4A`), name + role/studio in mono.
-- [ ] **Pricing** — centered header + 3 plan cards. Studio $99 (white), Agency $249 (dark, "Most popular" badge), Network $499 (white). Each: name, tagline, price, CTA, 4–5 feature bullets with `→` markers.
-- [ ] **FAQ** — split (0.7 / 1.3). LEFT: kicker + Sora 700 34px headline. RIGHT: 6 expandable Q&A items, accordion (single open). `+` icon rotates 45deg on open.
-- [ ] **Final CTA** (dark) — full-bleed `#1A2A4A` with low-opacity animated waveform bg. Split: LEFT headline + sub, RIGHT dual CTA.
-- [ ] **Footer** — `#13203B`, 4-col grid (brand + Product / Company / Legal) + bottom row (copyright + tagline).
+- [x] **Nav** — sticky backdrop-blur white bar with brand mark + 4 anchor links + `Sign in` / `Start free` (or `Open dashboard` when signed in).
+- [x] **Hero** — split grid with mono kicker + Sora 700 headline + dual CTA + product mockup panel with LinkedIn sample + animated waveform, radial gradient + dotted texture + floating accent orb.
+- [x] **Problem** — split grid with 3-column stat panel (`6–9h`, `3+`, `$40–70`) inside a bordered card.
+- [x] **How it works** — 3 numbered hairline-grid cards.
+- [x] **Voice Engine** (dark showpiece) — `#1A2A4A` background with concentric-ring + dotted textures; interactive client picker on the left drives the sample-card + voice-strength panel on the right.
+- [x] **Three Pillars** — hairline-grid triptych.
+- [x] **Outputs** — 4-column grid of 8 cards (7 platforms + dark "all in the client's voice" inset).
+- [x] **Social Proof** — 3-testimonial hairline grid.
+- [x] **Pricing** — 3 plan cards with the middle Agency tier styled as the dark "most popular" pick.
+- [x] **FAQ** — 6-question accordion (single-open, `+ ↔ ×` icon rotation).
+- [x] **Final CTA** (dark) — full-bleed `#1A2A4A` with animated waveform background + dual CTA.
+- [x] **Footer** — `#13203B` 4-column grid + copyright row.
+- [x] **Compare** — bonus section not in the original spec but on the reference HTML — sits between Pillars and Outputs.
 
 ### Interactive components
 
-- [ ] **`<ClientPicker>`** for Voice Engine — `useState` for active client index. Three demo clients (The Founder's Cut, Mid-Run Mornings, Tape & Tonic) each with show name, initials, voice strength, sample post, learned traits. Switching updates the right panel in place. Active row highlighted with `#1E3056`.
-- [ ] **`<FAQAccordion>`** — `useState` for open index. Click toggles; opening a new one closes the previous. `+` ↔ `×` via `transform: rotate(45deg)` with `transition: transform .2s`.
+- [x] `<ClientPicker>` — `components/landing/client-picker.tsx`. `useState` for active client index across the three demo clients; the right panel swaps in-place.
+- [x] `<FAQAccordion>` — `components/landing/faq-accordion.tsx`. `useState` for open index; opening a new question closes the previous. `+` rotates to `×` via CSS transform.
 
-### Animations / motion
+### Animations / motion — landed in the same file via inline `<style>` + Tailwind
 
-- [ ] `@keyframes eq` waveform bars in hero + final-CTA background.
-- [ ] `@keyframes floaty` for accent orbs (9s ease-in-out).
-- [ ] `card-lift` hover (translateY(-2px) + border shift) on output cards.
-- [ ] `html { scroll-behavior: smooth }` for anchor jumps.
+- [x] `@keyframes eq` waveform bars in hero + final-CTA.
+- [x] `@keyframes floaty` accent orbs.
+- [x] `card-lift` hover on output cards.
+- [x] `html { scroll-behavior: smooth }` for anchor jumps.
 
 ### Design tokens (additions)
 
-- [ ] `--color-marketing-ink: #1A2A4A`, `--color-marketing-deep: #13203B`.
-- [ ] `--color-marketing-mint: #7FE3B0`, `--color-marketing-mint-bg: #EAF7F0`, `--color-marketing-mint-text: #1F8A5B`.
-- [ ] `--color-marketing-muted: #9AA3B2`, `--color-marketing-muted-deep: #6B7BA3`, `--color-marketing-soft: #A9B6D4`.
-- [ ] `--font-mono`.
+- [x] All landing tokens live in `app/globals.css` under `@theme` — `--color-marketing-ink`, `--color-marketing-deep`, `--color-marketing-mint` (+ bg + text variants), `--color-marketing-muted` (+ deep + soft variants), `--color-marketing-border` (+ -2). `--font-mono` also declared.
 
-### SEO (deferred polish — done with the launch checklist)
+### SEO
 
-- [ ] `metadata` export on `app/page.tsx` (title, description, openGraph, twitter cards).
-- [ ] OG image — render to `public/landing/og.png` (1200×630).
-- [ ] `public/robots.txt` + `app/sitemap.ts`.
+- [x] `metadata` export on `app/page.tsx` — title, description, `openGraph` (title, description, type=website), Twitter card `summary_large_image`.
+- [x] OG image — dynamic via `app/opengraph-image.tsx`. Renders through Next's built-in `ImageResponse` (satori) at the 1200×630 spec size, deep-navy background with mint waveform mark, hero headline verbatim so the OG matches the landing's fold impression. No committed PNG asset — regenerates on each request off the same code path.
+- [x] `app/sitemap.ts` — public routes only (`/`, `/pricing`, `/legal/report`, `/sign-in`, `/sign-up`). Deliberately omits `/dashboard`, `/settings/*`, `/root/*`, `/api/*`, `/portal/*` and the rest of the auth-gated surface.
+- [x] `app/robots.ts` — narrow allow-list (`/`, `/pricing`, `/legal/`, `/sign-in`, `/sign-up`) + explicit disallow for every tenant / admin / API prefix. Sitemap URL points back at the dynamic sitemap.
 
 ### Out of scope (deferred)
 
@@ -783,23 +781,210 @@ Three forward-only steps: **Workspace → Teammates → First client**. The trai
 
 ## 3.2 YouTube import
 
-- [ ] YouTube Transcript API integration; extract transcript from a URL → episode
+- [x] **YouTube import via yt-dlp** — landed. `episode/youtube.import.requested` fires from the wizard's server action; `inngest/functions/import-youtube-episode.ts` runs a two-stage pipeline:
+  1. **Transcript-first** — `yt-dlp --dump-single-json` pulls video metadata (title, duration, caption inventory), then `yt-dlp --write-subs / --write-auto-subs --sub-format=vtt/srv3/best -o -` fetches the winning caption track (manual English → any manual → auto English → any auto) and streams the VTT to stdout. `parseCaptionVtt` collapses cues into a flat transcript, strips `<c>` progressive-highlight tags, and de-dupes YouTube's double-emission pattern. If we get ≥ 500 chars, persist + emit `episode/generate.requested`.
+  2. **Audio-fallback** — no usable captions, or the transcript came out too short. `yt-dlp -f "bestaudio[ext=m4a]/bestaudio" -o -` streams the audio-only container (m4a / webm / opus / mp3 — sniffed from magic bytes) to a Buffer, uploads to R2 at `audio/<agencyId>/<showId>/<episodeId>.<ext>`, then fires `episode/transcribe.requested`. `transcribe-episode` now accepts YOUTUBE alongside UPLOAD + RSS.
+
+  Why yt-dlp: the previous HTML-scrape approach broke every few months as YouTube shipped player-response schema changes. yt-dlp is maintained weekly by a large community and handles anti-scraping evolutions, age-gated videos, region blocks, and live streams.
+
+  **Failure codes** (`YouTubeImportError.code`):
+  - `invalid_url` / `not_found` / `no_audio` / `parse_failed` / `too_long` → `NonRetriableError` (skips Inngest's retry budget).
+  - `no_captions` triggers the audio-fallback branch rather than failing.
+  - `fetch_failed` retries up to 3× (network / 5xx / rate limit).
+
+  **Limits**: 4-hour duration cap (Vercel Pro's 300s timeout is comfortable for typical podcasts; longer videos fail with a pointer to RSS or manual transcript). 500MB audio ceiling. No ffmpeg dep — we always request a pre-existing audio-only container so yt-dlp never merges streams.
+
+  **Deploy on Vercel**: `next.config.ts#outputFileTracingIncludes` force-includes `node_modules/yt-dlp-exec/bin/**` in the `/api/inngest` bundle so the binary ships with the deployment. Local dev picks up the same `yt-dlp-exec`-shipped binary (Windows/Linux/macOS resolved at install time).
+
+  31 tests cover URL parsing (watch / youtu.be / embed / shorts / bare id / rejects), VTT parsing (numeric-cue stripping, timing-tag removal, double-emission de-dupe, whitespace collapse, empty-body handling), track selection preferences across manual/auto splits, and the `YouTubeImportError` shape. Wizard step 2 client-side gates on plausible-URL check; the pipeline stepper's YouTube path is `[import, transcribe, generate]` — the transcribe step marks done instantly on the caption-only exit.
+
+- [ ] **Bandwidth cost tracking** — audio-fallback pulls MB of YouTube data per import. Not billed to the user in v1; if this becomes material, wire it through `UsageLog` alongside AI spend.
 
 ## 3.3 Scheduling
 
-- [ ] **Schedule screen** (`/schedule`): calendar of queued posts
-- [ ] Typefully/Buffer integration for scheduling threads/posts
-- [ ] Status sync (`SCHEDULED → PUBLISHED`)
+> **Premise:** Approved outputs today are dead-ends — nothing takes them from the episode grid to a published post. §3.3 closes that gap with a **calendar-first scheduling surface** and an **optional Buffer integration** each agency can BYO. Agencies without a Buffer account still get native scheduling — the date/time is tracked in Repodcast and a "Mark published" affordance flips the status when the post goes live externally.
+>
+> **Hard scope boundary:** Repodcast never posts directly to Twitter/X/LinkedIn/Instagram/TikTok. Publishing happens through Buffer (when connected) or manually (when not). Going fully native — first-party OAuth + posting on each social API — is documented at the bottom of this section and deferred to Phase 4.
 
-## 3.4 Affiliate program
+### 3.3.1 Two modes: BUFFER and MANUAL
 
-- [ ] Integrate Rewardful or Tolt (Stripe-native); referral links + tracking
-- [ ] Affiliate signup/info page
+Every `GeneratedOutput` scheduled from the UI is tagged with an `ExternalScheduler`:
+
+- **`BUFFER`** — agency has connected their own Buffer account; we POST to Buffer's `/updates/create` and store the resulting `externalPostId`. Buffer handles the actual publishing at the scheduled time. Our cron polls Buffer for status confirmation and flips `SCHEDULED → PUBLISHED` when Buffer confirms delivery. This mode is only offered for social platforms Buffer supports (`TWITTER`, `LINKEDIN`, `INSTAGRAM`, `TIKTOK`).
+- **`MANUAL`** — no Buffer connection, OR platform is `SHOW_NOTES` / `BLOG` / `NEWSLETTER` (Buffer doesn't publish those). We record `scheduledFor` and let the user click "Mark published" after they've posted it themselves. A cron auto-flips `SCHEDULED → PUBLISHED` when `scheduledFor < now()` **and** an operator hasn't opted out via an `autoMarkPublished` per-agency flag (default true — agencies who dispute this can turn it off in settings).
+
+### 3.3.2 Schema additions (single migration)
+
+- [ ] **Enum `ExternalScheduler`** — `BUFFER | MANUAL`. Extensible: future providers (Typefully, Hootsuite, first-party) land as new enum values without breaking existing rows.
+- [ ] **`GeneratedOutput` additions:**
+  - `scheduledFor DateTime?` — when the post should go live (or when it was published for MANUAL rows with `autoMarkPublished`).
+  - `scheduledByMemberId String?` (FK → `Member`, `onDelete: SetNull`) — who queued it. Nullable so member deletion doesn't cascade-wipe the schedule.
+  - `externalScheduler ExternalScheduler?` — set when status transitions to `SCHEDULED`.
+  - `externalPostId String?` — Buffer's update id, or null for MANUAL.
+  - `externalPostUrl String?` — Buffer/Typefully "view your post" deep link, or the live post URL if the user pasted one on "Mark published".
+  - `publishedAt DateTime?` — stamped when status flips to `PUBLISHED`.
+  - Indices: `@@index([scheduledFor])`, `@@index([status, scheduledFor])` — powers the calendar range query + the cron scan.
+- [ ] **`AgencyIntegration` model** — one row per (agency, provider). Fields: `id`, `agencyId`, `provider ExternalScheduler`, `accessToken` (encrypted at the app layer — see 3.3.3), `refreshToken?`, `expiresAt?`, `meta Json?` (Buffer profile ids per platform, keyed by `Platform`), `autoMarkPublished Boolean @default(true)`, `connectedByMemberId?`, `lastSyncedAt?`, `lastSyncError String?`, `createdAt`, `updatedAt`. `@@unique([agencyId, provider])`.
+- [ ] **OutputTransition** — no schema change; the existing status log captures every `APPROVED → SCHEDULED` / `SCHEDULED → PUBLISHED` transition with the `byMemberId` set to the actor (or null for cron-driven flips).
+
+### 3.3.3 Token storage & encryption
+
+- [ ] **`server/crypto/token-vault.ts`** — thin AES-256-GCM helper (`encrypt`/`decrypt`) keyed by `INTEGRATION_ENCRYPTION_KEY` (32 raw bytes, base64-encoded in env). Storage format: `<iv_b64>.<ciphertext_b64>.<authTag_b64>`. Reasoning: Buffer OAuth tokens grant post-authoring rights on a customer's social graph — a plaintext leak from a DB dump would be far worse than the ergonomics cost. Same key rotates for future providers.
+- [ ] **Missing key = feature disabled** — `getBufferIntegrationForAgency()` returns `null` when the vault can't decrypt; the connect flow fails closed with a clear error banner in settings.
+
+### 3.3.4 Buffer OAuth flow
+
+- [ ] **Env**: `BUFFER_CLIENT_ID`, `BUFFER_CLIENT_SECRET`, `BUFFER_REDIRECT_URI` (set to `${APP_URL}/api/integrations/buffer/callback`).
+- [ ] **Kickoff**: `GET /api/integrations/buffer/connect` — server route, tenant-gated (OWNER/ADMIN only), redirects to `https://bufferapp.com/oauth2/authorize?client_id=...&redirect_uri=...&response_type=code&state=<hmac(agencyId+nonce)>`. State cookie holds the raw nonce; the HMAC prevents CSRF pinning.
+- [ ] **Callback**: `GET /api/integrations/buffer/callback?code=...&state=...` — verifies state, exchanges the code for a Bearer token (`POST https://api.bufferapp.com/1/oauth2/token.json`), fetches `GET /1/profiles.json` to enumerate the connected social profiles, encrypts the token, upserts `AgencyIntegration` with `meta.profiles` keyed by our `Platform` enum (Buffer's `service` string maps to our enum). Redirects to `/settings/integrations?buffer=connected`.
+- [ ] **Disconnect**: `POST /api/integrations/buffer/disconnect` — hard-deletes the `AgencyIntegration` row + writes a `SystemAuditLog` breadcrumb (agency-side action, but audit-worthy). Any outputs still in SCHEDULED with `externalScheduler=BUFFER` are downgraded to MANUAL by the same server action — they can't be synced anymore, so we surface a "verify posted" banner on the calendar for those rows.
+
+### 3.3.5 DB helpers (`server/db/outputs.ts` + new `server/db/integrations.ts`)
+
+- [ ] `scheduleOutput(ctx, outputId, { scheduledFor, memberId, externalScheduler })` — `APPROVED → SCHEDULED`, writes `OutputTransition`. Validates `scheduledFor > now()` (unless status is being back-dated on a MANUAL "already posted" flow — separate helper).
+- [ ] `unscheduleOutput(ctx, outputId, byMemberId)` — `SCHEDULED → APPROVED`, clears `scheduledFor`/`externalScheduler`/`externalPostId`. If Buffer-backed, the server action separately calls `deleteUpdate` on Buffer before this DB helper runs (best-effort — a 404 on Buffer is treated as already-deleted).
+- [ ] `markOutputPublished(ctx, outputId, { publishedAt, externalPostUrl?, byMemberId? })` — `SCHEDULED → PUBLISHED`. Called by cron (`byMemberId: null`) OR by a user hitting "Mark published" (`byMemberId: authed member`).
+- [ ] `listScheduledOutputsForAgency(ctx, { fromIso, toIso, clientId?, showId?, platform? })` — powers the calendar. Includes `PUBLISHED` in the window (past) + `SCHEDULED` (future). Bounded window enforcement (max 90 days) so a naive `?fromIso=1970-01-01` doesn't scan the world.
+- [ ] `server/db/integrations.ts`:
+  - `getBufferIntegrationForAgency(ctx)` — returns `{ accessToken, meta, autoMarkPublished }` after decryption or `null`.
+  - `connectAgencyIntegration(ctx, { provider, tokens, meta, memberId })` — upserts + writes an audit-worthy transition (via a new `IntegrationTransition` log? Or fold into `OutputTransition`? Decision: new `IntegrationConnection` log OR skip in favor of `SystemAuditLog` since this is an agency-scoped op that platform admins may also want visibility on — **choose: `SystemAuditLog` write only for platform-admin visibility; no per-tenant table**).
+  - `disconnectAgencyIntegration(ctx)` — deletes the row + downgrades in-flight SCHEDULED outputs to MANUAL.
+
+### 3.3.6 Buffer API client (`server/integrations/buffer.ts`)
+
+- [ ] `createUpdate({ accessToken, profileId, text, scheduledAt, media? })` → `{ id, service, dueAt }`. Wraps `POST /1/updates/create.json` (form-encoded — Buffer's API is v1 legacy). Retries on 5xx, throws `BufferError { status, body }` on 4xx.
+- [ ] `getUpdate({ accessToken, id })` → `{ id, status: "buffer" | "sent" | "failed", sentAt?, publicUrl? }` — powers the sync cron.
+- [ ] `deleteUpdate({ accessToken, id })` — used by `unscheduleOutput` before the DB write. 404 is a non-error.
+- [ ] `listProfiles({ accessToken })` — enumerate connected social profiles + service (twitter, linkedin, instagram, tiktok) so the connect flow can map them into our `Platform` enum.
+- [ ] All calls use a 15 s timeout via `AbortController`. Rate-limit backoff is baked into the retry policy (Buffer returns `X-RateLimit-Remaining`; when 0, sleep to `X-RateLimit-Reset`).
+
+### 3.3.7 Server actions (`app/(dashboard)/schedule/actions.ts`)
+
+- [ ] `scheduleOutputAction({ outputId, scheduledForIso, mode: "auto" | "buffer" | "manual" })` — `EDITOR+` role gate. Flow:
+  1. Load output, verify tenant, verify status `APPROVED`, verify `scheduledForIso > now()`.
+  2. Resolve mode: `"auto"` = Buffer if connected AND platform supported, else Manual. `"buffer"` = force Buffer (fail if not connected or platform unsupported). `"manual"` = never touch Buffer.
+  3. If Buffer: fetch the integration, resolve the Buffer profile id for the platform from `meta.profiles`, call `createUpdate`, capture `externalPostId` + `publicUrl`.
+  4. Call `scheduleOutput` DB helper with the resolved values.
+  5. Revalidate `/schedule` + the episode page.
+- [ ] `unscheduleOutputAction({ outputId })` — reverse. Deletes Buffer update first, then DB flip.
+- [ ] `markOutputPublishedAction({ outputId, publishedAtIso?, externalPostUrl? })` — MANUAL only (Buffer path is cron-driven). Editor+ role.
+- [ ] `bulkScheduleOutputsAction({ outputIds, scheduledForIso, mode })` — powers a "Schedule 8 posts" affordance on the episode grid. Same tenancy checks; per-output failure isolates (returns per-id ok/error map).
+
+### 3.3.8 Inngest functions
+
+- [ ] **`push-to-buffer`** (event `output/schedule.push.requested`) — used by the scheduling action when Buffer mode is chosen. Retries: 3, `onFailure` writes `AgencyIntegration.lastSyncError` and downgrades the row to MANUAL so the user can retry manually. Not co-invoked from the action synchronously because Buffer's API can be slow (~1–2 s) and blocking the action hurts UX — action returns immediately with `SCHEDULED` state + `externalScheduler: null` until push completes.
+  - Wait, this creates a race: user reloads and sees a MANUAL-looking SCHEDULED row before push completes. Decision: run push **synchronously** in the action for now (Buffer p95 is fast enough) and only fall back to Inngest for retry on transient failures. Keeps the UX truthful.
+- [ ] **`sync-scheduled-outputs`** (cron every 5 min) — scans `GeneratedOutput` where `status = SCHEDULED`:
+  - Buffer-backed rows: batch-load each row's agency integration, call `getUpdate`, flip to `PUBLISHED` when Buffer reports `sent`. Skip rows created < 60 s ago (Buffer's `buffer` state is our expected mid-flight state).
+  - Manual rows: if `scheduledFor < now()` and the agency's `autoMarkPublished` is true, flip to `PUBLISHED` (audit as cron-driven).
+  - Missing integration (agency disconnected mid-flight): downgrade to MANUAL, surface banner.
+- [ ] **`refresh-buffer-tokens`** (cron daily at 03:00 UTC) — Buffer OAuth tokens don't expire in v1's model (Buffer honors long-lived tokens), but if we upgrade to v2 or add Typefully, this hook is where refresh lives. Stub for now.
+
+### 3.3.9 UI — `/schedule` page
+
+- [ ] **Layout**: month calendar grid (7 columns × 5–6 rows). Header shows the month + prev/next arrows + "Today" + filter chips (client, show, platform, mode).
+- [ ] **Day cell**: shows up to 3 post pills stacked (platform icon + client host); "+N more" chip when the day has more. Empty days render dimmed.
+- [ ] **Day drawer**: clicking a day opens a right-hand drawer showing every scheduled/published post that day, grouped by client. Each item is a slimmed-down OutputCard variant (`ScheduledOutputCard`) with unschedule + edit-content + reschedule affordances.
+- [ ] **Empty state**: "Nothing scheduled this month" + link back to episodes.
+- [ ] **Server component** — `page.tsx` awaits `listScheduledOutputsForAgency` for the current month; drawer opens are client-side.
+- [ ] **URL state** — `?month=YYYY-MM&client=<id>&platform=<enum>` so the calendar is deep-linkable and back-button friendly.
+
+### 3.3.10 UI — episode page & OutputCard CTA
+
+- [ ] **APPROVED card** gains a "Schedule…" button next to "Regenerate". Opens a small popover with:
+  - Date + time picker (default: next weekday 09:00 in agency's preferred timezone).
+  - Mode radio: `Auto` (default) / `Force Buffer` / `Manual only`. Disabled options are grayed out with a hint (e.g. "Connect Buffer in settings" when no integration).
+  - Submit fires `scheduleOutputAction`.
+- [ ] **SCHEDULED card** shows the scheduled date + platform + "View in Buffer ↗" link (if Buffer-backed) + "Unschedule" + "Reschedule…".
+- [ ] **PUBLISHED card** shows the published-at date + "View post ↗" link (external URL from Buffer or user-provided).
+- [ ] **Bulk schedule** on the episode header — "Schedule 8 approved posts…" opens a similar popover; auto mode assigns per-platform staggered times (e.g. one every 2 hours across a weekday).
+
+### 3.3.11 UI — Settings › Integrations
+
+- [ ] New route `/settings/integrations`. Cards for each provider:
+  - **Buffer** — shows connected state, connected-by member, connected-at date, list of enumerated profiles per platform, `autoMarkPublished` toggle, disconnect button (requires typing "disconnect" to prevent accidents — 30d worth of scheduled posts get downgraded).
+  - **Typefully / Native platforms** — "Coming soon" stubs so the layout is future-proof.
+- [ ] Role gate: OWNER/ADMIN only for connect/disconnect. EDITOR/REVIEWER can see the current state but not change it.
+
+### 3.3.12 Env additions
+
+- [ ] `BUFFER_CLIENT_ID` — from Buffer's developer console.
+- [ ] `BUFFER_CLIENT_SECRET` — same.
+- [ ] `BUFFER_REDIRECT_URI` — computed at runtime from `NEXT_PUBLIC_APP_URL` + `/api/integrations/buffer/callback`; env override supported.
+- [ ] `INTEGRATION_ENCRYPTION_KEY` — 32 raw bytes base64-encoded. Generated once, never rotated in v1.
+
+### 3.3.13 Testing
+
+- [x] `tests/server/db/outputs-schedule.test.ts` — schedule/unschedule/mark-published + tenant scoping + status-transition legality (38 tests: `scheduleOutput` role gate + `findFirst` tenant filter + rejects every non-APPROVED status + rejects superseded rows + rejects past dates + writes SCHEDULED-plus-transition in one `$transaction`; `unscheduleOutput` clears every scheduling column + rejects every non-SCHEDULED source status; `markOutputPublished` enforces role only when `memberId` is set (cron path with `memberId=null` skips the gate) + preserves the existing `externalPostUrl` when the caller doesn't provide one; `listScheduledOutputsForAgency` bounds at 90 days + rejects `to <= from`; `listInFlightScheduledOutputs` drops half-null legacy rows + threads the derived `agencyId` through the join).
+- [x] `tests/actions/schedule-output.test.ts` — server action flow (23 tests): sample-data short-circuits without auth/DB/Buffer; auto mode picks BUFFER only when connected AND platform is Buffer-supported (else MANUAL); force-buffer surfaces `no_buffer` / `unsupported_platform` / `no_profile` / `buffer_error` distinctly; manual mode never consults Buffer even for TWITTER; past-date rejection returns `ok: false` with no DB write; Buffer's `createPost` fires strictly before the DB flip (asserted via `invocationCallOrder`); `unscheduleOutputAction` calls `deletePost` before the local downgrade and treats a Buffer failure as best-effort; race with the sync cron surfaces as `stale_state` with revalidation.
+- [x] `tests/server/integrations/buffer-client.test.ts` — mocked `fetch` (25 tests): `exchangeCode` + `refreshAccessToken` POST form-encoded bodies with the right grant fields and derive `expiresAt` from `expires_in`; GraphQL transport sends `Bearer` + JSON, retries 5xx up to 3× with backoff (fake timers) but not 4xx, throws `BufferError` on 401 without a refresher OR on 200-with-`errors`; 401 → refresher → retry loop uses the fresh token on the second call; `deletePost` swallows 4xx "not found" AND 200-with-errors "does not exist" as `{ deleted: false }`, re-throws other 4xx; `listOrganizationsAndChannels` maps Buffer's `service` onto our `Platform` enum with unknown services falling through as `platform: null`.
+- [x] `tests/inngest/sync-scheduled-outputs.test.ts` — extracted `syncScheduledOutputsHandler` (15 tests): Buffer `sent` / `success` → PUBLISHED with `publishedAt` from Buffer's `sent_at` + external URL + transition row; `buffer` / row-younger-than-60s / not-in-recent-window all → skip with no writes; `error` / `failed` → OutputStatus.FAILED; missing integration downgrades every in-flight BUFFER row for that agency to MANUAL without a status flip; MANUAL past `scheduledFor` publishes when `autoMarkPublished` is default-true or explicit-true, skips when explicit-false; MANUAL still in the future is always skipped; a per-org Buffer poll failure increments the error counter without aborting the run (next cron retries).
+- [x] `tests/server/crypto/token-vault.test.ts` — landed with 3.3.15/2: 5 unit tests covering AES-256-GCM round-trip, tampered-ciphertext rejection, missing-key + wrong-length-key + malformed-payload paths.
+
+### 3.3.14 Rollout & feature-flag plan
+
+- [ ] Ship behind a `SCHEDULING_ENABLED` PostHog flag scoped to internal agencies for 1 week.
+- [ ] Migrate historical `APPROVED` outputs untouched — nothing about their status changes.
+- [ ] Announcement email (Resend template) to all OWNER accounts when public.
+
+### 3.3.15 Ship order (intra-slice)
+
+- [x] 1. Schema migration + enum + AgencyIntegration model. Landed in `20260701030000_scheduling` with the `ExternalScheduler` enum, six columns on `GeneratedOutput` (all nullable, no backfill), the `AgencyIntegration` table with `@@unique([agencyId, provider])`, and two calendar-hot-path indices (`scheduledFor`, `(status, scheduledFor)`).
+- [x] 2. `server/crypto/token-vault.ts` + tests. AES-256-GCM helper keyed by `INTEGRATION_ENCRYPTION_KEY` (32-byte base64). Storage format `<iv>.<ct>.<tag>`. 5 unit tests covering round-trip, tampered-ciphertext rejection, missing-key + wrong-length-key + malformed-payload.
+- [x] 3. `server/db/outputs.ts` schedule helpers + `server/db/integrations.ts`. `scheduleOutput` / `unscheduleOutput` / `markOutputPublished` / `listScheduledOutputsForAgency` (90-day cap) / `listInFlightScheduledOutputs` (cron scan). Integrations layer: `getBufferIntegrationForAgency` (tenant-scoped, decrypts), `connectBufferIntegration` / `disconnectBufferIntegration` (downgrades in-flight rows), `stampIntegrationSync`.
+- [x] 4. `server/integrations/buffer.ts` client. `exchangeCode`, `listProfiles`, `createUpdate`, `getUpdate`, `deleteUpdate`. Retries on 5xx, form-encoded, 15 s timeout. `BufferError { status, body }` on 4xx.
+- [x] 5. Server actions. `scheduleOutputAction` (auto/buffer/manual mode resolution + synchronous Buffer push), `unscheduleOutputAction` (Buffer delete first, then DB downgrade), `markOutputPublishedAction`.
+- [x] 6. Buffer OAuth routes + `/settings/integrations` page. `/api/integrations/buffer/{connect,callback,disconnect}`. HMAC-signed state cookie (10 min), state-param verification pins agencyId + nonce. Settings page renders the connect/disconnect card + connected profile chips + last-sync surface. Owner/Admin only for mutations.
+- [x] 7. `/schedule` page + calendar UI. Month grid (7×6, Monday-start) with per-day pills grouped by platform, right-drawer showing every scheduled/published post for the clicked day, deep-linkable via `?month=YYYY-MM`.
+- [x] 8. OutputCard schedule CTA. Compact `<OutputScheduleFooter>` under each card in the episode grid: "Schedule…" popover on APPROVED with a datetime picker + Auto/Buffer/Manual radio; SCHEDULED shows the target time, service, and Unschedule + Mark-published buttons; PUBLISHED shows the publish time + external post link. Buffer radio disables cleanly when the agency isn't connected.
+- [x] 9. Inngest `sync-scheduled-outputs` cron. Every 5 minutes: polls Buffer for BUFFER-backed SCHEDULED rows (flips to PUBLISHED on `sent`, FAILED on `failed`, skips still-`buffer`); auto-publishes MANUAL rows past `scheduledFor` when the agency's `autoMarkPublished` flag is on (default true, opt-out per agency). Missing agency integration mid-flight → downgrade to MANUAL. Registered in `inngest/functions.ts`.
+- [ ] 10. Feature flag + rollout email. Deferred — not blocking. Wire behind `SCHEDULING_ENABLED` PostHog flag once the first agency connects.
+
+### 3.3.16 Going fully native (deferred — Phase 4)
+
+Buffer is a rented dependency: Buffer changes terms, we change with them. A first-party integration removes that risk but is materially more work. What it costs:
+
+- **OAuth apps on every network** — Twitter/X Developer Portal + LinkedIn Marketing Developer Platform + Meta for Developers (Instagram Graph API via a Business account) + TikTok Business Content Posting API. Each has its own review process; TikTok's takes weeks and requires demo videos.
+- **Per-network posting clients** — separate `server/integrations/{twitter,linkedin,instagram,tiktok}.ts` clients, each with their own auth, upload flow (Instagram/TikTok require media containers), rate limits, and error semantics.
+- **Media pipeline** — Instagram/TikTok can't post text-only. We'd need R2 media hosting + resize/encode workers for image/video variants (Instagram's aspect-ratio rules are strict; TikTok requires MP4 with specific codec/bitrate ranges).
+- **Token refresh at scale** — LinkedIn tokens expire at 60 days; Instagram at 60 days; Twitter/X uses OAuth 2.0 PKCE with short-lived access tokens + refresh tokens; TikTok has 24-hour access tokens. A daily refresh cron becomes load-bearing.
+- **Rate-limit accounting** — Buffer's per-account rate limit is one shared bucket. First-party means per-account, per-network buckets and separate backoff strategies (Twitter's tiered access levels: free tier = 500 posts/month; paid tiers with higher limits).
+- **Retry semantics** — Buffer collapses transient errors internally; first-party means our cron has to distinguish "temporarily failed, retry" (network 5xx, rate limit) from "permanently failed, alert user" (auth revoked, content rejected by network policy).
+- **Compliance surface** — each network has a rejected-content policy (Twitter's automation rules, LinkedIn's spam heuristics, Instagram's Community Guidelines). A user's post being rejected by the network is a support ticket we now have to triage; Buffer absorbs that today.
+- **Analytics parity** — Buffer surfaces per-post impressions, clicks, retweets, etc. via `/updates/{id}/interactions`. First-party means pulling from each network's Insights API — LinkedIn's requires a different Marketing Developer approval level, TikTok's Business API is invite-only.
+
+**Rough sizing:** Buffer path is ~2–3 weeks of one engineer. First-party path is ~2–3 months, dominated by (a) waiting on TikTok Business API approval, (b) the media encoding pipeline for Instagram/TikTok, and (c) the token refresh cron plus the failure triage UI that lets support see why a post was rejected. Recommendation: ship Buffer now (§3.3.1–15) and re-evaluate first-party once we have >200 scheduling-active agencies and Buffer's fee curve starts hurting the P&L.
+
+## 3.4 Affiliate program — skipped
+
+Deferred out of Phase 3. Rewardful/Tolt integration is straightforward
+whenever we come back (script tag + swap `client_reference_id` on the
+two Stripe Checkout calls) but there's no signal yet that referrals
+would move the needle at our current scale, and the $49/mo floor eats
+into margins with zero affiliates. Revisit once organic growth plateaus
+and we have a partner or two asking for it.
 
 ## 3.5 Network tier & priority
 
-- [ ] Add NETWORK ($499) Stripe product + limits (25 shows, unlimited seats, batch + priority)
-- [ ] Priority generation queue (Inngest concurrency keyed by plan)
+- [x] **NETWORK ($499) Stripe product + limits** — landed as part of the
+  original 3-tier product setup (see `lib/plans.ts`, `scripts/configure-
+  stripe-plans.ts`, `NEXT_PUBLIC_STRIPE_NETWORK_{MONTHLY,ANNUAL}_PRICE_ID`
+  in `.env.example`). Caps: 25 shows, ~unlimited seats (999), 200
+  episodes/mo, 1400 generations/mo, $200 monthly cost cap. Batch
+      generation is `assertMinPlan(NETWORK)`-gated at both the UI and repo
+      layer (`server/db/episodes.ts` in `bulkGenerateEpisodes`).
+- [x] **Priority generation queue** — `generate-episode` and
+      `regenerate-output` both carry a two-layer concurrency config +
+      `priority.run` expression. NETWORK events cut 120 s ahead of default
+      priority; global limit is 10, per-agency limit is 3 (keyed on
+      `event.data.agencyId`) so one agency's batch can't monopolize slots.
+      Dispatchers on `createEpisodeAction`, `bulkGenerateEpisodesAction`,
+      `regenerateOutputAction`, and the transcript-update fallback all tag
+      events with `plan` + `agencyId`. Upstream import fns (transcribe /
+      RSS / YouTube) carry the tags forward so a NETWORK dispatch through
+      the RSS pipeline still ends up at NETWORK priority when it lands at
+      generate. Config shape pinned by `tests/inngest/priority-queue.test.ts`
+      so a future refactor can't silently drop it.
 
 ## 3.6 ROOT user & platform admin backend
 
@@ -828,7 +1013,7 @@ Three forward-only steps: **Workspace → Teammates → First client**. The trai
 - [x] **`SystemAuditLog` model** — landed in the same migration. Fields + indices match the spec (`bySystemAdminId, createdAt DESC`, `targetAgencyId, createdAt DESC`, `action, createdAt DESC`, `createdAt DESC`). FK to `SystemAdmin` is `ON DELETE RESTRICT` as a defense-in-depth backstop against an accidental hard-delete that would orphan audit history; soft-delete via `deactivatedAt` is the only supported teardown.
 - [x] **Action key registry** — `server/db/system/audit-actions.ts` exports a `SYSTEM_AUDIT_ACTIONS` const map (22 keys covering agency lifecycle, subscription/invoice, member, admin, config, support, abuse, impersonation). The `action` column stays free-form `String` so adding a new action doesn't need a migration; the TS layer enforces consistency via `SystemAuditAction` union.
 - [x] **`withSystemAudit(ctx, input, fn)`** — `server/db/system/audit.ts`. Wraps the callback in a single `prisma.$transaction`; passes the TX client + a `MutableAuditSnapshot` helper (`setBefore`/`setAfter`/`setNote`) so the action can refine the snapshot based on its own write result. Snapshots are deep-cloned through `JSON.parse(JSON.stringify(...))` so a later mutation of the source object can't poison the audit row. The audit row insert runs INSIDE the same TX as the mutation — either both land or both roll back. 6 unit tests cover the happy path, mutation-throws → audit-never-written, audit-throws → wrapper-rejects, default-null snapshot path, and deep-clone semantics.
-- [ ] **`/root/audit` log viewer** — paginated, filterable by admin, action, target agency, date range. Read-only. Always-on, no soft-delete affordance even for the ROOT user themself (audit log is constitutional, not editable).
+- [x] **`/root/audit` log viewer** — landed. `server/db/system/audit.ts#listSystemAuditEntries` powers a paginated list (25/page) filterable by admin, action, agency-name substring, and `createdFrom`/`createdTo` date range. Rendered at `app/(root)/root/audit/page.tsx` as expandable cards per entry: header shows action + admin + relative time + target agency; the drilldown reveals actor email, target agency drilldown link (or free-form entity type/id), target member id, IP, user-agent, and side-by-side Before / After JSON snapshots. Read-only by construction — no delete or update helpers exported from `audit.ts`, so the ledger cannot be tampered with even by ROOT. 22 tests in `tests/server/db/system-audit-list.test.ts` cover role gate + each filter axis + agency-name enrichment.
 - [ ] **Optional: pipe `SystemAuditLog` writes to Sentry as `audit.event` breadcrumbs** so an external SIEM can ingest them too.
 
 ### 3.6.3 Route layout (`/root/*`)
@@ -843,8 +1028,8 @@ Three forward-only steps: **Workspace → Teammates → First client**. The trai
 - [ ] `/root/operations` — cost-to-serve, AI spend, R2 storage, generation queue health.
 - [ ] `/root/quality` — flagged outputs, support requests, abuse reports.
 - [ ] `/root/config` — feature flags, plan-limit overrides, prompt rollouts.
-- [ ] `/root/audit` — audit-log viewer.
-- [ ] `/root/system` — health checks (DB, Inngest, Clerk, Stripe, R2, Resend, Sentry, PostHog reachability + latency).
+- [x] `/root/audit` — audit-log viewer. Filterable expandable-card list with before/after JSON snapshots. Read-only by construction. See §3.6.2.
+- [x] `/root/system` — reachability grid across 9 providers (DB, Inngest, Clerk, Stripe, R2, Resend, Anthropic, Sentry, PostHog). See §3.6.12.
 - [ ] **Layout chrome:** separate sidebar from the tenant dashboard. Red-tinted top bar that reads "ROOT MODE" so an operator never forgets they're in the platform admin (preventing the classic "ran a dev query on prod" confusion).
 
 ### 3.6.4 Platform overview dashboard (`/root`)
@@ -890,92 +1075,73 @@ Single screen, KPI-dense, no scrolling for the must-see numbers.
   - **Billing** — Stripe sub + invoice list with hosted PDF links, payment-method last-4, next-charge date
   - **Usage** — full `UsageLog` per-episode breakdown, model used, tokens in/out, cost, profit margin
   - **Audit** — `SystemAuditLog` filtered to `targetAgencyId == this`
-- [ ] **ROOT actions per agency** (all wrapped in `withSystemAudit`):
-  - **Suspend / Unsuspend** — `Agency.suspendedAt DateTime?` (new column). Suspended agencies bounce on dashboard with a "Your account is suspended — contact support" page. New schema migration. Existing read-only export still allowed (data preservation).
-  - **Force-cancel subscription** — calls Stripe `subscription.cancel({ invoice_now: true, prorate: true })`, syncs back to `Agency.plan = STUDIO`. Confirm dialog required.
-  - **Grant plan override** — bumps an agency to a plan above their paid tier without charging (comp account for partners, beta testers, support escalations). New `Agency.planOverride Plan?` column; `getAgencyPlan()` returns `planOverride ?? plan`. Audit row captures the comp justification.
-  - **Refund last invoice** — does NOT process refund directly; opens Stripe dashboard to the invoice with a deep link, prefills a `SystemAuditLog` row with `action: "invoice.refund_request"` so the operator notes _why_ they refunded. Manual side: actual refund must happen in Stripe so the webhook path stays the single source of truth.
-  - **Hard-delete agency (ROOT only, irreversible)** — confirmation modal requires typing the agency name. Triggers cascade through `onDelete: Cascade`. Pre-flight: lock all R2 objects scoped under `audio/<agencyId>/...` and `artwork/<agencyId>/...` into a 30-day quarantine prefix before delete so GDPR-style recovery is possible.
+    **ROOT actions per agency** (all `withSystemAudit`-wrapped, all landed):
+
+- [x] **Suspend / Unsuspend** — `Agency.suspendedAt DateTime?` column landed in `20260701020000_agency_root_actions`. Suspended agencies bounce on the dashboard with a "your account is suspended" screen; ROOT-side read paths (data export) still resolve. `suspendAgency` / `unsuspendAgency` in `server/db/system/agencies.ts`.
+- [x] **Force-cancel subscription** — `forceCancelAgencySubscription` calls Stripe `subscription.cancel({ invoice_now: true, prorate: true })`, syncs `Agency.plan = STUDIO`, audits under `SUBSCRIPTION_FORCE_CANCEL`. Confirmation gate in the UI.
+- [x] **Grant / revoke plan override** — `Agency.planOverride Plan?` column landed in the same migration. `getAgencyPlan()` returns `planOverride ?? plan`. `grantAgencyPlanOverride` + `revokeAgencyPlanOverride` land audit rows with the comp justification.
+- [x] **Refund last invoice (intent-only)** — `recordInvoiceRefundIntent` writes an `INVOICE_REFUND_REQUEST` audit row with the operator's reason; the actual refund still happens manually in Stripe so the webhook path stays the single source of truth. Deep-links to the Stripe dashboard from the UI panel.
+- [x] **Hard-delete agency (ROOT only, irreversible)** — landed. `hardDeleteAgency` gated to `SYSTEM_ROOT_ONLY`; requires the operator type the agency name verbatim + a ≥ 10 char audit note; refuses if the agency still has an active Stripe subscription (webhook path would otherwise keep billing a ghost). R2 quarantine (`quarantineR2AgencyPrefixes` in `server/storage/r2.ts`) copies every object under `audio/<agencyId>/` and `artwork/<agencyId>/` into `_quarantine/<agencyId>/<isoTimestamp>/<originalKey>` before deleting the originals — restoration is a straight prefix strip. Copy failures abort the DB delete. `AGENCY_HARD_DELETE` audit row lands with the full pre-delete snapshot + quarantine summary. UI form at `components/root/agency-actions-panel.tsx:445` sits behind the name-confirmation input.
+
+Coverage: 27 tests in `tests/server/db/system-agency-actions.test.ts` (10 dedicated to hard-delete alone) cover role gate, confirmation-name mismatch, active-Stripe-sub refusal, quarantine no-op when R2 unconfigured, audit-row-in-same-TX, `NotFoundError` on missing agency.
 
 ### 3.6.6 Impersonation (read-only by default)
 
-- [ ] **`/root/agencies/[id]/impersonate?as={memberId}`** — opens a session-scoped impersonation envelope. Visual treatment: every page renders a top banner `"VIEWING AS {name} ({email}) — agency {agencyName} — read-only — End impersonation →"`. Banner color: bright orange (different from ROOT red) so the operator is never confused about which mode they're in.
-- [ ] **Implementation**: `getAuthContext()` reads an `impersonate` cookie (`{ systemAdminId, asMemberId, agencyId, mode: "read" | "write", startedAt }`) and **swaps** the resolved `TenantContext` to the impersonated agency. All subsequent reads go through the normal tenant-scoped repos with the impersonated agency's `agencyId`. Writes are blocked at the action layer: every server action's first line is `assertNotReadOnlyImpersonation()` which throws `ForbiddenError` if `mode == "read"`. Cookie is `httpOnly`, `secure`, expires after **60 minutes** so a forgotten tab can't sit live forever.
-- [ ] **`mode: "write"` (ROOT only)** — for cases where the operator must make a change with the customer on the phone (e.g. re-name a show with a typo). Banner flips to red, mutations allowed but every action ALSO inserts a `SystemAuditLog` row with `action: "tenant.proxy_write"` so the change is double-attributed.
-- [ ] **End impersonation** — banner button clears the cookie + redirects to `/root/agencies/[id]` with a toast confirming the session ended.
+- [x] **Read-only envelope** — `repodcast_impersonate` cookie (`{ systemAdminId, asMemberId, agencyId, mode: "read", startedAt }`) is HMAC-SHA256 signed via `IMPERSONATION_SIGNING_KEY` (≥ 32 bytes), `httpOnly` + `secure` + `sameSite: lax`, 60-minute `maxAge`. Format `<base64url(payload)>.<base64url(sig)>`, signature checked in constant time on every dashboard render. Tampered / expired / unsigned cookies decode to `null` (silently — same as no cookie).
+- [x] **`getAuthContext()` swap** — when a valid envelope is present AND the SystemAdmin row still resolves, `agency` + `member` are swapped to the impersonated pair while `auth.user` still points at the SystemAdmin's Clerk profile (we never lie about who's actually clicking). Stale envelopes (admin deactivated mid-session, target member deleted, agencyId mismatch) fall through to the normal tenant lookup.
+- [x] **Read-only enforcement** — chokepoint sits in `requireRole(ctx, ...)` (`server/auth/tenant.ts`): any role-gated write under `impersonation.mode === "read"` throws `ForbiddenError`. The dual `assertRole(ctx, ...)` (`server/auth/context.ts`) carries the same guard. `assertNotReadOnlyImpersonation(ctx)` exists as an explicit helper for actions that don't role-gate. Write-mode envelopes pass through the chokepoint untouched — they land with step 10.
+- [x] **Banner** — `<ImpersonationBanner>` mounted in `(dashboard)/layout.tsx` whenever the resolved context carries an envelope. Bright orange in read mode, copy matches PLAN: `"VIEWING AS {name} ({email}) — agency {agencyName} — read-only — End impersonation →"`. The shape supports a red write-mode variant for step 10 with no extra wiring.
+- [x] **Start / end actions** — colocated in `app/(root)/root/agencies/[id]/impersonate-actions.ts`. Start probes the signing key up front (no phantom audit row when the env is missing), gates to `SYSTEM_WRITE_ROLES`, verifies the target Member belongs to the named agency, writes `IMPERSONATE_START` via `withSystemAudit`, sets the cookie, redirects to `/dashboard`. End reads the live cookie, writes `IMPERSONATE_END`, clears the cookie, redirects back to the drilldown. Both capture IP + UA off the request headers for the audit row.
+- [x] **Members panel** — `<AgencyMembersPanel>` renders on the agency Overview tab (the dedicated Members tab stays `soon` until a later slice), one row per Member sorted by role rank, "Impersonate" button hidden for SUPPORT/ANALYST viewers since the action would 403 anyway.
+- [ ] **`mode: "write"` (ROOT only)** — for cases where the operator must make a change with the customer on the phone (e.g. re-name a show with a typo). Banner flips to red, mutations allowed but every action ALSO inserts a `SystemAuditLog` row with `action: "tenant.proxy_write"` so the change is double-attributed. Lands with ship-order step 10.
 
 ### 3.6.7 Financial dashboard (`/root/finance`)
 
-- [ ] **MRR breakdown**
-  - By plan (Studio / Agency / Network)
-  - By cohort (signup month)
-  - By currency (Phase 2 has `Agency.preferredCurrency`)
-- [ ] **Movement waterfall** — for the chosen month: starting MRR + new + expansion (upgrades) − contraction (downgrades) − churn = ending MRR
-- [ ] **Cohort retention heatmap** — N×M grid: rows are signup months, columns are months-since-signup, cells are "% of cohort still subscribed." Standard SaaS chart, but with `Agency.createdAt` + Stripe sub state as the source.
-- [ ] **Invoices** — global table of every `Invoice` row across all agencies. Filter by status (PAID / OPEN / VOID / UNCOLLECTIBLE), agency, date range. Quick links to Stripe-hosted PDF and Stripe dashboard.
-- [ ] **Disputes & failed payments** — pulled from Stripe `customer.subscription.{paused, deleted}` + `invoice.payment_failed` events (already handled in the existing webhook; surface them here).
-- [ ] **CSV export** for finance/accounting hand-off (matches `/clients/[id]/statements/[id]/route.ts` shape patterns).
-- [ ] **LTV / CAC scaffolding** — LTV estimate from average revenue × average lifespan (months); CAC slot is manual entry (`SystemConfig` row, see 3.6.11) since acquisition spend is off-platform. Renders LTV:CAC ratio with a 3× target line.
+- [x] **MRR breakdown** — by plan and by currency, plus a 12-month signup-cohort table with per-cohort retention + current MRR. `server/db/system/finance.ts#getFinanceSummary` parallelises ~9 aggregate queries; MRR sums `priceFor(plan)` against the same `lib/plans.ts` source-of-truth Stripe uses. Per-currency totals stay in their native currency (USD column is USD cents, EUR column is EUR cents); the top-of-page total is USD-normalized. Open to every system read role.
+- [ ] **Movement waterfall** — for the chosen month: starting MRR + new + expansion (upgrades) − contraction (downgrades) − churn = ending MRR. Blocked on a `PlanChange` history table; lands in a follow-up.
+- [~] **Cohort retention** — initial cohort table (signups + retention % + current MRR per month) landed. Full N×M heatmap (months-since-signup × signup-month grid) blocked on subscription-state snapshots; out of v1 scope.
+- [x] **Invoices** — global `<InvoiceTable>` with status / agency-search / date-range filters, 25/page pagination, status pills, Stripe hosted-invoice + PDF links, deep-link to `/root/agencies/[id]` per row. Filter shape pinned by tests.
+- [ ] **Disputes & failed payments** — pulled from Stripe `customer.subscription.{paused, deleted}` + `invoice.payment_failed` events (already handled in the existing webhook; surface them here). Blocked on a queryable surface beyond `WebhookDelivery`; future slice.
+- [x] **CSV export** — `GET /api/root/finance/invoices.csv` shares the dashboard's filter shape, RFC-4180 quoting via `csvCell`, hard-capped at 10,000 rows with an inline `# truncated` footer so finance can spot the cap. Auth gate explicit because the route lives outside the `(root)` group.
+- [ ] **LTV / CAC scaffolding** — LTV estimate from average revenue × average lifespan (months); CAC slot is manual entry (`SystemConfig` row, see 3.6.11) since acquisition spend is off-platform. Renders LTV:CAC ratio with a 3× target line. Blocked on 3.6.11.
 
 ### 3.6.8 Operational analytics (`/root/operations`)
 
-- [ ] **AI spend dashboard**
-  - Total Anthropic spend today / MTD / lifetime
-  - Spend by model (`UsageLog.model` groupBy — Claude version distribution)
-  - Spend by platform (which output platforms are the most expensive to generate)
-  - Spend by agency (top 20 by cost-to-serve)
-  - Margin per agency (revenue − Anthropic cost) — flag agencies with negative margin
-  - **Forecasted month-end spend** = MTD × (days-in-month / current-day)
-- [ ] **Generation queue health**
-  - Inngest function pass/fail/retry rates per function (`generate-episode`, `regenerate-output`, `transcribe-episode`, `import-rss-episode`, `refresh-voice-description`, `cleanup-orphan-audio`, `check-renewals`, `check-onboarding-nudges`)
-  - p50 / p95 / p99 duration per function
-  - Currently-in-flight count
-  - Last 50 failures with `agencyId`, `episodeId`, error message, retry count, deep-link to Inngest dashboard
-  - **Manual re-fire button** per failed run (ROOT + OPERATOR only)
-- [ ] **R2 storage**
-  - Total bytes stored, by prefix (`audio/` vs `artwork/` vs `statements/`)
-  - Top 20 agencies by storage
-  - Orphaned object count + last cleanup-cron run timestamp
-- [ ] **Webhook health**
-  - `WebhookDelivery` rolled up by `source` × day for last 30d
-  - Recent failed dispatches (we don't currently log failures — add a `lastDispatchError String?` + `attempts Int @default(0)` to track retry exhaustion)
-- [ ] **Email deliverability** (Resend)
-  - Sent / delivered / bounced / complained counts per template (welcome / generation-complete / invite / renewal-reminder / onboarding-finish-setup / onboarding-first-client). Requires writing send results to a new `EmailDelivery` log table.
-- [ ] **External API health** — small green/red status grid for each provider (`Anthropic`, `Deepgram`, `Podcast Index`, `Stripe`, `Clerk`, `R2`, `Resend`, `Sentry`, `PostHog`) with last successful round-trip timestamp. Sourced from a periodic Inngest ping cron.
+- [x] **AI spend dashboard** — today / MTD / lifetime tiles, per-model groupBy, top-20 agencies by MTD cost with margin = `priceFor(agency.plan) − costCentsMtd` (negative values flag agencies that lose us money on serving costs alone), straight-line month-end forecast = `mtd × (daysInMonth / dayOfMonth)`. Per-platform spend is deferred because `UsageLog` has no `platform` column — would need either a schema change or a fragile time-window join to outputs.
+- [~] **Generation queue health** — DB-side slice landed: in-flight episode count + failed-24h + failed-lifetime + last 50 failed episodes with `failureReason` and agency context. Inngest-side metrics (pass/fail/retry rates per function, p50/p95/p99 durations, manual re-fire) deferred — each needs the Inngest REST/GraphQL surface + auth, lands as its own slice.
+- [ ] **R2 storage** — total bytes stored by prefix (`audio/` vs `artwork/` vs `statements/`), top 20 agencies by storage, orphaned object count + last cleanup-cron run timestamp. Blocked on an indexed source for storage counters — naive `ListObjectsV2` is expensive at scale; future cron writes counters into a snapshot table.
+- [~] **Webhook health** — initial 30-day surface landed: `WebhookDelivery` rolled up by source over the last 30d + a per-day combined sparkline (zero-filled). Recent-failed-dispatches surface still deferred — needs the `WebhookDelivery.lastDispatchError String?` + `attempts Int @default(0)` columns from the original spec.
+- [ ] **Email deliverability** (Resend) — sent / delivered / bounced / complained counts per template (welcome / generation-complete / invite / renewal-reminder / onboarding-finish-setup / onboarding-first-client). Requires writing send results to a new `EmailDelivery` log table.
+- [ ] **External API health** — small green/red status grid for each provider (`Anthropic`, `Deepgram`, `Podcast Index`, `Stripe`, `Clerk`, `R2`, `Resend`, `Sentry`, `PostHog`) with last successful round-trip timestamp. Sourced from a periodic Inngest ping cron. Lands with §3.6.12.
 
 ### 3.6.9 Cross-agency user search (`/root/users`)
 
-- [ ] Search by email / name / `clerkUserId`. Returns every `Member` row matching.
-- [ ] Click → opens a side-panel with: full identity card, all agency memberships (joined dates, roles), Clerk last-sign-in, ROOT actions: resend welcome / reset password (via Clerk SDK) / open impersonation modal for any of their memberships.
-- [ ] Useful for: support ticket "what agencies am I in?", abuse triage (track a bad actor across tenants), GDPR data-export requests.
+- [x] **Search** — landed. `searchMembersForRoot` groups every `Member` row by `clerkUserId` and returns one row per distinct person with the full list of agency memberships. Substring match on email/name (case-insensitive) + exact-match on any `user_…` id the operator pastes. Empty search short-circuits to zero rows (no accidental "download every member" traffic). Read-open to every system role. 10 tests cover the role gate, empty-search short-circuit, where-clause shape, and per-clerk-user aggregation.
+- [x] **Drilldown at `/root/users/[clerkUserId]`** — landed. Full identity card with avatar (from Clerk), primary email, canonical last-active, and a Clerk-metadata strip (last-sign-in, 2FA enrolled, banned/active state) fetched via `clerkClient.users.getUser` on the single drilldown call. Failure to reach Clerk downgrades to DB-only with a visible amber notice. All agency memberships listed with role / plan / joined date / last-active + per-membership impersonation + resend-welcome buttons.
+- [x] **ROOT support actions** — landed. `resetPasswordAction` mints a one-hour Clerk sign-in-token (`clerkClient.signInTokens.createSignInToken`) and emails the `signInUrl` to the user's primary email via a new `PasswordResetEmail` React Email template. `resendWelcomeAction` re-emits the existing `WelcomeEmail` for one specific agency membership. Both gated to ROOT + OPERATOR (`SYSTEM_WRITE_ROLES`), and both land a `SystemAuditLog` row (`SUPPORT_RESET_PASSWORD` + `SUPPORT_RESEND_WELCOME`) via `withSystemAudit` — external side-effects run BEFORE the audit call so a failed Clerk / Resend dispatch doesn't leave a lying "we did X" audit row.
+- [x] **Sidebar entry** — `/root/users` was already linked in `components/root/root-sidebar.tsx` from the initial ROOT scaffold.
 
 ### 3.6.10 Quality, abuse, and moderation (`/root/quality`)
 
-- [ ] **Flagged outputs queue** — new `GeneratedOutput.flagReason String?` + `flaggedByMemberId String?` + `flaggedAt DateTime?` columns. Tenant members can flag (Phase 4 polish — out of scope for 3.6 ship). ROOT view lists flagged rows across all agencies with full context.
-- [ ] **Abuse reports** — new `AbuseReport` table for inbound complaints (e.g. spam, copyright, brand impersonation). Fields: `id`, `reportedByEmail?` (external), `targetAgencyId?`, `targetMemberId?`, `targetOutputId?`, `category` (enum: `SPAM | COPYRIGHT | IMPERSONATION | HARASSMENT | OTHER`), `body`, `status` (`OPEN | IN_REVIEW | RESOLVED | DISMISSED`), `assignedToSystemAdminId?`, `resolution String?`, `createdAt`, `resolvedAt?`. Inbound channel: a public `/legal/report` form that posts here.
-- [ ] **Support escalations queue** — surface customer-side support requests (when 3.6.13 adds a "request help" button in the dashboard). Triage by status, assigned operator, age.
-- [ ] **Anti-fraud signals** — list of recently-created agencies with high spend / no payment / mismatched IP geolocation / disposable-email domains. Doesn't auto-suspend — just flags for review.
+- [x] **Flagged outputs queue** — landed. `GeneratedOutput.flagReason` + `flaggedByMemberId` + `flaggedAt` columns are in the schema and indexed. `server/db/system/quality.ts#listFlaggedOutputs` powers the cross-agency list; `flagOutput` / `unflagOutput` handle ROOT-initiated flags with `withSystemAudit` (audit keys `ABUSE_ASSIGN` / `ABUSE_DISMISS`). Tenant-side "flag from an OutputCard" UI is still Phase 4 polish.
+- [x] **Abuse reports** — landed. `AbuseReport` model matches the spec (category / status / target pointers / assignee / resolution). Full triage flow: create → assign → resolve / dismiss, all `withSystemAudit`-wrapped and covered by 27 tests in `system-quality.test.ts`. Queue page at `/root/quality` renders paginated + filterable list with inline assign/resolve/dismiss forms.
+- [x] **Public `/legal/report` intake form** — landed. Anonymous submission route (added to middleware public list) with category/body/target-hint/optional-email fields + honeypot spam gate. `submitPublicAbuseReport` skips `withSystemAudit` (no admin actor at intake time) and lands the row OPEN; queue-side transitions still audit-log the operator normally. 5 new tests cover valid intake, empty-hint elision, short-body rejection, invalid-email rejection, and empty-email normalization.
+- [ ] **Support escalations queue** — surface customer-side support requests (blocked on 3.6.13 landing the dashboard "help" button first). Triage by status, assigned operator, age.
+- [x] **Anti-fraud signals** — landed. `listFraudSignalCandidates` scans every OWNER member + one groupBy on `UsageLog` and fires three heuristics: `young_high_spend_no_sub` (< 7 days old, > $50 spend MTD, no Stripe sub), `disposable_email` (OWNER domain in an in-code allowlist of ~18 known disposable providers), and `multi_agency_same_owner` (same `clerkUserId` on more than one agency). Sorted by signal-count desc → spend desc → newest first; surfaces as a table on `/root/quality`. 10 new tests cover each heuristic + the sort order + role gate + zero-spend fallback.
 
 ### 3.6.11 Platform configuration (`/root/config`)
 
-- [ ] **`SystemConfig` model** — flat key/value table (`key @unique`, `value Json`, `updatedAt`, `updatedBySystemAdminId`). Stores: feature-flag overrides not in PostHog (e.g. `RSS_IMPORT_ENABLED`), per-plan limit overrides (rare — most plan limits are in `lib/plans.ts`), Anthropic model defaults, monthly cost-cap overrides per plan, CAC entry for LTV:CAC, marketing copy that can change without redeploy.
-- [ ] **Per-agency plan-limit override** — sometimes a customer hits a limit and we want to comp them an extra 50 episodes without changing their plan. New `AgencyLimitOverride` table (`agencyId`, `resource`, `value Int`, `expiresAt?`, `note`, `bySystemAdminId`). `planCapacity()` consults this table and uses the override if present + unexpired. Audit-logged.
-- [ ] **Prompt rollouts** — Phase 4-shaped feature: A/B test a new prompt against current production for a subset of agencies. Implemented as a `SystemConfig` row driving a deterministic hash check (`hashAgencyId(agencyId) % 100 < experiment.percent`). Outside the ROOT-shipping scope but documented here so the config surface is the right home for it.
-- [ ] **Read-only "config history"** — `SystemConfig` writes hit `SystemAuditLog` with `action: "config.update"` + before/after JSON.
+- [x] **`SystemConfig` model** — landed in migration `20260701000000_system_config`. Flat key/value table with `key @unique`, `value Json`, `description`, `updatedBySystemAdminId` (FK Restrict to `SystemAdmin`), plus `createdAt`/`updatedAt`. `server/db/system/config.ts` exposes the full CRUD surface: `listSystemConfig` (read-open), `getSystemConfigValue` (non-throwing read for consumption paths), `upsertSystemConfig` + `deleteSystemConfig` (both `SYSTEM_WRITE_ROLES`, both `withSystemAudit`-wrapped). Delete requires an audit note ≥ 3 chars. `/root/config` renders the full list with per-key edit / delete / add-new forms; role gate hides the mutation surface for SUPPORT / ANALYST.
+- [x] **Per-agency plan-limit override** — landed in the same migration. `LimitOverrideResource` enum (`SHOWS | MEMBERS | EPISODES | GENERATIONS`) + `AgencyLimitOverride` table (`agencyId`, `resource`, `value Int`, `expiresAt?`, `note`, `bySystemAdminId`, composite `@@unique([agencyId, resource])`). `planCapacity()` in `server/billing/limits.ts` calls `getEffectiveLimitOverride` and uses the override outright when live — operators can raise **or** cap an abusing agency below its plan tier. Upsert / revoke both `withSystemAudit`-wrapped with the `CONFIG_AGENCY_LIMIT_OVERRIDE` action key. `/root/config` has a second section with the full override table + edit / revoke forms.
+- [ ] **Prompt rollouts** — deferred per PLAN header. Documented as belonging on this surface (a future `SystemConfig` row driving `hashAgencyId(agencyId) % 100 < experiment.percent`), but out of ROOT-shipping scope. Everything the surface needs to serve them is already here — no schema churn expected when it lands.
+- [x] **Read-only "config history"** — both actions land `SystemAuditLog` rows via `withSystemAudit` with before/after JSON snapshots (`CONFIG_UPDATE` for SystemConfig, `CONFIG_AGENCY_LIMIT_OVERRIDE` for AgencyLimitOverride). Combined with the audit-log viewer that lands with §3.6.2's remaining checkbox, an operator can reconstruct every config change with actor + note.
+
+Tests: 20 in `tests/server/db/system-config.test.ts` covering enum bidirectionality, override expiry semantics, role gates, JSON-value coercion, audit-wrapping (`$transaction` invocation), note-length rejection on delete, NotFoundError paths, and the pre-wrapper lookup for `targetAgencyId` on revoke.
 
 ### 3.6.12 System health (`/root/system`)
 
-- [ ] Extends the existing `/api/health` endpoint into a full reachability grid:
-  - Postgres — `SELECT 1` + latency
-  - Inngest — `GET /api/inngest` self-introspection
-  - Clerk — `clerkClient.users.getCount()` smoke
-  - Stripe — `stripe.balance.retrieve()` smoke
-  - R2 — `headBucket()` smoke
-  - Anthropic — last successful call timestamp (we don't ping just to ping; we use the most-recent `UsageLog.createdAt` as a proxy)
-  - Resend — `domains.list()` smoke
-  - Sentry — DSN ping
-  - PostHog — `/decide` ping
-- [ ] **Latency over time** — sparkline per provider for last 24h. Inngest cron writes a `HealthProbe` row every 5 min.
+- [x] **Reachability grid** — landed. `server/db/system/health.ts#getSystemHealth` runs 9 parallel probes with per-probe `PROBE_TIMEOUT_MS` bounds so a hung provider can't take the page hostage: Postgres (`SELECT 1` + latency), Inngest (self-introspection GET), Clerk (`clerkClient.users.getCount()` smoke), Stripe (`stripe.balance.retrieve()`), R2 (`headBucket()`), Anthropic (freshest `UsageLog.createdAt` as a proxy — we don't burn inference credits just to render this page), Resend (`domains.list()`), Sentry (DSN ping), PostHog (`/decide` ping). Each returns `ok | degraded | down | unconfigured`; the last state is muted rather than red so an unbootstrapped provider on a fresh clone isn't scary. `/root/system` renders a top-of-page banner rolled up from the worst status + a per-provider tile grid with latency + last-error text.
+- [ ] **Latency over time** — sparkline per provider for last 24h. Blocked on the `HealthProbe` table + a 5-min Inngest ping cron writing rows. v1 shows the _current_ latency only; sparklines land when the cron slice does.
 - [ ] **Recent error rate** — Sentry events ingested via Sentry's API (Phase 3.6 stretch — for v1 the cheap version is a deep-link to the Sentry project filtered to last 24h).
 
 ### 3.6.13 Customer-side support hook (out of scope for 3.6 but planned)
@@ -1030,14 +1196,14 @@ Single screen, KPI-dense, no scrolling for the must-see numbers.
   2. [x] `/root/agencies` list + drilldown (Overview tab only) — landed. `server/db/system/agencies.ts` exposes `listAgenciesForRoot` (Zod-validated search / plan / status / date-range filters; per-page month-to-date aggregates derived via bounded `groupBy` calls), `getAgencyForRoot` (single-row drilldown with lifetime totals + month-to-date strip including paid-invoice revenue) and `listAgencyAuditEntries`. `/root/agencies` page uses URL-driven filters with 25/page pagination; `/root/agencies/[id]` opens the Overview tab with the other six tabs marked "soon" in `<AgencyTabNav>`. Read-open to every system role (ANALYST through ROOT) — writes for suspend / plan-override / hard-delete land with subsequent slices. 15 new tests, 316 total; typecheck + lint clean.
   3. [x] `/root` overview dashboard wired to live (uncached) queries — landed. `server/db/system/overview.ts#getRootOverview` parallelises ~13 aggregate queries (MRR via `Agency.groupBy(plan) WHERE stripeSubscriptionId != null`, episodes/outputs/AI spend MTD, pipeline failures 24h, webhook deliveries 24h, episodes-by-source pivot, 12-week outputs-by-plan in-memory bucketing). `/root/page.tsx` renders 3 KPI rows + 2 inline-SVG charts (`<EpisodesBySourceChart>` horizontal bars + `<OutputsByPlanChart>` stacked bar) + recent audit feed. KPI tones flip to amber when gross margin goes negative or pipeline failures > 0. Churn % and p95 latency marked "—" until the finance dashboard (step 6) and per-call duration tracking land. 16 new tests, 332 total; typecheck + lint clean.
   4. [x] `AgencyUsageSnapshot` rollup cron + swap dashboard to read snapshot — landed. Schema (see §3.6.16) + `nightly-usage-rollup` cron (02:00 UTC) + `backfill-usage-rollup` event-triggered companion. `getRootOverview` now uses the canonical OLAP pattern: snapshot `aggregate({ date: { gte: monthStart, lt: todayUtc } })` for closed-period MTD totals + a live tail (`episode.count` / `generatedOutput.count` / `usageLog.aggregate` filtered to `createdAt >= todayUtc`) for today. The 12-week chart switched to `agencyUsageSnapshot.findMany` and buckets the pre-aggregated rows by week + plan (snapshot row count is bounded by `agencies × 84 days`, vs. the prior unbounded `GeneratedOutput.findMany`). MRR + health metrics stay live (cheap + inherently 24h-windowed). 18 new tests, 350 total — covering the snapshot/live composition, the closed-period WHERE shape, the bucket merge across agencies, and the pure date helpers. **Transition note:** snapshots are empty on first deploy; fire `inngest.send({ name: "system/rollup.backfill.requested", data: { fromIso, toIso } })` to populate historic data or wait for the first nightly cron.
-  5. Impersonation (read-only mode).
-  6. Financial dashboard.
-  7. Operational analytics.
-  8. Quality / moderation / abuse.
-  9. Config + plan-limit overrides.
-  10. Impersonation (write mode, ROOT only).
-  11. Hard-delete agency + R2 quarantine.
-- [ ] **What does NOT block public launch:** quality/moderation queue (3.6.10), config rollouts (3.6.11), write-mode impersonation (3.6.6). Everything above 3.6.10 _does_ block launch.
+  5. [x] Impersonation (read-only mode) — landed. HMAC-signed `repodcast_impersonate` cookie + `getAuthContext` swap + `requireRole` chokepoint on read-only writes + orange `<ImpersonationBanner>` in `(dashboard)/layout.tsx` + start/end server actions wrapped in `withSystemAudit` + Members panel on the Overview tab. 15 new tests (365 total): cookie round-trip + tampering + expiry + key rotation + `requireRole` / `assertNotReadOnlyImpersonation` / `assertRole` chokepoints. Requires `IMPERSONATION_SIGNING_KEY` (≥ 32 bytes) in env; missing key fails closed (start action redirects with `impersonate_error=signing_key_missing` — no audit row).
+  6. [x] Financial dashboard — landed. `/root/finance` renders MRR-by-plan + MRR-by-currency + 12-month signup cohorts + paginated invoice table; `getFinanceSummary` parallelises ~9 aggregate queries against `Agency`/`Invoice`/`UsageLog` with no rollup-table dependency. Filter-shaped CSV export at `GET /api/root/finance/invoices.csv` (RFC-4180 quoted, 10K-row hard cap). Movement waterfall + full retention heatmap + LTV/CAC scaffolding deferred (each blocked on schema or external surface not yet captured). 15 new tests (380 total) cover MRR-sum coherence + per-currency bucketing + cohort year-boundary handling + invoice where-clause shape + CSV cap.
+  7. [x] Operational analytics — landed. `/root/operations` renders AI-spend tiles (today / MTD / lifetime / straight-line month-end forecast) + MTD spend by model + top-20 agencies by MTD spend with margin flagging + pipeline queue (in-flight + failed 24h + failed lifetime + last 50 failures with agency context) + 30-day webhook deliveries (per-source totals + per-day sparkline). `server/db/system/operations.ts#getOperationsSummary` fan-outs ~11 aggregates with no rollup-table dependency. Inngest-side metrics (per-function pass/fail + durations + manual re-fire), R2 storage, email deliverability, and the external-API status grid stay deferred — each needs an external API or schema addition we don't yet capture. 13 new tests (393 total) cover the month-end-forecast math, 30-day daily-series bucketing, margin-vs-MRR composition, and missing-agency drops.
+  8. [x] Quality / moderation / abuse — landed. Full triage queue at `/root/quality` (abuse reports + flagged outputs + fraud signals), public `/legal/report` intake, `withSystemAudit`-wrapped transitions. Support-escalations sub-queue deferred until 3.6.13 lands the dashboard "help" button. Tenant-side output flagging deferred to Phase 4 polish per the section header.
+  9. [x] Config + plan-limit overrides — landed. `SystemConfig` (flat key/value) + `AgencyLimitOverride` (per-agency, per-resource with optional expiry) tables at `20260701000000_system_config`. Full CRUD in `server/db/system/config.ts`, both `withSystemAudit`-wrapped. `planCapacity()` in `server/billing/limits.ts` consults overrides so operators can raise or cap an agency below its plan tier. `/root/config` has both sections with edit / delete / revoke forms. Prompt rollouts documented as future users of the same table but out of ROOT-ship scope. 20 tests cover role gates, expiry, note-length gates, audit-wrapping.
+  10. [x] Impersonation (write mode, ROOT only) — landed with step 5 (see §3.6.6). ROOT can promote a read-only envelope to write mode; every proxied write also lands `TENANT_PROXY_WRITE` audit rows so the action is double-attributed.
+  11. [x] Hard-delete agency + R2 quarantine — landed. `hardDeleteAgency` (ROOT-only, name-confirmation gate, active-sub refusal), `quarantineR2AgencyPrefixes` (copy under `_quarantine/<agency>/<iso>/…` before delete — restore is a prefix strip), full `withSystemAudit` wrap with pre-delete snapshot. UI at `components/root/agency-actions-panel.tsx`. 10 hard-delete-specific tests (27 total in system-agency-actions.test.ts).
+- [x] **All launch-blocking ROOT items landed.** Quality/moderation queue (§3.6.10), config surface (§3.6.11), write-mode impersonation (§3.6.6), and hard-delete agency + R2 quarantine (§3.6.5's last open action) are all in — the last piece landed in ship-order step 11. Remaining ROOT items (`/root/system` health grid §3.6.12, cross-agency user search polish, operational-analytics R2/email/external-API tiles §3.6.8, quality's support-escalations sub-queue §3.6.13) are non-blocking per the original spec.
 
 ### Exit criteria
 
@@ -1053,15 +1219,52 @@ Single screen, KPI-dense, no scrolling for the must-see numbers.
 
 > Scoped to **tenant-facing** observability — what an agency OWNER sees about their own data. Platform-wide visibility for the Repodcast team lives in 3.6.
 
-- [ ] Full PostHog funnel: register → first generation → approve → upgrade
-- [ ] Sentry alerts on pipeline + webhook failures
-- [ ] Per-agency cost/usage dashboard (already partially live via `/settings/billing` usage meters; this finishes the picture with monthly + 90-day trends)
-- [ ] Feature flags (PostHog) for gradual rollouts
+- [x] **Full PostHog funnel** — the four core signup-through-monetization events all fire:
+  - `onboarding_started` → `agency_created` → `first_client_added` → `first_episode_generated` (landed earlier, in `lib/analytics/events.ts`).
+  - `generation_completed` + `output_approved` + `output_edited` per platform-slot (also earlier).
+  - Phase 3.7 additions: `upgrade_started` fires server-side from `createCheckoutSessionAction` right before we return the hosted-checkout URL (carries `fromPlan`, `toPlan`, `cadence`, `currency`). `upgrade_completed` fires from the Stripe webhook on `customer.subscription.created` (not on updates — otherwise every subscription mutation double-counts). The webhook is authoritative; client redirects can't be trusted (users close the tab, Stripe retries the webhook independently).
+- [x] **Sentry alerts on pipeline + webhook failures** — `server/observability/sentry.ts` exposes `captureInngestFailure(scope, err, extra?)` + `captureWebhookFailure(scope, err, extra?)`. Wired into every `onFailure` handler (`import-rss-episode`, `import-youtube-episode`, `regenerate-output`) so captures fire only after Inngest exhausts retries (dedupe by design — Sentry's own fingerprinting groups repeated captures anyway, but firing per-retry would still spam). Also wired into `/api/webhooks/stripe` + `/api/webhooks/clerk` catch paths so provider retry loops surface as a single Sentry issue with a bumped event count. Alert rules live in the Sentry UI keyed off `tags.scope`. Remaining Inngest functions without an `onFailure` handler yet (`generate-episode`, `transcribe-episode`, `sync-scheduled-outputs`, etc.) auto-capture via Sentry's built-in Node instrumentation but lack the tagged scope — follow-up to add `onFailure` where the pipeline surface warrants a dedicated alert rule.
+- [x] **Per-agency cost/usage dashboard** — `/settings/billing` gains a 30-day trend section between the usage meters and cost-to-serve rollup: four summary tiles (total cost / total generations / avg cost per day / avg cost per generation) + two inline-SVG bar charts (cost/day + generations/day, zero-filled). Data comes from `getAgencyUsageTrend(ctx, windowDays)` in `server/db/client-cost.ts` — UTC-day-bucketed, OWNER/ADMIN gate, bounded at 365 days. Days with no activity flatten to a 2px baseline so quiet periods are visible without gap-filling.
+- [x] **Feature flags (PostHog) for gradual rollouts** — thin wrappers around the SDK:
+  - `lib/analytics/feature-flag.ts` — client `useFeatureFlag(key)` hook. Subscribes to `posthog.onFeatureFlags` so a toolbar override or a background refresh from `/decide` rerenders the caller. Fails open (returns `false`) when the SDK isn't initialised.
+  - `server/analytics/feature-flag.ts` — server `getServerFeatureFlag(distinctId, key, { agencyId? })`. POSTs `/decide?v=3` with a 2s AbortController timeout, treats booleans + non-empty variant strings as "on", never throws.
+
+Not tested with automated cases — the PostHog + Sentry surfaces are I/O against external providers and better validated via a smoke run + Sentry / PostHog dashboard sanity check.
 
 ## 3.8 Launch assets
 
-- [ ] Product Hunt assets, demo video, screenshots
-- [ ] Outreach list tooling + email templates (agency GTM)
+- [x] **Outreach email templates (agency GTM)** — `docs/outreach-templates.md`.
+      Five stages of the agency lifecycle: cold outbound, 7-day follow-up,
+      trial activation (Day 2 no-episode), upgrade nudge (≥ 90 % of a plan
+      limit), and 30-day dormant reactivation. Each template ships with 2–3
+      subject-line variants, personalization tokens (`{{first_name}}`,
+      `{{agency}}`, `{{show}}`, `{{host}}`, `{{plan}}`, etc.), send-timing
+      guidance, and rationale notes on non-obvious choices (why the
+      reply-thread subject on follow-up 2, why the "wait until cap" comp
+      path filters higher-signal replies, why no full refunds from the
+      reactivation template).
+- [x] **Launch checklist** — `docs/launch-checklist.md`. Product Hunt-
+      anchored plan across T-14→T-8 (locked prep + hunter recruitment),
+      T-7→T-2 (assets + list warm-up), T-1 (green-status gate + calendar
+      clear), T-0 (hour-by-hour: 12:01 AM go-live, 6 AM visibility push,
+      9 AM–3 PM comment shift, 6 PM rank check, 11:30 PM wrap), T+1→T+7
+      (activation email + cohort retention read), and a within-14-day
+      retrospective template with a cost-per-signup calc so we know
+      whether to re-run the channel. The whole doc encodes the operational
+      claim that launch success is bounded by comment-reply cadence in the
+      first four hours — every T-14→T-1 step exists to reduce the cognitive
+      load during that window.
+- [ ] **Visual assets deferred to a human** — demo video (screen +
+      narration), Product Hunt hero + gallery, production screenshots.
+      These need a human running through the real UI with a real
+      agency, so we didn't scaffold placeholders. The launch checklist's
+      T-7→T-2 section calls them out with the exact dimensions and
+      content requirements when we're ready to record.
+- [~] **Outreach list tooling** — intentionally not built. The
+  `server/imports/podcastindex.ts` helper we use for RSS already
+  gives us the data source; if we need to run a targeted campaign we
+  can spin up a one-off CLI in a session rather than maintaining a
+  generic list-builder tool nobody asked for.
 
 **Exit criteria for Phase 3:** Public launch-ready; acquisition + retention machinery instrumented; all three tiers live; admin visibility in place.
 

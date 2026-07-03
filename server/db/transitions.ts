@@ -2,7 +2,7 @@ import "server-only";
 
 import { MemberRole, type OutputStatus, type OutputTransition, type Prisma } from "@prisma/client";
 import { NotFoundError } from "@/server/auth/errors";
-import { requireRole, type TenantContext } from "@/server/auth/tenant";
+import { requireReadRole, type TenantContext } from "@/server/auth/tenant";
 import { prisma } from "./client";
 
 const READ_ROLES = [
@@ -94,7 +94,7 @@ export async function listRecentTransitions(
   ctx: TenantContext,
   limit = 12,
 ): Promise<TransitionWithContext[]> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   return prisma.outputTransition.findMany({
     where: { agencyId: ctx.agencyId },
     orderBy: { createdAt: "desc" },

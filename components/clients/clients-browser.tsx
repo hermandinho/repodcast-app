@@ -20,6 +20,10 @@ export type ClientWithStats = {
   showCount: number;
   episodeCount: number;
   voiceSamples: number;
+  /** Phase 3.8 — unread portal feedback for this client. Zero when the
+   *  agency has no pending triage; positive counts float the card to the
+   *  top of the list and render an inline pill. */
+  unreadFeedback: number;
 };
 
 type SortKey = "active" | "shows" | "name";
@@ -88,6 +92,17 @@ export function ClientsBrowser({ clients }: { clients: ClientWithStats[] }) {
       return hay.includes(q);
     });
     out.sort((a, b) => {
+      // Phase 3.8 — clients with unread portal feedback always float to the
+      // top regardless of the chosen sort. When both sides have unread, the
+      // one with more pending notes wins. Everyone else drops to the
+      // selected sort key below.
+      const ua = a.unreadFeedback > 0 ? 1 : 0;
+      const ub = b.unreadFeedback > 0 ? 1 : 0;
+      if (ua !== ub) return ub - ua;
+      if (ua === 1 && ub === 1) {
+        const uc = b.unreadFeedback - a.unreadFeedback;
+        if (uc !== 0) return uc;
+      }
       if (sort === "name") return a.name.localeCompare(b.name);
       if (sort === "shows") {
         const sc = b.showCount - a.showCount;
@@ -184,74 +199,103 @@ export function ClientsBrowser({ clients }: { clients: ClientWithStats[] }) {
           className="grid gap-[18px]"
           style={{ gridTemplateColumns: "repeat(auto-fill, minmax(296px, 1fr))" }}
         >
-          {filtered.map((c) => (
-            <Link
-              key={c.key}
-              href={`/clients/${c.key}`}
-              className="group border-border bg-surface shadow-card hover:border-border-2 hover:shadow-card-hover block overflow-hidden rounded-3xl border p-5 transition-shadow"
-            >
-              <div className="flex items-start gap-3">
-                {c.artworkUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={c.artworkUrl}
-                    alt=""
-                    className="h-12 w-12 flex-shrink-0 rounded-xl object-cover"
-                    style={{ background: "#EEF1F6" }}
-                  />
-                ) : (
-                  <div
-                    className="font-display flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl text-[15px] font-bold text-white"
-                    style={{ background: c.avatarBg }}
-                  >
-                    {c.initial}
-                  </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="font-display text-ink truncate text-[16px] leading-tight font-semibold">
-                    {c.name}
-                  </div>
-                  {c.contactName && (
-                    <div className="text-muted-2 mt-[2px] truncate text-[12.5px]">
-                      {c.contactName}
+          {filtered.map((c) => {
+            const hasUnread = c.unreadFeedback > 0;
+            return (
+              <Link
+                key={c.key}
+                // Deep-link straight to the billing tab when there's unread
+                // feedback, so the sidebar → /clients → card chain lands
+                // exactly on the inbox rather than the client overview.
+                href={hasUnread ? `/clients/${c.key}/billing` : `/clients/${c.key}`}
+                className="group bg-surface shadow-card hover:shadow-card-hover block overflow-hidden rounded-3xl border p-5 transition-shadow"
+                style={{
+                  borderColor: hasUnread ? "#C7D2E6" : "var(--color-border)",
+                  boxShadow: hasUnread ? "0 0 0 1px rgba(58,91,160,0.14) inset" : undefined,
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  {c.artworkUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={c.artworkUrl}
+                      alt=""
+                      className="h-12 w-12 flex-shrink-0 rounded-xl object-cover"
+                      style={{ background: "#EEF1F6" }}
+                    />
+                  ) : (
+                    <div
+                      className="font-display flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl text-[15px] font-bold text-white"
+                      style={{ background: c.avatarBg }}
+                    >
+                      {c.initial}
                     </div>
                   )}
-                  {c.contactEmail && (
-                    <div className="text-muted-2 mt-[1px] truncate text-[11.5px]">
-                      {c.contactEmail}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <div className="font-display text-ink truncate text-[16px] leading-tight font-semibold">
+                        {c.name}
+                      </div>
+                      {hasUnread && (
+                        <span
+                          className="rounded-pill inline-flex flex-shrink-0 items-center gap-[5px] px-[8px] py-[2px] font-sans text-[10.5px] font-semibold tabular-nums"
+                          style={{
+                            background: "rgba(58,91,160,0.14)",
+                            color: "#2A4A8A",
+                          }}
+                          aria-label={`${c.unreadFeedback} unread portal notes`}
+                        >
+                          <span
+                            aria-hidden
+                            className="inline-block h-[6px] w-[6px] rounded-full"
+                            style={{ background: "#3A5BA0" }}
+                          />
+                          {c.unreadFeedback} new
+                        </span>
+                      )}
                     </div>
-                  )}
+                    {c.contactName && (
+                      <div className="text-muted-2 mt-[2px] truncate text-[12.5px]">
+                        {c.contactName}
+                      </div>
+                    )}
+                    {c.contactEmail && (
+                      <div className="text-muted-2 mt-[1px] truncate text-[11.5px]">
+                        {c.contactEmail}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
 
-              {c.description && (
-                <p className="text-muted mt-3 line-clamp-2 text-[12.5px] leading-[1.5]">
-                  {c.description}
-                </p>
-              )}
+                {c.description && (
+                  <p className="text-muted mt-3 line-clamp-2 text-[12.5px] leading-[1.5]">
+                    {c.description}
+                  </p>
+                )}
 
-              <div className="text-muted-2 mt-[14px] flex items-center justify-between text-[12px]">
-                <span>
-                  {c.showCount} show{c.showCount === 1 ? "" : "s"} · {c.episodeCount} episode
-                  {c.episodeCount === 1 ? "" : "s"}
-                </span>
-                <span
-                  className="inline-flex items-center gap-[6px] font-sans text-[11.5px] font-semibold"
-                  style={{ color: voiceTextColor(c.voiceSamples) }}
-                  title={`${c.voiceSamples} voice sample${c.voiceSamples === 1 ? "" : "s"}`}
-                >
-                  <VoiceStrengthBars samples={c.voiceSamples} size="sm" />
-                  {voiceLabel(c.voiceSamples)}
-                </span>
-              </div>
+                <div className="text-muted-2 mt-[14px] flex items-center justify-between text-[12px]">
+                  <span>
+                    {c.showCount} show{c.showCount === 1 ? "" : "s"} · {c.episodeCount} episode
+                    {c.episodeCount === 1 ? "" : "s"}
+                  </span>
+                  <span
+                    className="inline-flex items-center gap-[6px] font-sans text-[11.5px] font-semibold"
+                    style={{ color: voiceTextColor(c.voiceSamples) }}
+                    title={`${c.voiceSamples} voice sample${c.voiceSamples === 1 ? "" : "s"}`}
+                  >
+                    <VoiceStrengthBars samples={c.voiceSamples} size="sm" />
+                    {voiceLabel(c.voiceSamples)}
+                  </span>
+                </div>
 
-              <div className="mt-3 flex items-center justify-end border-t border-[#F0F3F8] pt-3 text-[12px]">
-                <span className="text-accent font-sans font-semibold transition-transform group-hover:translate-x-[2px]">
-                  Open →
-                </span>
-              </div>
-            </Link>
-          ))}
+                <div className="mt-3 flex items-center justify-end border-t border-[#F0F3F8] pt-3 text-[12px]">
+                  <span className="text-accent font-sans font-semibold transition-transform group-hover:translate-x-[2px]">
+                    {hasUnread ? "Review feedback →" : "Open →"}
+                  </span>
+                </div>
+              </Link>
+            );
+          })}
         </div>
       )}
     </>

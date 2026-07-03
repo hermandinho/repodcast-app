@@ -1,9 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AgencyTabNav } from "@/components/root/agency-tab-nav";
+import { AgencyActionsPanel } from "@/components/root/agency-actions-panel";
+import { AgencyMembersPanel } from "@/components/root/agency-members-panel";
 import { NotFoundError } from "@/server/auth/errors";
 import { requireSystemAdminContext } from "@/server/auth/system";
-import { getAgencyForRoot, listAgencyAuditEntries } from "@/server/db/system/agencies";
+import { prisma } from "@/server/db/client";
+import {
+  getAgencyForRoot,
+  listAgencyAuditEntries,
+  listAgencyMembers,
+} from "@/server/db/system/agencies";
 
 export const dynamic = "force-dynamic";
 
@@ -31,10 +37,17 @@ function formatRelative(date: Date | null | undefined): string {
 
 export default async function RootAgencyDrilldownPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{
+    impersonate_error?: string;
+    impersonation_ended?: string;
+    action_error?: string;
+    action_ok?: string;
+  }>;
 }) {
-  const { id } = await params;
+  const [{ id }, sp] = await Promise.all([params, searchParams]);
   const ctx = await requireSystemAdminContext();
 
   let agency;
@@ -45,7 +58,22 @@ export default async function RootAgencyDrilldownPage({
     throw err;
   }
 
-  const auditEntries = await listAgencyAuditEntries(ctx, id, 10);
+  const [auditEntries, members, latestInvoice] = await Promise.all([
+    listAgencyAuditEntries(ctx, id, 10),
+    listAgencyMembers(ctx, id),
+    prisma.invoice.findFirst({
+      where: { agencyId: id },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        stripeInvoiceId: true,
+        amountCents: true,
+        currency: true,
+        status: true,
+        createdAt: true,
+      },
+    }),
+  ]);
 
   const stripeUrl = agency.stripeCustomerId
     ? `https://dashboard.stripe.com/customers/${agency.stripeCustomerId}`
@@ -100,14 +128,37 @@ export default async function RootAgencyDrilldownPage({
             ) : (
               <span className="text-sm text-zinc-500">No Stripe customer linked</span>
             )}
-            <div className="text-xs text-zinc-500">
-              Onboarding: <span className="text-zinc-300">{agency.onboardingStep}</span>
-            </div>
           </div>
         </div>
       </header>
 
-      <AgencyTabNav agencyId={agency.id} />
+      {sp.impersonate_error ? (
+        <div className="rounded-lg border border-red-700/60 bg-red-950/40 px-4 py-3 text-sm text-red-200">
+          Couldn&apos;t open impersonation: <code>{sp.impersonate_error}</code>.
+        </div>
+      ) : null}
+      {sp.impersonation_ended ? (
+        <div className="rounded-lg border border-emerald-700/60 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-200">
+          Impersonation ended.
+        </div>
+      ) : null}
+      {sp.action_error ? (
+        <div className="rounded-lg border border-red-700/60 bg-red-950/40 px-4 py-3 text-sm text-red-200">
+          {ACTION_ERROR_COPY[sp.action_error] ?? ACTION_ERROR_COPY.unknown}
+        </div>
+      ) : null}
+      {sp.action_ok ? (
+        <div className="rounded-lg border border-emerald-700/60 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-200">
+          {ACTION_OK_COPY[sp.action_ok] ?? "Change applied."}
+        </div>
+      ) : null}
+      {agency.suspendedAt ? (
+        <div className="rounded-lg border border-red-700/60 bg-red-950/40 px-4 py-3 text-sm text-red-200">
+          This agency is <strong>suspended</strong> as of{" "}
+          {agency.suspendedAt.toISOString().slice(0, 10)}. Tenant dashboard access is blocked until
+          an operator unsuspends.
+        </div>
+      ) : null}
 
       <section className="flex flex-col gap-4">
         <h2 className="font-display text-lg font-semibold text-white">Month to date</h2>
@@ -146,6 +197,21 @@ export default async function RootAgencyDrilldownPage({
           />
         </div>
       </section>
+
+      <AgencyMembersPanel agencyId={agency.id} members={members} viewerRole={ctx.admin.role} />
+
+      <AgencyActionsPanel
+        agencyId={agency.id}
+        agencyName={agency.name}
+        agencyPlan={agency.plan}
+        planOverride={agency.planOverride}
+        suspendedAt={agency.suspendedAt}
+        stripeSubscriptionId={agency.stripeSubscriptionId}
+        latestInvoice={latestInvoice}
+        trialStatus={agency.trialStatus}
+        trialEndsAt={agency.trialEndsAt}
+        viewerRole={ctx.admin.role}
+      />
 
       <section className="flex flex-col gap-4">
         <div className="flex items-baseline justify-between">
@@ -187,6 +253,24 @@ export default async function RootAgencyDrilldownPage({
     </div>
   );
 }
+
+const ACTION_ERROR_COPY: Record<string, string> = {
+  invalid: "Invalid input — check the required fields.",
+  forbidden: "This action requires a ROOT or OPERATOR system role.",
+  not_found: "The record you targeted no longer exists.",
+  invalid_plan: "Choose a valid plan tier.",
+  confirm_mismatch: "The agency name you typed doesn't match. Action canceled.",
+  unknown: "Something went wrong. Check the server logs.",
+};
+
+const ACTION_OK_COPY: Record<string, string> = {
+  suspended: "Agency suspended. Tenant dashboard access is now blocked.",
+  unsuspended: "Agency unsuspended. Tenant dashboard access restored.",
+  override_granted: "Plan override granted.",
+  override_revoked: "Plan override revoked.",
+  subscription_canceled: "Stripe subscription canceled; local plan downgraded to STUDIO.",
+  trial_extended: "Trial extended. Stripe and local trialEndsAt updated.",
+};
 
 function StatTile({
   label,

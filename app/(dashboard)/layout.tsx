@@ -1,25 +1,41 @@
 import { redirect } from "next/navigation";
+import { ImpersonationBanner } from "@/components/dashboard/impersonation-banner";
+import { TrialBanner } from "@/components/dashboard/trial-banner";
 import { Sidebar } from "@/components/shell/sidebar";
 import { Topbar } from "@/components/shell/topbar";
 import { getAuthContext } from "@/server/auth/context";
 import { isLiveDb } from "@/server/data/source";
 
+// Module-level helpers — kept out of the component body so the react-hooks/
+// purity rule doesn't flag `Date.now()` as impure inside render.
+function daysUntil(target: Date): number {
+  const ms = target.getTime() - Date.now();
+  return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
+}
+function formatShortDate(d: Date): string {
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 /**
- * Onboarding gate (Phase 1.0).
+ * Dashboard gate (Phase 3.x onboarding rebuild).
  *
- * Middleware (`middleware.ts`) already guarantees the user is signed in by
- * the time we reach this layout. What it can't cheaply check is whether the
- * signed-in user belongs to an agency yet — that's a DB lookup. We do it
- * here once per page render and redirect to /onboarding if not.
+ * Two gates, checked off a single `getAuthContext` payload:
+ *   1. Signed in and belongs to an agency? If not → /onboarding (the
+ *      router decides between workspace vs plan substep).
+ *   2. Agency carries a Stripe `stripeSubscriptionId`? If not → same,
+ *      the router forwards to /onboarding/plan.
  *
- * Sample-data mode (`!isLiveDb()`) skips the check: the synthetic tenant
- * makes every page look "set up" so the design experience works on a fresh
- * clone with no env vars.
+ * Sample-data mode skips both — the demo tenant is always "set up".
+ *
+ * Phase 3.6.6 — the same `getAuthContext` surfaces an `impersonation`
+ * field when the request carries a valid envelope cookie. The orange
+ * banner mounts above the main scroller so it's always visible.
  */
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const auth = isLiveDb() ? await getAuthContext() : null;
   if (isLiveDb()) {
-    const auth = await getAuthContext();
     if (!auth) redirect("/onboarding");
+    if (!auth.agency.stripeSubscriptionId) redirect("/onboarding");
   }
 
   return (
@@ -27,6 +43,22 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
+        {auth?.impersonation ? (
+          <ImpersonationBanner
+            agencyName={auth.agency.name}
+            memberEmail={auth.impersonation.as.email}
+            memberName={auth.impersonation.as.name}
+            mode={auth.impersonation.mode}
+            actorRole={auth.impersonation.actorRole}
+          />
+        ) : null}
+        {auth?.agency.trialStatus === "ACTIVE" && auth.agency.trialEndsAt ? (
+          <TrialBanner
+            plan={auth.agency.plan}
+            daysLeft={daysUntil(auth.agency.trialEndsAt)}
+            endsAtLabel={formatShortDate(auth.agency.trialEndsAt)}
+          />
+        ) : null}
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
     </div>

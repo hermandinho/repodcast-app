@@ -1,45 +1,60 @@
-import { auth, currentUser } from "@clerk/nextjs/server";
-import { OnboardingStep } from "@prisma/client";
+import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
-import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
-import { getOnboardingStepForUser } from "@/server/db/agencies";
+import { getOnboardingStateForUser } from "@/server/db/agencies";
 import { isLiveDb } from "@/server/data/source";
 
 /**
- * Phase 2.10 — initial step lookup. The layout has already redirected DONE
- * users, so anything we see here is either pre-agency (null → step 1) or a
- * mid-flow resume (TEAMMATES → step 2, CLIENT → step 3).
+ * Phase 3.x onboarding router.
+ *
+ * Reads the user's onboarding state and forwards to the right substep:
+ *
+ *   no membership → /onboarding/workspace     (create the Agency)
+ *   no subscription → /onboarding/plan        (Stripe Checkout)
+ *   paying         → /dashboard              (done — Stripe webhook landed)
+ *
+ * The layout gate above already redirected unauthenticated users to
+ * /sign-in, so by the time we get here we always have a Clerk session.
+ *
+ * Sample-data mode skips the DB round-trip and forwards to the workspace
+ * step — the demo tenant is illustrative and always renders "not paying".
  */
-function initialStepFor(persisted: OnboardingStep | null): "workspace" | "teammates" | "client" {
-  switch (persisted) {
-    case OnboardingStep.TEAMMATES:
-      return "teammates";
-    case OnboardingStep.CLIENT:
-      return "client";
-    case OnboardingStep.WORKSPACE:
-    case OnboardingStep.DONE: // layout should have redirected, but be defensive
-    case null:
-    default:
-      return "workspace";
+export default async function OnboardingRouter({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  const qs = passthroughParams(params);
+  const suffix = qs ? `?${qs}` : "";
+
+  if (!isLiveDb()) {
+    redirect(`/onboarding/workspace${suffix}`);
+  }
+
+  const { userId } = await auth();
+  if (!userId) redirect("/sign-in?redirect_url=%2Fonboarding");
+
+  const state = await getOnboardingStateForUser(userId);
+  switch (state.kind) {
+    case "no-membership":
+      redirect(`/onboarding/workspace${suffix}`);
+    case "no-subscription":
+      redirect(`/onboarding/plan${suffix}`);
+    case "paying":
+      redirect("/dashboard");
   }
 }
 
-export default async function OnboardingPage() {
-  let persistedStep: OnboardingStep | null = null;
-  if (isLiveDb()) {
-    const { userId } = await auth();
-    if (!userId) redirect("/sign-in");
-    persistedStep = await getOnboardingStepForUser(userId);
+/**
+ * Keep the plan / cadence / currency pre-selection query alive across the
+ * router redirect. Anything else is dropped — we don't want to accidentally
+ * echo random URL parameters back to Stripe.
+ */
+function passthroughParams(params: Record<string, string | string[] | undefined>): string {
+  const out = new URLSearchParams();
+  for (const key of ["plan", "cadence", "currency"] as const) {
+    const value = params[key];
+    if (typeof value === "string" && value) out.set(key, value);
   }
-
-  const user = await currentUser().catch(() => null);
-  const firstName = user?.firstName?.trim() || null;
-  const suggestedAgencyName = firstName ? `${firstName}'s Studio` : "My Studio";
-
-  return (
-    <OnboardingWizard
-      suggestedAgencyName={suggestedAgencyName}
-      initialStep={initialStepFor(persistedStep)}
-    />
-  );
+  return out.toString();
 }

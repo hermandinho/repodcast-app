@@ -3,6 +3,7 @@ import "server-only";
 import {
   EpisodeStatus,
   MemberRole,
+  Plan,
   Platform,
   type Prisma,
   TranscriptSource,
@@ -10,8 +11,8 @@ import {
 } from "@prisma/client";
 import { z } from "zod";
 import { NotFoundError } from "@/server/auth/errors";
-import { requireRole, type TenantContext } from "@/server/auth/tenant";
-import { assertPlanCapacity, getAgencyPlan } from "@/server/billing/limits";
+import { requireReadRole, requireRole, type TenantContext } from "@/server/auth/tenant";
+import { assertMinPlan, assertPlanCapacity, getAgencyPlan } from "@/server/billing/limits";
 import { prisma } from "./client";
 
 /** Default platform set used by batch-generate when an episode has no
@@ -122,7 +123,7 @@ const WRITE_ROLES = [MemberRole.OWNER, MemberRole.ADMIN, MemberRole.EDITOR] as c
 // ============================================================
 
 export async function listEpisodes(ctx: TenantContext): Promise<Episode[]> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   return prisma.episode.findMany({
     where: { show: { client: { agencyId: ctx.agencyId } } },
     orderBy: { createdAt: "desc" },
@@ -130,7 +131,7 @@ export async function listEpisodes(ctx: TenantContext): Promise<Episode[]> {
 }
 
 export async function listEpisodesForShow(ctx: TenantContext, showId: string): Promise<Episode[]> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   return prisma.episode.findMany({
     where: {
       showId,
@@ -200,7 +201,7 @@ export async function listEpisodesFiltered(
   ctx: TenantContext,
   raw: ListEpisodesFilterInput,
 ): Promise<{ rows: EpisodeListRow[]; total: number }> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   const where = buildEpisodeListWhere(ctx, raw);
 
   const [rows, total] = await Promise.all([
@@ -228,7 +229,7 @@ export async function listEpisodesFiltered(
 }
 
 export async function getEpisode(ctx: TenantContext, episodeId: string): Promise<Episode> {
-  requireRole(ctx, READ_ROLES);
+  requireReadRole(ctx, READ_ROLES);
   const episode = await prisma.episode.findFirst({
     where: {
       id: episodeId,
@@ -382,11 +383,16 @@ export async function bulkGenerateEpisodes(
     return { dispatches: [], skippedNotEligible };
   }
 
+  // Batch generation is a Network-tier feature — Studio and Agency users
+  // fire episodes one at a time through the single-episode dispatch path.
+  // Gate here (not just the UI) so a hand-crafted request still bounces.
+  const plan = await getAgencyPlan(ctx.agencyId);
+  assertMinPlan(plan, Plan.NETWORK);
+
   // Plan capacity for the count of NEW episode generations the batch
   // implies. Re-generating a FAILED row is still a generation in cost
   // terms (the prior attempt's UsageLogs were already billed), so we
   // count every eligible episode against the cap.
-  const plan = await getAgencyPlan(ctx.agencyId);
   await assertPlanCapacity(ctx.agencyId, plan, "episodes");
 
   await prisma.episode.updateMany({

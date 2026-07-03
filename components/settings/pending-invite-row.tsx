@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { MemberRole, type MemberInvite } from "@prisma/client";
+import type { MemberInvite } from "@prisma/client";
+import { MemberRole } from "@/lib/enums";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalBody, ModalFooter, ModalHeader } from "@/components/ui/modal";
 import { revokeInviteAction } from "@/app/(dashboard)/settings/team/actions";

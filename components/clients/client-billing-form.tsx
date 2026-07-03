@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { BillingCycle, ClientStatus } from "@prisma/client";
+import { BillingCycle, ClientStatus } from "@/lib/enums";
 import { Input, Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { SUPPORTED_CURRENCIES, CURRENCY_META } from "@/lib/currencies";

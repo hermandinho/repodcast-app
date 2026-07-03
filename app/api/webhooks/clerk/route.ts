@@ -9,6 +9,7 @@ import {
   upsertAgencyFromClerkOrg,
   upsertMemberFromClerkMembership,
 } from "@/server/db/auth-sync";
+import { captureWebhookFailure } from "@/server/observability/sentry";
 
 // Webhook endpoints must never be cached.
 export const dynamic = "force-dynamic";
@@ -49,6 +50,7 @@ export async function POST(req: Request) {
     // Log and return 500 so Clerk will retry — we'd rather process twice
     // than silently drop a sync event.
     console.error("[clerk-webhook] handler failed", { type: event.type, err });
+    captureWebhookFailure("clerk_webhook", err, { eventType: event.type });
     return new Response("handler error", { status: 500 });
   }
 
