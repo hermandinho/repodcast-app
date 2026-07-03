@@ -46,9 +46,10 @@ export const regenerateOutput = inngest.createFunction(
       run: "event.data.plan == 'NETWORK' ? 120 : 0",
     },
     // See `generate-episode.ts` for the CEL syntax rationale — `??` is
-    // JS-only; Inngest's CEL uses `has() ? … : fallback`.
+    // JS-only; Inngest's CEL uses `has() ? … : fallback`. Global limit
+    // pinned at 5 to fit the Inngest free-plan ceiling.
     concurrency: [
-      { limit: 10 },
+      { limit: 5 },
       {
         scope: "fn",
         key: "has(event.data.agencyId) ? event.data.agencyId : event.id",

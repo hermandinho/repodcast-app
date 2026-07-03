@@ -75,10 +75,11 @@ export const generateEpisode = inngest.createFunction(
     },
     // Concurrency has two layers:
     //   - Global cap protects Anthropic rate limits and our monthly
-    //     $-per-token budget from a runaway fan-out.
+    //     $-per-token budget from a runaway fan-out. Set to 5 to match
+    //     the Inngest free-plan ceiling; raise once we upgrade the plan.
     //   - Per-agency cap keeps one agency's batch from monopolizing all
     //     global slots. A NETWORK batch of 20 episodes still consumes at
-    //     most 3 slots at once; the other 7+ slots stay open for other
+    //     most 3 slots at once; the other 2+ slots stay open for other
     //     agencies, and NETWORK's `priority.run` bump just means their
     //     next slot fires ahead of a queued STUDIO event.
     //
@@ -93,7 +94,7 @@ export const generateEpisode = inngest.createFunction(
     // missing map key inside CEL raises an evaluation error — hence
     // the explicit `has()` guard.
     concurrency: [
-      { limit: 10 },
+      { limit: 5 },
       {
         scope: "fn",
         key: "has(event.data.agencyId) ? event.data.agencyId : event.id",
