@@ -8,8 +8,15 @@ import { planLimitsFor } from "@/lib/plans";
 import { prisma } from "@/server/db/client";
 import { sendGenerationCompleteEmail } from "@/server/email/send";
 import { trackServer } from "@/server/analytics/track";
+import { captureInngestFailure } from "@/server/observability/sentry";
 import type { Events } from "../events";
 import { inngest } from "../client";
+
+function truncateReason(message: string): string {
+  const trimmed = message.trim();
+  if (trimmed.length === 0) return "Generation failed";
+  return trimmed.length > 500 ? `${trimmed.slice(0, 497)}...` : trimmed;
+}
 
 /**
  * Naive token-cost estimate for Sonnet 4.6 (≈ $3/MTok in, $15/MTok out).
@@ -63,6 +70,26 @@ export const generateEpisode = inngest.createFunction(
     id: "generate-episode",
     triggers: [{ event: "episode/generate.requested" }],
     retries: 3,
+    // Terminal failure after all retries — flip the episode to FAILED so
+    // <ImportFailedPanel> renders on `/episodes/[id]` instead of the page
+    // hanging on <GeneratingPanel> forever. Best-effort persistence:
+    // swallow errors so the queue doesn't get poisoned by a DB blip while
+    // Inngest is already tearing the run down.
+    onFailure: async ({ event, error }) => {
+      const { episodeId } = event.data.event.data as Events["episode/generate.requested"]["data"];
+      captureInngestFailure("generation_pipeline", error, { episodeId });
+      try {
+        await prisma.episode.update({
+          where: { id: episodeId },
+          data: {
+            status: EpisodeStatus.FAILED,
+            failureReason: truncateReason(error?.message ?? "Generation failed"),
+          },
+        });
+      } catch (err) {
+        console.error("generate-episode onFailure persistence failed", err);
+      }
+    },
     // Phase 3.5 — priority queue.
     //
     // `priority.run` is evaluated at enqueue time against `event.data`.

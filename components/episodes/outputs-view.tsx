@@ -8,6 +8,7 @@ import { PlatformBadge } from "@/components/ui/platform-badge";
 import { VoiceStrengthBars } from "@/components/ui/voice-strength-bars";
 import { ClipMomentsPanel } from "@/components/episodes/clip-moments-panel";
 import { EditableTitle } from "@/components/episodes/editable-title";
+import { GeneratingPanel } from "@/components/episodes/generating-panel";
 import { ImportFailedPanel } from "@/components/episodes/import-failed-panel";
 import { ImportingPanel } from "@/components/episodes/importing-panel";
 import { OutputCard, type OutputState } from "@/components/episodes/output-card";
@@ -901,12 +902,17 @@ export function OutputsView({
           </div>
         </div>
 
-        {/* Phase 2.7 / 2.8 — pre-generation empty states so the page never
-            looks blank while the pipeline is doing its work. Priority:
+        {/* Pre-generation empty states so the page never looks blank while
+            the pipeline is doing its work. Priority:
               1. FAILED  → render the error banner (always, even if some
                  outputs landed before the failure tripped).
               2. UPLOAD awaiting transcript → Deepgram is running.
-              3. RSS / YOUTUBE before outputs exist → import in flight. */}
+              3. RSS / YOUTUBE before outputs exist → import in flight.
+              4. Transcript in hand, no outputs yet → generation in flight.
+                 Covers PASTE end-to-end and the UPLOAD/RSS/YOUTUBE window
+                 after transcript lands but before generate-episode
+                 persists the first row. Without this the page fell to
+                 `null` and looked broken for 15–45s. */}
         {episode.pipeline?.status === "failed" ? (
           <ImportFailedPanel
             source={episode.pipeline.source}
@@ -920,6 +926,10 @@ export function OutputsView({
           (episode.pipeline.source === "RSS" || episode.pipeline.source === "YOUTUBE") &&
           outputs.length === 0 ? (
           <ImportingPanel source={episode.pipeline.source} />
+        ) : (episode.pipeline?.status === "draft" || episode.pipeline?.status === "processing") &&
+          !episode.pipeline.awaitingTranscript &&
+          outputs.length === 0 ? (
+          <GeneratingPanel source={episode.pipeline.source} />
         ) : null}
 
         {/* Clip moments — null/empty rendering handled inside the panel */}

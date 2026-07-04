@@ -179,9 +179,7 @@ export function RssFeedPicker({
                   <span className="text-muted-2 mt-[2px] block font-sans text-[11.5px]">
                     {formatPublishedDate(ep.datePublishedIso)}
                     {ep.durationSec ? ` · ${formatDuration(ep.durationSec)}` : ""}
-                    {ep.hasTranscript
-                      ? " · transcript available"
-                      : " · will transcribe with Deepgram"}
+                    {ep.hasTranscript ? " · transcript available" : " · will transcribe"}
                   </span>
                 </span>
                 {isSelected && (

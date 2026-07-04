@@ -88,8 +88,8 @@ export function TranscribingPanel({ episodeId }: { episodeId: string }) {
             Transcribing your audio
           </div>
           <p className="text-muted-2 mt-[3px] text-[12px] leading-[1.55]">
-            Deepgram is working through the recording — typically 30–90 seconds for a one-hour
-            episode. Generation starts as soon as the transcript lands.
+            We&apos;re transcribing the recording — typically 30–90 seconds for a one-hour episode.
+            Generation starts as soon as the transcript lands.
           </p>
         </div>
         <div className="flex flex-shrink-0 items-center gap-[7px]">
