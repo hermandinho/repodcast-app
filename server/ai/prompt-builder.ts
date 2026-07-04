@@ -125,7 +125,7 @@ function lengthFitFor(platform: Platform, length: number): number {
 function identityBlock(voice: VoiceContext): string {
   const lines = [
     `You're writing for ${voice.clientName}, hosted by ${voice.hostName}.`,
-    `Match this host's voice exactly — they review every output and will reject anything that sounds off.`,
+    `Match this host's voice — cadence, vocabulary, and structure — unless a custom rule below says otherwise. Custom rules always win over sample style.`,
   ];
   if (voice.voiceDescription) {
     lines.push("", "Voice profile:", voice.voiceDescription);
@@ -205,7 +205,7 @@ export function buildMessages(opts: {
   if (opts.voice.globalInstructions) {
     systemBlocks.push({
       type: "text",
-      text: `Always:\n${opts.voice.globalInstructions}`,
+      text: `Non-negotiable rules for this show — these override voice-matching, sample style, and platform norms. Apply them to every output without exception:\n${opts.voice.globalInstructions}`,
       cache_control: { type: "ephemeral" },
     });
   }
@@ -217,7 +217,9 @@ export function buildMessages(opts: {
     "",
     `Constraints: ${cfg.format}`,
     `Target length: ${cfg.idealLength}.`,
-    platformRule ? `Additional rule for ${opts.platform}: ${platformRule}` : "",
+    platformRule
+      ? `Non-negotiable rule for ${opts.platform} (overrides voice-matching and sample style): ${platformRule}`
+      : "",
     opts.extraInstruction ? `One-time regenerate instruction: ${opts.extraInstruction}` : "",
   ]
     .filter(Boolean)

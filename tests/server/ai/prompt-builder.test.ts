@@ -165,10 +165,10 @@ describe("buildMessages", () => {
     });
     const twitterText = (twitter.system as Array<{ text: string }>).map((b) => b.text).join("\n");
     const linkedinText = (linkedin.system as Array<{ text: string }>).map((b) => b.text).join("\n");
-    // Each platform's specific rule appears, prefixed with "Additional rule for X:".
-    expect(twitterText).toContain("Additional rule for TWITTER");
+    // Each platform's specific rule appears as an override that beats sample style.
+    expect(twitterText).toContain("Non-negotiable rule for TWITTER");
     expect(twitterText).toContain("under 200 chars");
-    expect(linkedinText).toContain("Additional rule for LINKEDIN");
+    expect(linkedinText).toContain("Non-negotiable rule for LINKEDIN");
     expect(linkedinText).toContain("Close with one question to the reader");
     // The OTHER platform's per-client rule never leaks into this prompt.
     expect(twitterText).not.toContain("Close with one question to the reader");
