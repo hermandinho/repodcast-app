@@ -42,7 +42,7 @@ export type FinanceSummary = {
     arrCents: number;
     payingAgencies: number;
     nonPayingAgencies: number;
-    /** Sorted by Plan order (STUDIO → AGENCY → NETWORK). */
+    /** Sorted by Plan order (SOLO → STUDIO → NETWORK). */
     byPlan: Array<{ plan: Plan; agencies: number; mrrCents: number }>;
     /**
      * Sorted by agency count descending. Each row's `mrrCents` is in the
@@ -359,7 +359,7 @@ function toInvoiceRow(r: RawInvoiceRow): InvoiceRowForRoot {
 // Pure date / bucket helpers — exported for tests
 // ============================================================
 
-const PLAN_ORDER_RANK: readonly Plan[] = ["STUDIO", "AGENCY", "NETWORK"];
+const PLAN_ORDER_RANK: readonly Plan[] = ["SOLO", "STUDIO", "NETWORK"];
 
 function monthStart(now: Date): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));

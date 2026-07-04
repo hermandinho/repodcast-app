@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireAuthContext } from "@/server/auth/context";
-import { ValidationError } from "@/server/auth/errors";
+import { AppError } from "@/server/auth/errors";
 import { toTenantContext } from "@/server/auth/tenant";
 import { isLiveDb } from "@/server/data/source";
 import {
@@ -19,6 +19,13 @@ import {
  * picks up the new row (or the revoked stamp) on the next render.
  * Sample-data mode short-circuits to a synthetic success — the design
  * preview exercises the form without a `DATABASE_URL`.
+ *
+ * Domain errors (plan gate, tenant mismatch, validation) are converted to
+ * `{ ok: false, error }`. Uncaught throws from a Server Action get their
+ * message redacted in production — the client would see only React's
+ * generic "An error occurred in the Server Components render" digest text
+ * instead of the actionable copy (e.g. "Plan STUDIO doesn't include this
+ * feature. Upgrade to AGENCY or higher.").
  */
 
 export type MintPortalLinkResult =
@@ -29,7 +36,7 @@ export type RevokePortalLinkResult = { ok: true } | { ok: false; error: string }
 export async function mintPortalLinkAction(raw: unknown): Promise<MintPortalLinkResult> {
   const parsed = createPortalLinkInput.safeParse(raw);
   if (!parsed.success) {
-    throw new ValidationError("Invalid portal-link input", parsed.error.issues);
+    return { ok: false, error: "Invalid input." };
   }
 
   if (!isLiveDb()) {
@@ -44,18 +51,20 @@ export async function mintPortalLinkAction(raw: unknown): Promise<MintPortalLink
     };
   }
 
-  const auth = await requireAuthContext();
-  const link = await createPortalLink(toTenantContext(auth), parsed.data, auth.member.id);
+  try {
+    const auth = await requireAuthContext();
+    const link = await createPortalLink(toTenantContext(auth), parsed.data, auth.member.id);
 
-  // The billing tab reads the link list via getClientForUI's parent
-  // route, but the list is rendered as part of /clients/[key]/billing.
-  // Revalidate that layout so the new row appears.
-  revalidatePath(`/clients/${parsed.data.clientId}/billing`);
+    revalidatePath(`/clients/${parsed.data.clientId}/billing`);
 
-  return {
-    ok: true,
-    data: { token: link.token, expiresAtIso: link.expiresAt.toISOString() },
-  };
+    return {
+      ok: true,
+      data: { token: link.token, expiresAtIso: link.expiresAt.toISOString() },
+    };
+  } catch (err) {
+    if (err instanceof AppError) return { ok: false, error: err.message };
+    throw err;
+  }
 }
 
 const revokeInput = z.object({
@@ -66,13 +75,18 @@ const revokeInput = z.object({
 export async function revokePortalLinkAction(raw: unknown): Promise<RevokePortalLinkResult> {
   const parsed = revokeInput.safeParse(raw);
   if (!parsed.success) {
-    throw new ValidationError("Invalid revoke input", parsed.error.issues);
+    return { ok: false, error: "Invalid input." };
   }
 
   if (!isLiveDb()) return { ok: true };
 
-  const auth = await requireAuthContext();
-  await revokePortalLink(toTenantContext(auth), parsed.data.linkId);
-  revalidatePath(`/clients/${parsed.data.clientId}/billing`);
-  return { ok: true };
+  try {
+    const auth = await requireAuthContext();
+    await revokePortalLink(toTenantContext(auth), parsed.data.linkId);
+    revalidatePath(`/clients/${parsed.data.clientId}/billing`);
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof AppError) return { ok: false, error: err.message };
+    throw err;
+  }
 }

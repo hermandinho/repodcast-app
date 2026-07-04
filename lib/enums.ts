@@ -16,8 +16,8 @@ import type {
 // Prisma type, so drift in `prisma/schema.prisma` surfaces as a type error.
 
 export const Plan = {
+  SOLO: "SOLO",
   STUDIO: "STUDIO",
-  AGENCY: "AGENCY",
   NETWORK: "NETWORK",
 } as const satisfies Record<PrismaPlan, PrismaPlan>;
 export type Plan = PrismaPlan;

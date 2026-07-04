@@ -124,7 +124,7 @@ describe("rollupAgencyForDay", () => {
 
     const totals = await rollupAgencyForDay({
       agencyId: "agc_1",
-      plan: "AGENCY",
+      plan: "NETWORK",
       dayStart,
     });
 
@@ -177,7 +177,7 @@ describe("rollupAgencyForDay", () => {
 
   it("upsert keys on (agencyId, date) so the same call is idempotent", async () => {
     const dayStart = new Date("2026-06-29T00:00:00.000Z");
-    await rollupAgencyForDay({ agencyId: "agc_1", plan: "AGENCY", dayStart });
+    await rollupAgencyForDay({ agencyId: "agc_1", plan: "NETWORK", dayStart });
 
     const call = mocks.prisma.agencyUsageSnapshot.upsert.mock.calls[0]?.[0] as {
       where: { agencyId_date: { agencyId: string; date: Date } };
@@ -190,14 +190,14 @@ describe("rollupAgencyForDay", () => {
     expect(call.create).toMatchObject({
       agencyId: "agc_1",
       date: dayStart,
-      plan: "AGENCY",
+      plan: "NETWORK",
       episodes: 0,
       outputs: 0,
       costCents: 0,
       revenueCents: 0,
     });
     expect(call.update).toMatchObject({
-      plan: "AGENCY",
+      plan: "NETWORK",
       episodes: 0,
       outputs: 0,
       costCents: 0,

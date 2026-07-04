@@ -31,7 +31,7 @@ type Mode =
       initialCadence?: BillingCadence;
       initialCurrency?: SupportedCurrency;
       submittingLabel?: string;
-      /** Whether this user still qualifies for the free trial (see `TRIAL_DAYS`). */
+      /** Whether this user still qualifies for the $1 / 7-day trial (see `TRIAL_DAYS`). */
       trialEligible: boolean;
     };
 
@@ -74,7 +74,7 @@ export function PricingPicker(
             cadence={cadence}
             currency={currency}
             mode={mode}
-            highlighted={plan === Plan.AGENCY}
+            highlighted={plan === Plan.STUDIO}
           />
         ))}
       </div>
@@ -204,7 +204,9 @@ function PlanCard({
         <span className="text-[13px] text-[#5B6A85]">{perLabel}</span>
       </div>
       <div className="mt-1 text-[11.5px] text-[#8B95A6]">
-        {mode.trialEligible ? `$0 today, then ${cadenceHint.toLowerCase()}` : cadenceHint}
+        {mode.trialEligible
+          ? `$1 today, then ${priceLabel}${perLabel} after ${TRIAL_DAYS} days · ${cadenceHint.toLowerCase()}`
+          : cadenceHint}
       </div>
 
       <ul className="mt-5 flex flex-col gap-2 text-[13.5px] text-[#1A2A4A]">
@@ -228,7 +230,7 @@ function PlanCard({
               : "bg-[#1A2A4A]/10 text-[#1A2A4A] hover:bg-[#1A2A4A]/20")
           }
         >
-          {mode.trialEligible ? `Start ${TRIAL_DAYS}-day free trial` : "Get Started"}
+          {mode.trialEligible ? `Start ${TRIAL_DAYS}-day trial · $1 today` : "Get Started"}
         </Link>
       ) : (
         <form action={mode.submit}>
@@ -246,7 +248,7 @@ function PlanCard({
           >
             {mode.submittingLabel ??
               (mode.trialEligible
-                ? `Start ${TRIAL_DAYS}-day free trial`
+                ? `Start ${TRIAL_DAYS}-day trial · $1 today`
                 : `Continue with ${meta.name}`)}
           </button>
         </form>

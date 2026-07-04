@@ -1,6 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { BillingCycle, ClientStatus, MemberRole, OutputStatus, Platform } from "@prisma/client";
+import {
+  BillingCycle,
+  ClientStatus,
+  MemberRole,
+  OutputStatus,
+  Plan,
+  Platform,
+} from "@prisma/client";
 import { headers } from "next/headers";
 import { ClientBillingForm } from "@/components/clients/client-billing-form";
 import type { ClientBillingFormInitial } from "@/components/clients/client-billing-form";
@@ -13,6 +20,7 @@ import {
 import { PortalLinksCard, type PortalLinkRow } from "@/components/clients/portal-links-card";
 import { PlatformBadge } from "@/components/ui/platform-badge";
 import { platforms } from "@/lib/sample-data/platforms";
+import { getAgencyPlan } from "@/server/billing/limits";
 import { getClientBillingProfile } from "@/server/db/client-billing";
 import { listPortalFeedbackForClient, listPortalLinks } from "@/server/db/client-portal";
 import { costForClient } from "@/server/db/client-cost";
@@ -144,6 +152,12 @@ export default async function ClientBillingPage({
         createdByName: l.createdByMember?.name?.trim() || l.createdByMember?.email || null,
       }))
     : [];
+
+  // Effective plan drives the client-portal upsell inside `PortalLinksCard`.
+  // Studio agencies see an inline "upgrade to unlock" callout instead of a
+  // mint form that would throw on submit. Sample-data mode passes null and
+  // the card treats it as unlocked so the design preview still works.
+  const agencyPlan: Plan | null = isLiveDb() ? await getAgencyPlan(tenant.agencyId) : null;
 
   // Phase 3.8 — portal feedback inbox for this client. Every role that
   // can see the ledger can also triage feedback (READ_ROLES); the DB
@@ -277,6 +291,7 @@ export default async function ClientBillingPage({
         initialLinks={portalLinks}
         baseUrl={portalBaseUrl}
         canManage={isAdminOrOwner}
+        plan={agencyPlan}
       />
 
       {/* Phase 3.8 — portal feedback inbox. All READ_ROLES can triage. */}

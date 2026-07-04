@@ -69,8 +69,8 @@ describe("getRootOverview — money rollup", () => {
     // Non-paying count is `agency.count − sum(paying)`, no extra query.
     mocks.prisma.agency.groupBy
       .mockResolvedValueOnce([
+        { plan: "SOLO", _count: { _all: 1 } },
         { plan: "STUDIO", _count: { _all: 2 } },
-        { plan: "AGENCY", _count: { _all: 1 } },
         { plan: "NETWORK", _count: { _all: 1 } },
       ])
       .mockResolvedValueOnce([{ plan: "STUDIO", _count: { _all: 1 } }]);
@@ -78,11 +78,11 @@ describe("getRootOverview — money rollup", () => {
 
     const result = await getRootOverview(ctx);
 
-    // STUDIO $99 × 2 + AGENCY $249 × 1 + NETWORK $499 × 1 = 198 + 249 + 499 = 946 USD = 94600 cents.
-    expect(result.money.mrrCents).toBe(94600);
-    expect(result.money.arrCents).toBe(94600 * 12);
-    // Net new MRR: STUDIO × 1 = $99 = 9900 cents.
-    expect(result.money.netNewMrrMtdCents).toBe(9900);
+    // SOLO $29 × 1 + STUDIO $89 × 2 + NETWORK $299 × 1 = 29 + 178 + 299 = 506 USD = 50600 cents.
+    expect(result.money.mrrCents).toBe(50600);
+    expect(result.money.arrCents).toBe(50600 * 12);
+    // Net new MRR: STUDIO × 1 = $89 = 8900 cents.
+    expect(result.money.netNewMrrMtdCents).toBe(8900);
     expect(result.money.payingAgencies).toBe(4);
     expect(result.money.nonPayingAgencies).toBe(2);
     expect(result.money.agenciesCreatedMtd).toBe(1);
@@ -130,7 +130,7 @@ describe("getRootOverview — usage + gross margin (snapshot + live today)", () 
 
   it("grossMarginCentsMtd = mrrCents − aiSpendCentsMtd (positive case)", async () => {
     mocks.prisma.agency.groupBy
-      .mockResolvedValueOnce([{ plan: "AGENCY", _count: { _all: 1 } }]) // paying → MRR = $249
+      .mockResolvedValueOnce([{ plan: "STUDIO", _count: { _all: 1 } }]) // paying → MRR = $89
       .mockResolvedValueOnce([]); // net-new this month → empty
     // Closed period saw $30 in AI spend; today saw another $20.
     mocks.prisma.agencyUsageSnapshot.aggregate.mockResolvedValue({
@@ -140,13 +140,13 @@ describe("getRootOverview — usage + gross margin (snapshot + live today)", () 
 
     const result = await getRootOverview(ctx);
     expect(result.usage.aiSpendCentsMtd).toBe(5_000);
-    // $249 × 100 = 24_900 cents; margin = 24_900 − 5_000 = 19_900 cents.
-    expect(result.usage.grossMarginCentsMtd).toBe(19_900);
+    // $89 × 100 = 8_900 cents; margin = 8_900 − 5_000 = 3_900 cents.
+    expect(result.usage.grossMarginCentsMtd).toBe(3_900);
   });
 
   it("gross margin goes negative when AI spend exceeds MRR (burning case)", async () => {
     mocks.prisma.agency.groupBy
-      .mockResolvedValueOnce([{ plan: "STUDIO", _count: { _all: 1 } }]) // paying → MRR = $99
+      .mockResolvedValueOnce([{ plan: "SOLO", _count: { _all: 1 } }]) // paying → MRR = $29
       .mockResolvedValueOnce([]);
     mocks.prisma.agencyUsageSnapshot.aggregate.mockResolvedValue({
       _sum: { episodes: null, outputs: null, costCents: 45_000 },
@@ -154,8 +154,8 @@ describe("getRootOverview — usage + gross margin (snapshot + live today)", () 
     mocks.prisma.usageLog.aggregate.mockResolvedValue({ _sum: { costCents: 5_000 } });
 
     const result = await getRootOverview(ctx);
-    // 9_900 − (45_000 + 5_000) = −40_100.
-    expect(result.usage.grossMarginCentsMtd).toBe(-40_100);
+    // 2_900 − (45_000 + 5_000) = −47_100.
+    expect(result.usage.grossMarginCentsMtd).toBe(-47_100);
   });
 
   it("null _sum on both snapshot AND live collapses to 0 so margin math doesn't NaN", async () => {
@@ -234,8 +234,8 @@ describe("getRootOverview — charts", () => {
     expect(first < last).toBe(true);
     // Each bucket carries all three plans, zero-filled, with total 0.
     for (const bucket of result.charts.outputsByPlanLast12Weeks) {
+      expect(bucket.counts.SOLO).toBe(0);
       expect(bucket.counts.STUDIO).toBe(0);
-      expect(bucket.counts.AGENCY).toBe(0);
       expect(bucket.counts.NETWORK).toBe(0);
       expect(bucket.total).toBe(0);
     }
@@ -269,7 +269,7 @@ describe("getRootOverview — charts", () => {
     const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
     mocks.prisma.agencyUsageSnapshot.findMany.mockResolvedValue([
       { date: fourteenDaysAgo, plan: "STUDIO", outputs: 3 },
-      { date: fourteenDaysAgo, plan: "AGENCY", outputs: 11 },
+      { date: fourteenDaysAgo, plan: "NETWORK", outputs: 11 },
       {
         date: new Date(fourteenDaysAgo.getTime() + 24 * 60 * 60 * 1000),
         plan: "STUDIO",
@@ -280,7 +280,7 @@ describe("getRootOverview — charts", () => {
     const nonZero = result.charts.outputsByPlanLast12Weeks.filter((b) => b.total > 0);
     expect(nonZero).toHaveLength(1);
     expect(nonZero[0].counts.STUDIO).toBe(5); // 3 + 2 in the same week
-    expect(nonZero[0].counts.AGENCY).toBe(11);
+    expect(nonZero[0].counts.NETWORK).toBe(11);
     expect(nonZero[0].total).toBe(16);
   });
 });

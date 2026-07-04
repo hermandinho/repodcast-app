@@ -1,5 +1,5 @@
 -- CreateEnum
-CREATE TYPE "Plan" AS ENUM ('STUDIO', 'AGENCY', 'NETWORK');
+CREATE TYPE "Plan" AS ENUM ('SOLO', 'STUDIO', 'NETWORK');
 
 -- CreateEnum
 CREATE TYPE "MemberRole" AS ENUM ('OWNER', 'ADMIN', 'EDITOR', 'REVIEWER');

@@ -257,7 +257,7 @@ export async function updateAgencyBranding(
 ): Promise<Agency> {
   requireRole(ctx, WRITE_ROLES);
   const plan = await getAgencyPlan(ctx.agencyId);
-  assertMinPlan(plan, Plan.AGENCY);
+  assertMinPlan(plan, Plan.NETWORK);
   const { count } = await prisma.agency.updateMany({
     where: { id: ctx.agencyId },
     data: {

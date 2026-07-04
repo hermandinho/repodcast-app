@@ -78,18 +78,18 @@ describe("planCapacity — shows", () => {
 describe("planCapacity — members", () => {
   it("counts via Member directly, anchored to agencyId", async () => {
     mocks.prisma.member.count.mockResolvedValue(5);
-    const result = await planCapacity(A1, Plan.AGENCY, "members");
+    const result = await planCapacity(A1, Plan.NETWORK, "members");
     expect(mocks.prisma.member.count).toHaveBeenCalledWith({
       where: { agencyId: A1 },
     });
-    expect(result).toEqual({ used: 5, limit: planLimitsFor(Plan.AGENCY).seats });
+    expect(result).toEqual({ used: 5, limit: planLimitsFor(Plan.NETWORK).seats });
   });
 });
 
 describe("planCapacity — episodes (per-month)", () => {
   it("filters by createdAt >= month-start AND the nested tenant join", async () => {
     mocks.prisma.episode.count.mockResolvedValue(14);
-    const result = await planCapacity(A1, Plan.AGENCY, "episodes");
+    const result = await planCapacity(A1, Plan.NETWORK, "episodes");
 
     const call = mocks.prisma.episode.count.mock.calls[0]![0];
     expect(call.where.show).toEqual({ client: { agencyId: A1 } });
@@ -102,7 +102,7 @@ describe("planCapacity — episodes (per-month)", () => {
 
     expect(result).toEqual({
       used: 14,
-      limit: planLimitsFor(Plan.AGENCY).episodesPerMonth,
+      limit: planLimitsFor(Plan.NETWORK).episodesPerMonth,
     });
   });
 });
@@ -153,12 +153,12 @@ describe("assertPlanCapacity", () => {
   it("error message carries plan + resource + limit + used for the UI toast", async () => {
     mocks.prisma.member.count.mockResolvedValue(2);
     try {
-      await assertPlanCapacity(A1, Plan.STUDIO, "members");
+      await assertPlanCapacity(A1, Plan.SOLO, "members");
       throw new Error("should have thrown");
     } catch (err) {
       expect(err).toBeInstanceOf(ForbiddenError);
       const message = (err as ForbiddenError).message;
-      expect(message).toContain("STUDIO");
+      expect(message).toContain("SOLO");
       expect(message).toContain("members");
       expect(message).toContain("2");
       expect(message).toMatch(/Upgrade/);
@@ -173,10 +173,10 @@ describe("assertPlanCapacity", () => {
 describe("getAgencyPlan", () => {
   it("returns the base plan when no override is set", async () => {
     mocks.prisma.agency.findUnique.mockResolvedValue({
-      plan: Plan.AGENCY,
+      plan: Plan.NETWORK,
       planOverride: null,
     });
-    await expect(getAgencyPlan(A1)).resolves.toBe(Plan.AGENCY);
+    await expect(getAgencyPlan(A1)).resolves.toBe(Plan.NETWORK);
     expect(mocks.prisma.agency.findUnique).toHaveBeenCalledWith({
       where: { id: A1 },
       select: { plan: true, planOverride: true },
@@ -215,14 +215,14 @@ describe("getAgencyPlan", () => {
 
 describe("loadCapacityForUI", () => {
   it("bundles plan + resource alongside used + limit for the banner", async () => {
-    mocks.prisma.agency.findUnique.mockResolvedValue({ plan: Plan.AGENCY });
+    mocks.prisma.agency.findUnique.mockResolvedValue({ plan: Plan.NETWORK });
     mocks.prisma.show.count.mockResolvedValue(7);
 
     const result = await loadCapacityForUI(A1, "shows");
     expect(result).toEqual({
       used: 7,
-      limit: planLimitsFor(Plan.AGENCY).shows,
-      plan: Plan.AGENCY,
+      limit: planLimitsFor(Plan.NETWORK).shows,
+      plan: Plan.NETWORK,
       resource: "shows",
     });
   });
@@ -234,49 +234,49 @@ describe("loadCapacityForUI", () => {
 
 describe("assertMinPlan", () => {
   it("passes when the caller's plan matches the minimum", () => {
+    expect(() => assertMinPlan(Plan.SOLO, Plan.SOLO)).not.toThrow();
     expect(() => assertMinPlan(Plan.STUDIO, Plan.STUDIO)).not.toThrow();
-    expect(() => assertMinPlan(Plan.AGENCY, Plan.AGENCY)).not.toThrow();
     expect(() => assertMinPlan(Plan.NETWORK, Plan.NETWORK)).not.toThrow();
   });
 
   it("passes when the caller's plan is above the minimum", () => {
-    expect(() => assertMinPlan(Plan.AGENCY, Plan.STUDIO)).not.toThrow();
+    expect(() => assertMinPlan(Plan.STUDIO, Plan.SOLO)).not.toThrow();
+    expect(() => assertMinPlan(Plan.NETWORK, Plan.SOLO)).not.toThrow();
     expect(() => assertMinPlan(Plan.NETWORK, Plan.STUDIO)).not.toThrow();
-    expect(() => assertMinPlan(Plan.NETWORK, Plan.AGENCY)).not.toThrow();
   });
 
   it("throws ForbiddenError when the caller's plan is below the minimum", () => {
-    expect(() => assertMinPlan(Plan.STUDIO, Plan.AGENCY)).toThrow(ForbiddenError);
+    expect(() => assertMinPlan(Plan.SOLO, Plan.STUDIO)).toThrow(ForbiddenError);
+    expect(() => assertMinPlan(Plan.SOLO, Plan.NETWORK)).toThrow(ForbiddenError);
     expect(() => assertMinPlan(Plan.STUDIO, Plan.NETWORK)).toThrow(ForbiddenError);
-    expect(() => assertMinPlan(Plan.AGENCY, Plan.NETWORK)).toThrow(ForbiddenError);
   });
 
   it("message names the required plan so callers can surface an upgrade CTA", () => {
     try {
-      assertMinPlan(Plan.STUDIO, Plan.AGENCY);
+      assertMinPlan(Plan.SOLO, Plan.NETWORK);
       throw new Error("expected throw");
     } catch (err) {
       expect(err).toBeInstanceOf(ForbiddenError);
       const fe = err as ForbiddenError;
       expect(fe.statusCode).toBe(403);
-      expect(fe.message).toContain("STUDIO");
-      expect(fe.message).toContain("AGENCY");
+      expect(fe.message).toContain("SOLO");
+      expect(fe.message).toContain("NETWORK");
     }
   });
 
   it("full 3×3 rank matrix matches the marketing tier order", () => {
-    // Studio(0) < Agency(1) < Network(2). Encoded once as truth table so
+    // Solo(0) < Studio(1) < Network(2). Encoded once as truth table so
     // a future flip in `PLAN_RANK` inside limits.ts trips this instead of
     // silently reversing gate direction.
     const cases: Array<{ caller: Plan; minimum: Plan; allowed: boolean }> = [
+      { caller: Plan.SOLO, minimum: Plan.SOLO, allowed: true },
+      { caller: Plan.SOLO, minimum: Plan.STUDIO, allowed: false },
+      { caller: Plan.SOLO, minimum: Plan.NETWORK, allowed: false },
+      { caller: Plan.STUDIO, minimum: Plan.SOLO, allowed: true },
       { caller: Plan.STUDIO, minimum: Plan.STUDIO, allowed: true },
-      { caller: Plan.STUDIO, minimum: Plan.AGENCY, allowed: false },
       { caller: Plan.STUDIO, minimum: Plan.NETWORK, allowed: false },
-      { caller: Plan.AGENCY, minimum: Plan.STUDIO, allowed: true },
-      { caller: Plan.AGENCY, minimum: Plan.AGENCY, allowed: true },
-      { caller: Plan.AGENCY, minimum: Plan.NETWORK, allowed: false },
+      { caller: Plan.NETWORK, minimum: Plan.SOLO, allowed: true },
       { caller: Plan.NETWORK, minimum: Plan.STUDIO, allowed: true },
-      { caller: Plan.NETWORK, minimum: Plan.AGENCY, allowed: true },
       { caller: Plan.NETWORK, minimum: Plan.NETWORK, allowed: true },
     ];
     for (const { caller, minimum, allowed } of cases) {
@@ -294,8 +294,8 @@ describe("assertMinPlan", () => {
 // ============================================================
 //
 // The override replaces the plan default absolutely — an override of 5 on a
-// STUDIO account with the default `shows: 3` means the effective cap is 5,
-// not 5+3. An override of 1 on the same account is a HARD CAP: the operator
+// STUDIO account with the default `shows: 5` means the effective cap is 5,
+// not 5+5. An override of 1 on the same account is a HARD CAP: the operator
 // can throttle an abusing agency below its plan tier.
 
 describe("planCapacity — override consumption", () => {
@@ -324,8 +324,8 @@ describe("planCapacity — override consumption", () => {
       expiresAt: new Date(Date.now() - 60 * 60 * 1000),
     });
 
-    const result = await planCapacity(A1, Plan.AGENCY, "members");
-    expect(result.limit).toBe(planLimitsFor(Plan.AGENCY).seats);
+    const result = await planCapacity(A1, Plan.NETWORK, "members");
+    expect(result.limit).toBe(planLimitsFor(Plan.NETWORK).seats);
     expect(result.used).toBe(4);
   });
 

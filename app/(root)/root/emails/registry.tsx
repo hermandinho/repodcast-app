@@ -112,10 +112,11 @@ export const EMAILS: readonly EmailEntry[] = [
     slug: "trial-welcome",
     name: "Trial welcome (Day 0)",
     journey: "trial",
-    subject: `${DEMO_AGENCY}: your ${Plan.AGENCY} trial is live`,
-    purpose: "Welcomes a fresh trial signup and sets expectations for the day-15 charge.",
+    subject: `${DEMO_AGENCY}: your ${Plan.STUDIO} trial is live`,
+    purpose:
+      "Welcomes a fresh trial signup and sets expectations for the day-8 recurring charge (the $1 activation already landed at Checkout).",
     rationale:
-      "Fires immediately when Stripe reports the subscription as `trialing`. Distinct from the paid Welcome email because the trial framing (nothing charges until X, cancel any time) has to be baked in from the very first touch — that's what keeps trial-abandoners from feeling ambushed on day 15.",
+      "Fires immediately when Stripe reports the subscription as `trialing`. Distinct from the paid Welcome email because the trial framing (activation fee already charged, recurring plan charge in 7 days, cancel any time) has to be baked in from the very first touch — that's what keeps trial-abandoners from feeling ambushed on day 8.",
     trigger: {
       type: "webhook",
       label: "Stripe webhook · subscription.created (status=trialing)",
@@ -130,7 +131,7 @@ export const EMAILS: readonly EmailEntry[] = [
     element: TrialWelcomeEmail({
       firstName: DEMO_FIRST_NAME,
       agencyName: DEMO_AGENCY,
-      plan: Plan.AGENCY,
+      plan: Plan.STUDIO,
       trialEndsAt: TRIAL_END,
       dashboardUrl: `${PREVIEW_ORIGIN}/dashboard`,
     }),
@@ -183,7 +184,7 @@ export const EMAILS: readonly EmailEntry[] = [
     senderFn: "sendTrialEndingSoonEmail",
     element: TrialEndingSoonEmail({
       agencyName: DEMO_AGENCY,
-      plan: Plan.AGENCY,
+      plan: Plan.STUDIO,
       trialEndsAt: TRIAL_END,
       billingUrl: `${PREVIEW_ORIGIN}/settings/billing`,
     }),
@@ -192,7 +193,7 @@ export const EMAILS: readonly EmailEntry[] = [
     slug: "trial-converted",
     name: "Trial converted (Day 15)",
     journey: "trial",
-    subject: `${DEMO_AGENCY}: your trial converted to ${Plan.AGENCY}`,
+    subject: `${DEMO_AGENCY}: your trial converted to ${Plan.STUDIO}`,
     purpose: "Confirms the first successful charge and points to the first invoice.",
     rationale:
       "Sent on the `trialing → active` transition. Doubles as a `first invoice is ready` nudge; marketing also wants the moment for cohort tracking.",
@@ -209,7 +210,7 @@ export const EMAILS: readonly EmailEntry[] = [
     senderFn: "sendTrialConvertedEmail",
     element: TrialConvertedEmail({
       agencyName: DEMO_AGENCY,
-      plan: Plan.AGENCY,
+      plan: Plan.STUDIO,
       billingUrl: `${PREVIEW_ORIGIN}/settings/billing`,
     }),
   },
@@ -219,7 +220,7 @@ export const EMAILS: readonly EmailEntry[] = [
     journey: "trial",
     subject: `${DEMO_AGENCY}: your trial ended`,
     purpose:
-      "Notifies that Stripe couldn't complete the first invoice — the workspace is now capped at STUDIO limits.",
+      "Notifies that Stripe couldn't complete the first invoice — the workspace is now capped at SOLO limits.",
     rationale:
       "Only fires when `subscription.deleted` carries a cancellation reason that is NOT `cancellation_requested` (i.e. failed payment). User-initiated trial cancellations get no email — we don't want to guilt-trip active cancellations.",
     trigger: {

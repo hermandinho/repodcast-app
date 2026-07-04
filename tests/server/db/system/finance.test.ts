@@ -133,12 +133,12 @@ describe("getFinanceSummary — MRR rollup", () => {
   });
 
   it("sums byPlan rows to mrr.totalCents (internal coherence)", async () => {
-    // 5 STUDIO paying + 2 AGENCY paying — totalCents must equal byPlan sum.
+    // 5 STUDIO paying + 2 NETWORK paying — totalCents must equal byPlan sum.
     mocks.agencyGroupBy.mockImplementation(async (args: { by: string[] }) => {
       if (args.by.includes("plan")) {
         return [
           { plan: "STUDIO" as Plan, _count: { _all: 5 } },
-          { plan: "AGENCY" as Plan, _count: { _all: 2 } },
+          { plan: "NETWORK" as Plan, _count: { _all: 2 } },
         ];
       }
       if (args.by.includes("preferredCurrency")) {
@@ -153,7 +153,7 @@ describe("getFinanceSummary — MRR rollup", () => {
           preferredCurrency: "USD",
         })),
         ...Array.from({ length: 2 }, () => ({
-          plan: "AGENCY" as Plan,
+          plan: "NETWORK" as Plan,
           preferredCurrency: "USD",
         })),
       ],
@@ -162,14 +162,14 @@ describe("getFinanceSummary — MRR rollup", () => {
     const summary = await getFinanceSummary(ctx());
 
     const expectedStudio = 5 * priceFor("STUDIO") * 100;
-    const expectedAgency = 2 * priceFor("AGENCY") * 100;
+    const expectedNetwork = 2 * priceFor("NETWORK") * 100;
     expect(summary.mrr.byPlan).toEqual([
+      { plan: "SOLO", agencies: 0, mrrCents: 0 },
       { plan: "STUDIO", agencies: 5, mrrCents: expectedStudio },
-      { plan: "AGENCY", agencies: 2, mrrCents: expectedAgency },
-      { plan: "NETWORK", agencies: 0, mrrCents: 0 },
+      { plan: "NETWORK", agencies: 2, mrrCents: expectedNetwork },
     ]);
-    expect(summary.mrr.totalCents).toBe(expectedStudio + expectedAgency);
-    expect(summary.mrr.arrCents).toBe((expectedStudio + expectedAgency) * 12);
+    expect(summary.mrr.totalCents).toBe(expectedStudio + expectedNetwork);
+    expect(summary.mrr.arrCents).toBe((expectedStudio + expectedNetwork) * 12);
     expect(summary.mrr.payingAgencies).toBe(7);
   });
 
@@ -178,7 +178,7 @@ describe("getFinanceSummary — MRR rollup", () => {
       if (args.by.includes("plan")) {
         return [
           { plan: "STUDIO" as Plan, _count: { _all: 3 } },
-          { plan: "AGENCY" as Plan, _count: { _all: 1 } },
+          { plan: "NETWORK" as Plan, _count: { _all: 1 } },
         ];
       }
       if (args.by.includes("preferredCurrency")) {
@@ -194,7 +194,7 @@ describe("getFinanceSummary — MRR rollup", () => {
         { plan: "STUDIO" as Plan, preferredCurrency: "USD" },
         { plan: "STUDIO" as Plan, preferredCurrency: "USD" },
         { plan: "STUDIO" as Plan, preferredCurrency: "EUR" },
-        { plan: "AGENCY" as Plan, preferredCurrency: "EUR" },
+        { plan: "NETWORK" as Plan, preferredCurrency: "EUR" },
       ],
     });
 
@@ -210,7 +210,7 @@ describe("getFinanceSummary — MRR rollup", () => {
     expect(eurRow).toEqual({
       currency: "EUR",
       agencies: 2,
-      mrrCents: priceFor("STUDIO", "EUR") * 100 + priceFor("AGENCY", "EUR") * 100,
+      mrrCents: priceFor("STUDIO", "EUR") * 100 + priceFor("NETWORK", "EUR") * 100,
     });
   });
 
@@ -284,7 +284,7 @@ describe("getFinanceSummary — cohorts", () => {
         },
         {
           createdAt: new Date("2026-06-05T00:00:00Z"),
-          plan: "AGENCY" as Plan,
+          plan: "NETWORK" as Plan,
           stripeSubscriptionId: "sub_b",
         },
       ],
@@ -315,7 +315,7 @@ describe("getFinanceSummary — cohorts", () => {
         monthIso: "2026-06-01T00:00:00.000Z",
         agencies: 1,
         payingAgencies: 1,
-        currentMrrCents: priceFor("AGENCY") * 100,
+        currentMrrCents: priceFor("NETWORK") * 100,
       });
     } finally {
       vi.useRealTimers();

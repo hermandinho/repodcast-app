@@ -20,27 +20,29 @@ const COMPARISON: ComparisonRow[] = [
   { section: "Output", label: "Formats per episode", values: ["7", "7", "7"] },
   { label: "Turnaround time", values: ["< 60s", "< 60s", "< 60s"] },
   { label: "Batch processing", values: ["—", "—", "✓"], emphasis: true },
+  { label: "Priority queue", values: ["—", "—", "✓"], emphasis: true },
 
-  { section: "Team", label: "Client shows", values: ["3", "10", "25"] },
-  { label: "Seats", values: ["2", "6", "Unlimited"] },
+  { section: "Team", label: "Client shows", values: ["1", "5", "25"] },
+  { label: "Seats", values: ["1", "3", "Unlimited"] },
   { label: "Approval workflow", values: ["✓", "✓", "✓"] },
-  { label: "Role-based permissions", values: ["✓", "✓", "✓"] },
+  { label: "Role-based permissions", values: ["—", "✓", "✓"] },
 
   {
     section: "Client-facing",
     label: "White-label exports",
-    values: ["—", "✓", "✓"],
+    values: ["—", "—", "✓"],
     emphasis: true,
   },
-  { label: "Client portal (per-client)", values: ["—", "✓", "✓"], emphasis: true },
-  { label: "Custom brand accent", values: ["—", "✓", "✓"] },
+  { label: "Client portal (per-client)", values: ["—", "—", "✓"], emphasis: true },
+  { label: "Custom brand accent", values: ["—", "—", "✓"] },
 
-  { section: "Ops", label: "Monthly cost cap", values: ["$20", "$60", "$200"] },
-  { label: "Episodes / month", values: ["20", "60", "200"] },
-  { label: "Generations / month", values: ["140", "420", "1,400"] },
+  { section: "Ops", label: "Monthly cost cap", values: ["$9", "$27", "$90"] },
+  { label: "Episodes / month", values: ["20", "60", "250"] },
+  { label: "Generations / month", values: ["140", "420", "1,750"] },
 
   { section: "Billing", label: "Currencies", values: ["5", "5", "5"] },
   { label: "Monthly or annual", values: ["✓", "✓", "✓"] },
+  { label: "$1 activation, 7-day trial", values: ["✓", "✓", "✓"] },
   { label: "Cancel any time", values: ["✓", "✓", "✓"] },
 ];
 
@@ -51,7 +53,8 @@ const COMPARISON: ComparisonRow[] = [
  * 720px onboarding column.
  */
 export function PlanComparisonTable({ compact = false }: { compact?: boolean } = {}) {
-  const planNames = ["Studio", "Agency", "Network"] as const;
+  const planNames = ["Solo", "Studio", "Network"] as const;
+  const popularIdx = 1; // Studio — middle tier, most common landing
 
   // Group rows by section for the sticky section headers.
   const groups: Array<{ title: string; rows: ComparisonRow[] }> = [];
@@ -97,12 +100,12 @@ export function PlanComparisonTable({ compact = false }: { compact?: boolean } =
             style={{
               padding: headerPad,
               borderLeft: "1px solid #E8EBF1",
-              color: i === 1 ? "#1A2A4A" : undefined,
-              background: i === 1 ? "#FFFFFF" : undefined,
+              color: i === popularIdx ? "#1A2A4A" : undefined,
+              background: i === popularIdx ? "#FFFFFF" : undefined,
             }}
           >
             {name}
-            {i === 1 && (
+            {i === popularIdx && (
               <span
                 className="ml-2 rounded-md"
                 style={{
@@ -161,10 +164,10 @@ export function PlanComparisonTable({ compact = false }: { compact?: boolean } =
                   style={{
                     padding: cellValuePad,
                     borderLeft: "1px solid #F0F2F6",
-                    color: i === 1 ? "#1A2A4A" : "#5A6473",
-                    background: i === 1 ? "#F1F6FF" : undefined,
+                    color: i === popularIdx ? "#1A2A4A" : "#5A6473",
+                    background: i === popularIdx ? "#F1F6FF" : undefined,
                     fontSize,
-                    fontWeight: i === 1 ? 600 : 400,
+                    fontWeight: i === popularIdx ? 600 : 400,
                   }}
                 >
                   {v}
@@ -192,10 +195,11 @@ export function PlanComparisonTable({ compact = false }: { compact?: boolean } =
             Compare plans
           </div>
         </div>
-        {/* Horizontal scroll on narrow viewports — the 4-column grid needs
-            ~480px of horizontal room to read comfortably; anything smaller
-            gets a scroll gutter with `-webkit-overflow-scrolling: touch`
-            so momentum-scroll feels native on iOS. */}
+        {/* Horizontal scroll on narrow viewports — the 4-column grid (label
+            + 3 plans) needs ~480px of horizontal room to read comfortably;
+            anything smaller gets a scroll gutter with
+            `-webkit-overflow-scrolling: touch` so momentum-scroll feels
+            native on iOS. */}
         <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:overflow-x-visible sm:px-0">
           <div className="min-w-[480px]">{table}</div>
         </div>

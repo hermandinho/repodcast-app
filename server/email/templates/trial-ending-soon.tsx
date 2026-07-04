@@ -19,7 +19,7 @@ import type { Plan } from "@prisma/client";
  * Stripe drives the timing (~3 days pre-end), so this email lands consistently
  * whether the trial started at 09:00 or 03:00 and even on weekends. The CTA
  * points at `/settings/billing`, where the user can either sit tight (default
- * = convert on day 15) or open the Stripe Customer Portal to cancel.
+ * = convert on day 8) or open the Stripe Customer Portal to cancel.
  */
 
 const ACCENT = "#3A5BA0";
@@ -91,8 +91,8 @@ export function TrialEndingSoonEmail({
             with you.
           </Text>
           <Text style={{ fontSize: 14, lineHeight: 1.55, color: MUTED, margin: "0 0 20px" }}>
-            Not ready? You can cancel before {trialEndsAt.toDateString()} from your billing settings
-            — no charge, no questions.
+            Not ready? Cancel before {trialEndsAt.toDateString()} from your billing settings — no
+            plan charge will land. (Your $1 activation from day 0 is non-refundable.)
           </Text>
           <Container style={{ textAlign: "center", margin: "28px 0 8px" }}>
             <Button

@@ -13,7 +13,7 @@ import {
 import type { Plan } from "@prisma/client";
 
 /**
- * Sent from the webhook on the `trialing → active` transition (day 15 charge
+ * Sent from the webhook on the `trialing → active` transition (day 8 charge
  * success). Marketing wants a "trial converted" moment for tracking, and the
  * email doubles as a nice-to-have "thanks" plus a link to the first invoice.
  */

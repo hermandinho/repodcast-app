@@ -185,7 +185,7 @@ describe("getOperationsSummary", () => {
       ];
     });
     mocks.agencyFindMany.mockResolvedValue([
-      { id: "agency_a", name: "Big Spender", plan: "AGENCY" satisfies Plan },
+      { id: "agency_a", name: "Big Spender", plan: "NETWORK" satisfies Plan },
       { id: "agency_b", name: "Cheap Studio", plan: "STUDIO" satisfies Plan },
     ]);
 
@@ -199,13 +199,13 @@ describe("getOperationsSummary", () => {
       { model: "claude-opus-4-7", calls: 1, costCents: 300 },
     ]);
 
-    const agencyMrr = priceFor("AGENCY") * 100;
+    const agencyMrr = priceFor("NETWORK") * 100;
     const studioMrr = priceFor("STUDIO") * 100;
     expect(summary.aiSpend.topAgencies).toEqual([
       {
         agencyId: "agency_a",
         agencyName: "Big Spender",
-        plan: "AGENCY",
+        plan: "NETWORK",
         costCentsMtd: 600,
         mrrCentsMonthly: agencyMrr,
         marginCentsMtd: agencyMrr - 600,

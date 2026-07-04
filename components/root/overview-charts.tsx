@@ -1,14 +1,14 @@
 import type { Plan, TranscriptSource } from "@prisma/client";
 
 const PLAN_COLORS: Record<Plan, string> = {
-  STUDIO: "#52525b", // zinc-600
-  AGENCY: "#3A5BA0", // brand accent
+  SOLO: "#94a3b8", // slate-400
+  STUDIO: "#3A5BA0", // brand accent
   NETWORK: "#10b981", // emerald-500
 };
 
 const PLAN_LABEL: Record<Plan, string> = {
+  SOLO: "Solo",
   STUDIO: "Studio",
-  AGENCY: "Agency",
   NETWORK: "Network",
 };
 
@@ -79,7 +79,7 @@ export function OutputsByPlanChart({
   data: Array<{ weekStartIso: string; counts: Record<Plan, number>; total: number }>;
 }) {
   const max = Math.max(...data.map((d) => d.total), 1);
-  const planOrder: readonly Plan[] = ["NETWORK", "AGENCY", "STUDIO"]; // top → bottom of stack
+  const planOrder: readonly Plan[] = ["NETWORK", "STUDIO", "SOLO"]; // top → bottom of stack
 
   // SVG canvas — 12 bars across, with side padding for axis labels.
   const W = 720;
@@ -153,7 +153,7 @@ export function OutputsByPlanChart({
       </svg>
 
       <div className="flex items-center gap-4 font-mono text-[10.5px] tracking-wider text-zinc-500 uppercase">
-        {(["STUDIO", "AGENCY", "NETWORK"] as Plan[]).map((plan) => (
+        {(["SOLO", "STUDIO", "NETWORK"] as Plan[]).map((plan) => (
           <span key={plan} className="flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-sm" style={{ backgroundColor: PLAN_COLORS[plan] }} />
             {PLAN_LABEL[plan]}

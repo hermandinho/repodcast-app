@@ -18,19 +18,30 @@ import { BillingCadence, Plan } from "@prisma/client";
  */
 
 const ENV_KEY: Record<Plan, Record<BillingCadence, string>> = {
+  SOLO: {
+    MONTHLY: "NEXT_PUBLIC_STRIPE_SOLO_MONTHLY_PRICE_ID",
+    ANNUAL: "NEXT_PUBLIC_STRIPE_SOLO_ANNUAL_PRICE_ID",
+  },
   STUDIO: {
     MONTHLY: "NEXT_PUBLIC_STRIPE_STUDIO_MONTHLY_PRICE_ID",
     ANNUAL: "NEXT_PUBLIC_STRIPE_STUDIO_ANNUAL_PRICE_ID",
-  },
-  AGENCY: {
-    MONTHLY: "NEXT_PUBLIC_STRIPE_AGENCY_MONTHLY_PRICE_ID",
-    ANNUAL: "NEXT_PUBLIC_STRIPE_AGENCY_ANNUAL_PRICE_ID",
   },
   NETWORK: {
     MONTHLY: "NEXT_PUBLIC_STRIPE_NETWORK_MONTHLY_PRICE_ID",
     ANNUAL: "NEXT_PUBLIC_STRIPE_NETWORK_ANNUAL_PRICE_ID",
   },
 };
+
+/**
+ * Env var holding the Stripe Price ID for the one-time $1 activation fee
+ * charged on day 0 of every trial. See MarketingStrategy.md §1 for the
+ * rationale + Stripe implementation shape.
+ */
+export const TRIAL_ACTIVATION_PRICE_ENV = "NEXT_PUBLIC_STRIPE_TRIAL_ACTIVATION_PRICE_ID";
+
+export function trialActivationPriceId(): string | null {
+  return process.env[TRIAL_ACTIVATION_PRICE_ENV] || null;
+}
 
 export function priceIdFor(plan: Plan, cadence: BillingCadence = "MONTHLY"): string | null {
   return process.env[ENV_KEY[plan][cadence]] || null;
@@ -44,7 +55,7 @@ export function priceIdFor(plan: Plan, cadence: BillingCadence = "MONTHLY"): str
 export function planAndCadenceForPriceId(
   priceId: string,
 ): { plan: Plan; cadence: BillingCadence } | null {
-  const plans: Plan[] = ["STUDIO", "AGENCY", "NETWORK"];
+  const plans: Plan[] = ["SOLO", "STUDIO", "NETWORK"];
   const cadences: BillingCadence[] = ["MONTHLY", "ANNUAL"];
   for (const plan of plans) {
     for (const cadence of cadences) {

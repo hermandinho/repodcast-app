@@ -117,7 +117,7 @@ export type EventMap = {
    *   trial_started              — first `customer.subscription.created`
    *                                whose status is `trialing`.
    *   trial_converted            — the trialing → active transition on
-   *                                first successful charge (day 15).
+   *                                first successful plan charge (day 8).
    *   trial_expired_no_conversion — trial ended, payment failed after
    *                                Stripe's Smart Retries. `subscription.
    *                                deleted` with `cancellation_details.

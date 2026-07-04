@@ -24,8 +24,8 @@ datasource db {
 // ============================================================
 
 enum Plan {
+  SOLO
   STUDIO
-  AGENCY
   NETWORK
 }
 
@@ -130,8 +130,9 @@ enum InviteStatus {
   EXPIRED
 }
 
-/// Phase 3.9 — trial lifecycle for the card-required free trial (length is
-/// `TRIAL_DAYS` in `lib/plans.ts` — currently 7 days).
+/// Phase 3.9 — trial lifecycle for the $1-activation, card-required trial
+/// (length is `TRIAL_DAYS` in `lib/plans.ts` — currently 7 days; activation
+/// fee is `TRIAL_ACTIVATION_FEE_CENTS`, non-refundable).
 ///
 /// - NONE       — agency has never been on trial (default for legacy agencies
 ///                that signed up before trials, and for future paid-first flows).

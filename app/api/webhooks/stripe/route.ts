@@ -317,13 +317,13 @@ async function handleSubscriptionDeleted(sub: Stripe.Subscription): Promise<void
       : TrialStatus.EXPIRED
     : undefined;
 
-  // Drop to STUDIO on cancellation so users keep the lowest-tier limits;
+  // Drop to SOLO on cancellation so users keep the lowest-tier limits;
   // null out the subscription id. Cadence resets to MONTHLY since there's
   // no live sub to reference.
   await prisma.agency.update({
     where: { id: agencyId },
     data: {
-      plan: "STUDIO",
+      plan: "SOLO",
       billingCadence: "MONTHLY",
       stripeSubscriptionId: null,
       ...(trialTerminal ? { trialStatus: trialTerminal } : {}),

@@ -534,8 +534,8 @@ function TrialStatusCard({
             left,
             "#E6F1EA",
             "#1E7A47",
-            `Free trial — ${plan}`,
-            `Your card will be charged ${dateLabel} unless you cancel. You keep everything you've generated either way.`,
+            `Trial — ${plan}`,
+            `Your first plan charge lands ${dateLabel} unless you cancel. Your $1 activation is not refunded, but you keep everything you've generated either way.`,
           ];
         }
         case "CONVERTED":
@@ -551,8 +551,8 @@ function TrialStatusCard({
             "Expired",
             "#FBE7E4",
             "#A02B1C",
-            "Trial ended without a charge",
-            `Your trial ended ${dateLabel} and the first invoice couldn't be charged. You're on STUDIO now — restart any time by starting a subscription.`,
+            "Trial ended without a full charge",
+            `Your trial ended ${dateLabel} and the first plan invoice couldn't be charged. You're on SOLO now — restart any time by starting a subscription.`,
           ];
         case "CANCELED":
           return [
@@ -560,7 +560,7 @@ function TrialStatusCard({
             "#FDF1DC",
             "#7A5B1E",
             "Trial canceled",
-            `You canceled on ${dateLabel} — no charge. You're on STUDIO; upgrade any time.`,
+            `You canceled on ${dateLabel} — no plan charge (the $1 activation is not refunded). You're on SOLO; upgrade any time.`,
           ];
       }
     })();

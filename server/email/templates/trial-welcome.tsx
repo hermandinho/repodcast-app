@@ -16,7 +16,8 @@ import type { Plan } from "@prisma/client";
 /**
  * Sent immediately after the Stripe webhook fires `subscription.created` with
  * status `trialing`. Distinct from `WelcomeEmail` (which is for paid signups)
- * — the trial framing sets expectations for day 15 upfront.
+ * — the trial framing sets expectations for the day-8 recurring charge upfront
+ * and confirms the $1 activation charge that already landed on day 0.
  */
 
 const ACCENT = "#3A5BA0";
@@ -79,9 +80,9 @@ export function TrialWelcomeEmail({
             Welcome, {firstName}.
           </Heading>
           <Text style={{ fontSize: 14, lineHeight: 1.55, color: MUTED, margin: "0 0 12px" }}>
-            {agencyName} is on {plan} with full access — including client portals and white-label
-            branding. Nothing charges until <strong>{endLabel}</strong>, and you can cancel any time
-            from Settings → Billing.
+            {agencyName} is on {plan} with full access. We charged the $1 activation fee to confirm
+            your card is live — your first plan charge lands on <strong>{endLabel}</strong>. Cancel
+            any time from Settings → Billing; the $1 is non-refundable.
           </Text>
           <Text style={{ fontSize: 14, lineHeight: 1.55, color: MUTED, margin: "0 0 12px" }}>
             The trial is short — the fastest way to know if this fits is to run one real episode

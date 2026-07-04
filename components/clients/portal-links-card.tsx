@@ -1,11 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
+import type { Plan } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import {
   mintPortalLinkAction,
   revokePortalLinkAction,
 } from "@/app/(dashboard)/clients/[key]/billing/portal-actions";
+
+const PORTAL_MIN_PLAN: Plan = "NETWORK";
 
 const DATE_FMT = new Intl.DateTimeFormat("en-US", {
   month: "short",
@@ -44,13 +48,22 @@ export function PortalLinksCard({
   initialLinks,
   baseUrl,
   canManage,
+  plan,
 }: {
   clientId: string;
   initialLinks: PortalLinkRow[];
   /** Public origin used to compose the share URL (e.g. https://repodcastapp.com). */
   baseUrl: string;
   canManage: boolean;
+  /** Effective agency plan. `null` in sample-data mode → treat as unlocked. */
+  plan: Plan | null;
 }) {
+  // Client portals are a Network-tier feature (they cluster with white-label
+  // + batch on the "look professional to clients" moat). Solo/Studio agencies
+  // see an inline upsell instead of a mint form whose submit would just
+  // throw. Existing links stay visible + revocable so a downgrade doesn't
+  // strand deliverables the client already has a URL for.
+  const planUnlocksMint = plan === null || plan === "NETWORK";
   const [links, setLinks] = useState<PortalLinkRow[]>(initialLinks);
   const [expiresInDays, setExpiresInDays] = useState<number>(30);
   const [pending, startTransition] = useTransition();
@@ -136,7 +149,7 @@ export function PortalLinksCard({
         </div>
       </div>
 
-      {canManage && (
+      {canManage && planUnlocksMint && (
         <div className="border-border bg-canvas mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-dashed p-3">
           <label className="text-muted-2 font-sans text-[12px] font-semibold">Expires in</label>
           <select
@@ -156,6 +169,23 @@ export function PortalLinksCard({
             {pending ? "Minting…" : "Mint new link"}
           </Button>
           {error && <span className="text-[12px] text-[#A06D12]">{error}</span>}
+        </div>
+      )}
+
+      {canManage && !planUnlocksMint && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#E6D9B8] bg-[#FBF1DE] p-3">
+          <div className="min-w-0 text-[12.5px] text-[#7A5410]">
+            <span className="font-semibold">
+              Client portals unlock on the {PORTAL_MIN_PLAN} plan.
+            </span>{" "}
+            Upgrade to mint tokenized share links for this client.
+          </div>
+          <Link
+            href="/settings/billing"
+            className="rounded-md border border-[#E6D9B8] bg-white px-3 py-[6px] font-sans text-[12px] font-semibold text-[#A06D12] hover:bg-[#FBF1DE]"
+          >
+            Upgrade
+          </Link>
         </div>
       )}
 

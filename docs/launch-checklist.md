@@ -30,10 +30,10 @@ Locked-in prep. If you're skipping steps here, don't launch this cycle.
       `checks.db.status` must be `pass` on every ping for the last 7
       days. Anything else → fix or postpone the launch.
 - [ ] **Verify all three plans provision.** Manually cut a Stripe
-      Checkout on STUDIO, AGENCY, NETWORK against the production
-      account. Confirm the webhook lands, `Agency.plan` updates,
-      `stripeSubscriptionId` populates. Cancel each test sub before
-      the next test.
+      Checkout on SOLO ($29), STUDIO ($89), NETWORK ($299) against the
+      production account. Confirm the $1 activation charge fires on day
+      0, the webhook lands, `Agency.plan` updates, `stripeSubscriptionId`
+      populates. Cancel each test sub before the next test.
 - [ ] **Draft the launch copy.** Product Hunt lets you edit up to
       launch time but not after — decide the tagline + description
       now so you can proofread with fresh eyes on T-2.

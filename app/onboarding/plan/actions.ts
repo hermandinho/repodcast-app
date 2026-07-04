@@ -13,7 +13,7 @@ import { BillingCadence, Plan } from "@/lib/enums";
 import { TRIAL_DAYS } from "@/lib/plans";
 import { requireAuthContext } from "@/server/auth/context";
 import { ValidationError } from "@/server/auth/errors";
-import { priceIdFor } from "@/server/billing/prices";
+import { priceIdFor, trialActivationPriceId } from "@/server/billing/prices";
 import { requireStripeClient } from "@/server/billing/stripe";
 import { isLiveDb } from "@/server/data/source";
 import { prisma } from "@/server/db/client";
@@ -100,9 +100,21 @@ export async function checkoutFromOnboardingAction(formData: FormData): Promise<
   const url = await baseUrl();
   const returnParams = new URLSearchParams({ plan, cadence, currency: resolvedCurrency });
 
+  // Trial-eligible customers pay a $1 activation fee at day 0 alongside the
+  // deferred recurring plan Price. Stripe bills the non-recurring line item
+  // on the first invoice while the recurring line waits for trial-end.
+  // Returning customers (no trial) don't see the activation fee — they're
+  // paying a full plan Price on day 0 already. See MarketingStrategy.md §1.
+  const activationPriceId = trialEligible ? trialActivationPriceId() : null;
+  const lineItems: { price: string; quantity: number }[] = [];
+  if (activationPriceId) {
+    lineItems.push({ price: activationPriceId, quantity: 1 });
+  }
+  lineItems.push({ price: priceId, quantity: 1 });
+
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
-    line_items: [{ price: priceId, quantity: 1 }],
+    line_items: lineItems,
     currency: CURRENCY_META[resolvedCurrency].stripeCode,
     success_url: `${url}/onboarding/return?${returnParams.toString()}`,
     cancel_url: `${url}/onboarding/plan?${returnParams.toString()}`,

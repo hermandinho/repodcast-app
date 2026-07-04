@@ -118,9 +118,9 @@ describe("listAgenciesForRoot", () => {
   });
 
   it("plan filter is layered onto the where clause", async () => {
-    await listAgenciesForRoot(ctxWith("ROOT"), { plan: "AGENCY" });
+    await listAgenciesForRoot(ctxWith("ROOT"), { plan: "NETWORK" });
     const where = mocks.prisma.agency.findMany.mock.calls[0]?.[0] as { where: { plan?: unknown } };
-    expect(where.where.plan).toBe("AGENCY");
+    expect(where.where.plan).toBe("NETWORK");
   });
 
   it("status=active layers `suspendedAt: null`; status=suspended layers `{ not: null }`", async () => {
@@ -207,7 +207,7 @@ describe("getAgencyForRoot", () => {
     mocks.prisma.agency.findUnique.mockResolvedValue({
       id: "agc_1",
       name: "Acme",
-      plan: "AGENCY",
+      plan: "NETWORK",
       planOverride: null,
       suspendedAt: null,
       createdAt: new Date("2026-01-01"),

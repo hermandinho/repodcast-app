@@ -84,11 +84,13 @@ export async function createPortalLink(
   createdByMemberId: string,
 ): Promise<ClientPortalLink> {
   requireRole(ctx, WRITE_ROLES);
-  // Client portals are one of the Agency-tier differentiators — Studio agencies
-  // deliver via the branded export instead. Gate at the mint step; existing
-  // links keep working (the public read path doesn't re-check the plan).
+  // Client portals are a Network-tier feature — the "look professional to
+  // clients" moat clusters portals + white-label + batch on one tier. Gate
+  // at the mint step; existing links keep working (the public read path
+  // doesn't re-check the plan) so a downgrade doesn't strand deliverables
+  // the client already has a URL for.
   const plan = await getAgencyPlan(ctx.agencyId);
-  assertMinPlan(plan, Plan.AGENCY);
+  assertMinPlan(plan, Plan.NETWORK);
   await assertClientInTenant(ctx, input.clientId);
   const expiresAt = new Date(Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000);
   return prisma.clientPortalLink.create({

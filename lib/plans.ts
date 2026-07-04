@@ -5,13 +5,18 @@ import { DEFAULT_CURRENCY, type SupportedCurrency } from "@/lib/currencies";
  * Per-plan limits + display metadata. Single source of truth for billing UI,
  * the `assertPlanCapacity` guard, and the Inngest cost-cap.
  *
- * Numbers chosen to align with the marketing tiers in PLAN.md:
- * STUDIO $99, AGENCY $249, NETWORK $499 (baseline USD monthly). Non-USD
- * numbers are sensible launch placeholders. Annual = monthly × 10 ("two
- * months free"). `scripts/configure-stripe-plans.ts` writes the same
- * numbers into each plan's Stripe Price `currency_options`, so the
- * dashboard is the source of truth once provisioned. Tune after launch as
- * we learn real-world generation costs.
+ * Marketing tiers (baseline USD monthly): SOLO $29, STUDIO $89, NETWORK $299.
+ * Non-USD numbers follow launch ratios (EUR = USD, GBP ≈ 0.85×, CAD ≈ 1.35×,
+ * AUD ≈ 1.50× USD). Annual = monthly × 10 ("two months free").
+ * `scripts/configure-stripe-plans.ts` writes the same numbers into each
+ * plan's Stripe Price `currency_options`, so the dashboard is the source
+ * of truth once provisioned.
+ *
+ * `monthlyCostCapCents` is set at 30% of the plan's USD monthly price —
+ * a ceiling ~2.25× the observed blended COGS (~$0.20/episode) at the
+ * plan's episode allowance. Caps exist to guard against runaway fan-out,
+ * not to gate normal usage; 30% forces a clear investigation trigger
+ * when we breach it. See MarketingStrategy.md §0.
  */
 export type PlanLimits = {
   /** Max client shows. */
@@ -27,26 +32,26 @@ export type PlanLimits = {
 };
 
 export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
-  STUDIO: {
-    shows: 3,
-    seats: 2,
+  SOLO: {
+    shows: 1,
+    seats: 1,
     episodesPerMonth: 20,
     generationsPerMonth: 140, // 20 episodes × 7 platforms
-    monthlyCostCapCents: 2000, // $20
+    monthlyCostCapCents: 900, // $9 (30% of $29)
   },
-  AGENCY: {
-    shows: 10,
-    seats: 6,
+  STUDIO: {
+    shows: 5,
+    seats: 3,
     episodesPerMonth: 60,
-    generationsPerMonth: 420,
-    monthlyCostCapCents: 6000, // $60
+    generationsPerMonth: 420, // 60 × 7
+    monthlyCostCapCents: 2700, // $27 (30% of $89)
   },
   NETWORK: {
     shows: 25,
     seats: 999, // effectively unlimited
-    episodesPerMonth: 200,
-    generationsPerMonth: 1400,
-    monthlyCostCapCents: 20000, // $200
+    episodesPerMonth: 250,
+    generationsPerMonth: 1750, // 250 × 7
+    monthlyCostCapCents: 9000, // $90 (30% of $299)
   },
 };
 
@@ -81,9 +86,9 @@ function annualOf(monthly: PlanPrices): PlanPrices {
   };
 }
 
-const STUDIO_MONTHLY: PlanPrices = { USD: 99, EUR: 99, GBP: 79, CAD: 139, AUD: 149 };
-const AGENCY_MONTHLY: PlanPrices = { USD: 249, EUR: 249, GBP: 199, CAD: 349, AUD: 379 };
-const NETWORK_MONTHLY: PlanPrices = { USD: 499, EUR: 499, GBP: 399, CAD: 699, AUD: 749 };
+const SOLO_MONTHLY: PlanPrices = { USD: 29, EUR: 29, GBP: 25, CAD: 39, AUD: 45 };
+const STUDIO_MONTHLY: PlanPrices = { USD: 89, EUR: 89, GBP: 75, CAD: 119, AUD: 135 };
+const NETWORK_MONTHLY: PlanPrices = { USD: 299, EUR: 299, GBP: 249, CAD: 399, AUD: 449 };
 
 /**
  * Per-plan, per-currency, per-cadence prices in whole currency units. The
@@ -93,33 +98,35 @@ const NETWORK_MONTHLY: PlanPrices = { USD: 499, EUR: 499, GBP: 399, CAD: 699, AU
  * drifts from what's actually billed.
  */
 export const PLAN_PRICES_BY_CURRENCY: Record<Plan, PlanPricesByCadence> = {
+  SOLO: { monthly: SOLO_MONTHLY, annual: annualOf(SOLO_MONTHLY) },
   STUDIO: { monthly: STUDIO_MONTHLY, annual: annualOf(STUDIO_MONTHLY) },
-  AGENCY: { monthly: AGENCY_MONTHLY, annual: annualOf(AGENCY_MONTHLY) },
   NETWORK: { monthly: NETWORK_MONTHLY, annual: annualOf(NETWORK_MONTHLY) },
 };
 
 export const PLAN_DISPLAY: Record<Plan, PlanDisplay> = {
+  SOLO: {
+    name: "Solo",
+    prices: PLAN_PRICES_BY_CURRENCY.SOLO,
+    tagline: "One host, one show, your voice",
+    highlights: ["1 show", "1 seat", "20 episodes / month"],
+  },
   STUDIO: {
     name: "Studio",
     prices: PLAN_PRICES_BY_CURRENCY.STUDIO,
-    tagline: "Solo + small shows",
-    highlights: ["3 shows", "2 seats", "20 episodes / month"],
-  },
-  AGENCY: {
-    name: "Agency",
-    prices: PLAN_PRICES_BY_CURRENCY.AGENCY,
-    tagline: "Multi-client production",
-    highlights: ["10 shows", "6 seats", "60 episodes / month", "Batch processing"],
+    tagline: "Small teams, multiple shows",
+    highlights: ["5 shows", "3 seats", "60 episodes / month"],
   },
   NETWORK: {
     name: "Network",
     prices: PLAN_PRICES_BY_CURRENCY.NETWORK,
-    tagline: "Network-scale operations",
+    tagline: "Agencies with clients",
     highlights: [
       "25 shows",
       "Unlimited seats",
-      "200 episodes / month",
-      "Priority generation queue",
+      "250 episodes / month",
+      "Client portals + white-label",
+      "Batch processing",
+      "Priority queue",
     ],
   },
 };
@@ -169,7 +176,7 @@ export function effectiveMonthlyPrice(
 }
 
 /** Ordered list — used by the upgrade UI. */
-export const PLAN_ORDER: Plan[] = [Plan.STUDIO, Plan.AGENCY, Plan.NETWORK];
+export const PLAN_ORDER: Plan[] = [Plan.SOLO, Plan.STUDIO, Plan.NETWORK];
 
 /**
  * Free-trial length in days. Passed to Stripe as `trial_period_days` on the
@@ -179,7 +186,9 @@ export const PLAN_ORDER: Plan[] = [Plan.STUDIO, Plan.AGENCY, Plan.NETWORK];
 export const TRIAL_DAYS = 7;
 
 /**
- * Which plan tier a trial unlocks. AGENCY (not STUDIO) so trialists reach
- * the client-portal + branding "aha" — the features that convert them.
+ * One-time activation fee charged at Checkout day 0, in USD cents. Applied
+ * uniformly across every currency (£1, €1, C$1, A$1) via a Stripe Price
+ * with `currency_options`. Non-refundable — framed as an activation fee,
+ * not a prorated first-day charge. See MarketingStrategy.md §1.
  */
-export const TRIAL_PLAN: Plan = Plan.AGENCY;
+export const TRIAL_ACTIVATION_FEE_CENTS = 100;

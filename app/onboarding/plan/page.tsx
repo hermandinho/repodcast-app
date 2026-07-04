@@ -53,10 +53,11 @@ export default async function OnboardingPlanPage({
     }
   }
 
-  // Trial-eligible visitors default to AGENCY (the tile that unlocks the
-  // "aha" features — portal + branding). Returning customers keep whatever
-  // they were pre-selecting or picked previously.
-  const initialPlan = parsePlan(params.plan) ?? (trialEligible ? Plan.AGENCY : undefined);
+  // Trial-eligible visitors default to STUDIO — the middle tier, our primary
+  // ICP (small teams + studios). Solo users can drop down, Network users can
+  // upgrade up. Returning customers keep whatever they were pre-selecting or
+  // picked previously.
+  const initialPlan = parsePlan(params.plan) ?? (trialEligible ? Plan.STUDIO : undefined);
   const initialCadence = parseCadence(params.cadence);
   const initialCurrency = asSupportedCurrency(single(params.currency)) ?? DEFAULT_CURRENCY;
 
@@ -64,10 +65,10 @@ export default async function OnboardingPlanPage({
     <div className="flex flex-col gap-8 sm:gap-10">
       <OnboardingStepHeader
         step="plan"
-        title={trialEligible ? "Start your free trial" : "Choose a plan"}
+        title={trialEligible ? "Start your 7-day trial" : "Choose a plan"}
         subtitle={
           trialEligible
-            ? `$0 for ${TRIAL_DAYS} days. Card on file, no charge until day ${TRIAL_DAYS + 1}. Cancel any time from Settings → Billing.`
+            ? `$1 activation fee today, then your plan starts on day ${TRIAL_DAYS + 1}. Cancel any time from Settings → Billing — the $1 is non-refundable.`
             : "Pay by card via Stripe. Annual saves you two months. Switch or cancel any time from Settings → Billing."
         }
       />
@@ -79,7 +80,7 @@ export default async function OnboardingPlanPage({
         initialCadence={initialCadence}
         initialCurrency={initialCurrency}
         submittingLabel={
-          trialEligible ? `Start ${TRIAL_DAYS}-day free trial` : "Continue to checkout"
+          trialEligible ? `Start ${TRIAL_DAYS}-day trial · $1 today` : "Continue to checkout"
         }
         trialEligible={trialEligible}
       />
@@ -109,7 +110,7 @@ function passthroughParams(params: Record<string, string | string[] | undefined>
 
 function parsePlan(value: string | string[] | undefined): Plan | undefined {
   const v = single(value);
-  if (v === Plan.STUDIO || v === Plan.AGENCY || v === Plan.NETWORK) return v;
+  if (v === Plan.SOLO || v === Plan.STUDIO || v === Plan.NETWORK) return v;
   return undefined;
 }
 

@@ -70,7 +70,7 @@ Each `Show` carries its own `host`, `voiceDescription`, `globalInstructions`, `r
 
 **Phase 2.13 (planned, not yet built):** `Client` → `ClientBillingProfile` (1:1) → `ClientStatement` (per-period snapshots) → `ClientPortalLink` (tokenized read-only access) → `ClientPortalAccessLog` (audit).
 
-Plans: `STUDIO` · `AGENCY` · `NETWORK`. Roles: `OWNER` · `ADMIN` · `EDITOR` · `REVIEWER`.
+Plans: `SOLO` · `STUDIO` · `NETWORK`. Roles: `OWNER` · `ADMIN` · `EDITOR` · `REVIEWER`.
 Platforms: `TWITTER` · `LINKEDIN` · `INSTAGRAM` · `TIKTOK` · `SHOW_NOTES` · `BLOG` · `NEWSLETTER`.
 Episode statuses: `DRAFT` · `PROCESSING` · `READY` · `ARCHIVED`.
 Output statuses: `GENERATING` · `READY` · `IN_REVIEW` · `APPROVED` · `SCHEDULED` · `PUBLISHED` · `FAILED`.
@@ -456,7 +456,7 @@ Three forward-only steps: **Workspace → Teammates → First client**. The trai
 
 ## 1.11 Plan enforcement & metering
 
-- [x] `lib/plans.ts` — `PLAN_LIMITS` (shows, seats, episodes/month, generations/month, monthly cost-cap cents) and `PLAN_DISPLAY` (name, priceUsd, tagline, highlights) for STUDIO/AGENCY/NETWORK
+- [x] `lib/plans.ts` — `PLAN_LIMITS` (shows, seats, episodes/month, generations/month, monthly cost-cap cents) and `PLAN_DISPLAY` (name, priceUsd, tagline, highlights) for SOLO/STUDIO/NETWORK
 - [x] `server/billing/limits.ts` — `planCapacity(agencyId, plan, resource)` (used + limit) and `assertPlanCapacity` (throws `ForbiddenError`)
 - [x] Hooked into `createClient` and `createEpisode` repos — capacity check before write
 - [x] Inngest orchestrator reads the agency's plan and enforces `monthlyCostCapCents` (replaces the $50 placeholder)
@@ -966,13 +966,16 @@ and we have a partner or two asking for it.
 
 ## 3.5 Network tier & priority
 
-- [x] **NETWORK ($499) Stripe product + limits** — landed as part of the
+- [x] **NETWORK ($299) Stripe product + limits** — landed as part of the
   original 3-tier product setup (see `lib/plans.ts`, `scripts/configure-
   stripe-plans.ts`, `NEXT_PUBLIC_STRIPE_NETWORK_{MONTHLY,ANNUAL}_PRICE_ID`
-  in `.env.example`). Caps: 25 shows, ~unlimited seats (999), 200
-  episodes/mo, 1400 generations/mo, $200 monthly cost cap. Batch
-      generation is `assertMinPlan(NETWORK)`-gated at both the UI and repo
-      layer (`server/db/episodes.ts` in `bulkGenerateEpisodes`).
+  in `.env.example`). Caps: 25 shows, ~unlimited seats (999), 250
+  episodes/mo, 1750 generations/mo, $90 monthly cost cap (30% of USD
+      monthly per the plan reshape 2026-07-04 — see MarketingStrategy.md §0).
+      Client portals, white-label, batch generation, and priority queue all
+      gate at `assertMinPlan(NETWORK)` — the "look professional to clients"
+      moat clusters here. Batch generation is enforced at both the UI and
+      repo layer (`server/db/episodes.ts` in `bulkGenerateEpisodes`).
 - [x] **Priority generation queue** — `generate-episode` and
       `regenerate-output` both carry a two-layer concurrency config +
       `priority.run` expression. NETWORK events cut 120 s ahead of default

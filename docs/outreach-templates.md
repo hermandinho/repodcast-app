@@ -205,9 +205,9 @@ Two paths:
   prospects who'd upgrade anyway (they take path 1) from prospects
   who need a hand-hold (they'll reply). Support gets a smaller,
   higher-signal inbox.
-- `{{next_plan_feature_bullet}}` — for STUDIO → AGENCY use
-  "batch processing across all clients"; for AGENCY → NETWORK use
-  "priority generation queue + 25 shows".
+- `{{next_plan_feature_bullet}}` — for SOLO → STUDIO use "5 shows,
+  3 seats, 60 episodes/mo"; for STUDIO → NETWORK use "client portals,
+  white-label exports, batch processing, priority queue, 25 shows".
 - `{{upgrade_link}}` deep-links into `createCheckoutSessionAction`
   with the next-tier `plan` + `cadence` pre-selected.
 

@@ -118,7 +118,7 @@ export function BillingActions({
             <Button
               key={p}
               size="sm"
-              variant={p === Plan.AGENCY ? "primary" : "secondary"}
+              variant={p === Plan.STUDIO ? "primary" : "secondary"}
               onClick={() => goCheckout(p)}
               disabled={pending}
             >

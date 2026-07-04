@@ -5,7 +5,7 @@ End-to-end walkthrough for the Phase 3.9 free-trial mechanic. Run this against a
 Prereqs:
 
 - `stripe login` — Stripe CLI hooked to your test account.
-- `NEXT_PUBLIC_STRIPE_AGENCY_MONTHLY_PRICE_ID` (+ other plan Price IDs) set in `.env.local`.
+- `NEXT_PUBLIC_STRIPE_STUDIO_MONTHLY_PRICE_ID` (+ other plan + trial-activation Price IDs) set in `.env.local`. Run `npm run stripe:plans` to provision them.
 - `RESEND_API_KEY` set (if unset, emails silently skip and log a warning — the state transitions still work).
 - Dev server running (`npm run dev`), Inngest dev server running (`npx inngest-cli dev` or the Vercel Inngest local proxy).
 
@@ -33,17 +33,18 @@ stripe listen --forward-to localhost:3000/api/webhooks/stripe
 
 1. Sign up as a brand-new Clerk user.
 2. Complete `/onboarding/workspace` → land on `/onboarding/plan`.
-3. Confirm the picker CTA reads **"Start 7-day free trial"** and AGENCY is pre-selected.
+3. Confirm the picker CTA reads **"Start 7-day trial · $1 today"** and STUDIO is pre-selected.
 4. Click through to Stripe Checkout with test card `4242 4242 4242 4242`.
 
 Verify:
 
 - [ ] Stripe CLI prints `customer.subscription.created` with `"status": "trialing"` and a `trial_end` unix ~7 days out.
-- [ ] `Agency` row: `plan=AGENCY`, `trialStatus=ACTIVE`, `trialEndsAt` matches Stripe's `trial_end`, `stripeSubscriptionId` set.
+- [ ] Stripe CLI prints `invoice.paid` for a **$1 activation** invoice on day 0 (this is the critical new step — if the invoice doesn't fire immediately, the `line_items` ordering in `checkoutFromOnboardingAction` needs revisiting).
+- [ ] `Agency` row: `plan=STUDIO`, `trialStatus=ACTIVE`, `trialEndsAt` matches Stripe's `trial_end`, `stripeSubscriptionId` set.
 - [ ] Dashboard shell renders the neutral (non-urgent) **TrialBanner** with `7 days left`.
 - [ ] `/settings/billing` renders the **TrialStatusCard** with the "Ends today" pill correctly counted down.
 - [ ] Email inbox: **TrialWelcomeEmail** ("Your … trial is live") arrived at the OWNER address.
-- [ ] PostHog: `trial_started` event with `agencyId`, `plan=AGENCY`, `cadence`.
+- [ ] PostHog: `trial_started` event with `agencyId`, `plan=STUDIO`, `cadence`.
 
 ---
 
@@ -96,7 +97,7 @@ The 4242 test card succeeds → sub transitions `trialing → active`.
 Verify:
 
 - [ ] Webhook fires `customer.subscription.updated` and `invoice.paid`.
-- [ ] `Agency.trialStatus = CONVERTED`. `plan` stays AGENCY.
+- [ ] `Agency.trialStatus = CONVERTED`. `plan` stays STUDIO.
 - [ ] `TrialBanner` disappears from the dashboard.
 - [ ] `/settings/billing` **TrialStatusCard** flips to the green "Converted" variant.
 - [ ] Email inbox: **TrialConvertedEmail** ("your trial converted") arrived to every OWNER + ADMIN.
@@ -111,7 +112,7 @@ Repeat step 2 with a fresh signup, but use the Stripe test card `4000 0000 0000 
 Verify:
 
 - [ ] Webhook fires `customer.subscription.deleted` with `cancellation_details.reason=payment_failed`.
-- [ ] `Agency.trialStatus = EXPIRED`. `plan = STUDIO`. `stripeSubscriptionId = null`.
+- [ ] `Agency.trialStatus = EXPIRED`. `plan = SOLO`. `stripeSubscriptionId = null`.
 - [ ] `/settings/billing` **TrialStatusCard** flips to the red "Expired" variant.
 - [ ] Email inbox: **TrialExpiredEmail** ("your trial ended") arrived.
 - [ ] PostHog: `trial_expired_no_conversion` event fired.
@@ -129,7 +130,7 @@ stripe subscriptions cancel <sub_id> --cancellation-details.reason=cancellation_
 Verify:
 
 - [ ] Webhook fires `customer.subscription.deleted` with `cancellation_details.reason=cancellation_requested`.
-- [ ] `Agency.trialStatus = CANCELED`. `plan = STUDIO`. `stripeSubscriptionId = null`.
+- [ ] `Agency.trialStatus = CANCELED`. `plan = SOLO`. `stripeSubscriptionId = null`.
 - [ ] `/settings/billing` **TrialStatusCard** flips to the amber "Canceled" variant.
 - [ ] **No** `TrialExpiredEmail` sent (by design — user-cancels are quiet).
 - [ ] PostHog: `trial_canceled_early` event fired.
@@ -142,7 +143,8 @@ Sign back in as the user from step 6 (EXPIRED). Attempt to start a new subscript
 
 Verify:
 
-- [ ] `/onboarding/plan` CTA reads **"Continue to checkout"**, not "Start 7-day free trial" (trialEligible is false because `stripeCustomerId` is set).
+- [ ] `/onboarding/plan` CTA reads **"Continue to checkout"**, not "Start 7-day trial · $1 today" (trialEligible is false because `stripeCustomerId` is set).
+- [ ] The `line_items` array in the Checkout Session contains **only** the recurring plan Price — no $1 activation line item.
 - [ ] Copy under the title is the plain "Pay by card via Stripe…" variant.
 - [ ] Stripe Checkout Session created without `trial_period_days`.
 - [ ] On success: `Agency.trialStatus` stays `EXPIRED` (we don't reset it), `plan` reflects the picked plan, no `trial_started` event.

@@ -224,7 +224,7 @@ describe("grantAgencyPlanOverride", () => {
     await expect(
       grantAgencyPlanOverride(ctx("SUPPORT"), {
         id: "agc_1",
-        plan: "AGENCY",
+        plan: "NETWORK",
         note: "comp",
       }),
     ).rejects.toBeInstanceOf(ForbiddenError);
@@ -277,7 +277,7 @@ describe("revokeAgencyPlanOverride", () => {
       id: "agc_1",
       name: "Acme",
       plan: "STUDIO" satisfies Plan,
-      planOverride: "AGENCY" satisfies Plan,
+      planOverride: "NETWORK" satisfies Plan,
     });
     mocks.agencyUpdate.mockResolvedValueOnce({
       id: "agc_1",
@@ -347,7 +347,7 @@ describe("forceCancelAgencySubscription", () => {
     mocks.agencyFindUnique.mockResolvedValueOnce({
       id: "agc_1",
       name: "Acme",
-      plan: "AGENCY" satisfies Plan,
+      plan: "NETWORK" satisfies Plan,
       stripeSubscriptionId: "sub_xxx",
     });
     mocks.stripeSubscriptionsCancel.mockResolvedValueOnce({
@@ -384,7 +384,7 @@ describe("forceCancelAgencySubscription", () => {
     mocks.agencyFindUnique.mockResolvedValueOnce({
       id: "agc_1",
       name: "Acme",
-      plan: "AGENCY" satisfies Plan,
+      plan: "NETWORK" satisfies Plan,
       stripeSubscriptionId: "sub_xxx",
     });
     mocks.stripeSubscriptionsCancel.mockRejectedValueOnce(new Error("stripe went down"));
@@ -509,7 +509,7 @@ describe("hardDeleteAgency", () => {
     mocks.agencyFindUnique.mockResolvedValueOnce({
       id: "agc_1",
       name: "Acme",
-      plan: "AGENCY" satisfies Plan,
+      plan: "NETWORK" satisfies Plan,
       stripeSubscriptionId: "sub_still_live",
       stripeCustomerId: "cus_live",
       createdAt: new Date("2026-01-01"),
@@ -564,7 +564,7 @@ describe("hardDeleteAgency", () => {
     mocks.agencyFindUnique.mockResolvedValueOnce({
       id: "agc_1",
       name: "Acme",
-      plan: "AGENCY" satisfies Plan,
+      plan: "NETWORK" satisfies Plan,
       stripeSubscriptionId: null,
       stripeCustomerId: "cus_1",
       createdAt: new Date("2026-01-01"),

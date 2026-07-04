@@ -7,7 +7,7 @@ import { PricingPageBody } from "@/components/pricing/pricing-page-body";
 /**
  * Public pricing page — reachable from the marketing nav, from every "Get
  * Started" button on the landing, and from anywhere that deep-links a plan
- * pre-selection (e.g. ads with `?plan=AGENCY&cadence=ANNUAL`).
+ * pre-selection (e.g. ads with `?plan=STUDIO&cadence=ANNUAL`).
  *
  * Shares the sticky nav + footer with the landing so the surface reads as
  * one site. Middleware allows unauthenticated access; the picker itself is

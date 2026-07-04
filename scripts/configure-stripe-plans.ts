@@ -5,7 +5,7 @@
  *
  * Usage:  npm run stripe:plans
  *
- * For each Plan (STUDIO / AGENCY / NETWORK) the script:
+ * For each Plan (SOLO / STUDIO / NETWORK) the script:
  *   1. Finds-or-creates a Stripe Product keyed by `metadata.repodcast_plan`.
  *   2. Finds-or-creates **two** recurring Prices keyed by the (plan, cadence)
  *      tuple — `metadata.repodcast_cadence = MONTHLY | ANNUAL`. Each Price's
@@ -16,6 +16,12 @@
  *      math).
  *   3. Prints the six resulting Price IDs ready to paste into `.env.local`
  *      as `NEXT_PUBLIC_STRIPE_<PLAN>_<CADENCE>_PRICE_ID`.
+ *
+ * Then, once for the whole run, the script:
+ *   4. Finds-or-creates a single-currency-agnostic "Trial activation" one-time
+ *      Product + Price ($1 per supported currency via `currency_options`),
+ *      keyed by `metadata.repodcast_role = trial_activation`. Prints the ID
+ *      as `NEXT_PUBLIC_STRIPE_TRIAL_ACTIVATION_PRICE_ID`.
  *
  * Re-running is safe: an existing matching Price is re-used, only mismatches
  * trigger a replace. The script never deletes Products; archived Prices stay
@@ -32,7 +38,12 @@ import {
   SUPPORTED_CURRENCIES,
   type SupportedCurrency,
 } from "../lib/currencies";
-import { PLAN_DISPLAY, PLAN_PRICES_BY_CURRENCY, PLAN_ORDER } from "../lib/plans";
+import {
+  PLAN_DISPLAY,
+  PLAN_PRICES_BY_CURRENCY,
+  PLAN_ORDER,
+  TRIAL_ACTIVATION_FEE_CENTS,
+} from "../lib/plans";
 import { loadEnvLocal } from "./load-env-local";
 
 loadEnvLocal();
@@ -43,6 +54,12 @@ const PRICE_ROLE_KEY = "repodcast_role";
 const PRICE_ROLE_VALUE = "primary";
 const PRICE_CADENCE_KEY = "repodcast_cadence";
 
+/** Role value for the one-time $1 activation Price (see MarketingStrategy.md §1). */
+const TRIAL_ACTIVATION_ROLE = "trial_activation";
+const TRIAL_ACTIVATION_PRODUCT_NAME = "Trial activation";
+const TRIAL_ACTIVATION_PRODUCT_DESC =
+  "Non-refundable activation fee charged at signup to validate the payment method before the 7-day trial begins.";
+
 const CADENCES: readonly BillingCadence[] = ["MONTHLY", "ANNUAL"];
 
 type SyncResult = {
@@ -52,6 +69,10 @@ type SyncResult = {
   priceId: string;
   /** True when this run had to create-or-replace the Price (vs. reuse it). */
   changed: boolean;
+};
+
+type CreateCurrencyOptionsMap = {
+  [key: string]: Stripe.PriceCreateParams.CurrencyOptions;
 };
 
 async function main(): Promise<void> {
@@ -83,7 +104,114 @@ async function main(): Promise<void> {
   for (const r of results) {
     console.log(`NEXT_PUBLIC_STRIPE_${r.plan}_${r.cadence}_PRICE_ID="${r.priceId}"`);
   }
+
+  const activation = await syncTrialActivationPrice(stripe);
+  const activationMarker = activation.changed ? "✓ updated" : "= unchanged";
+  console.log(`\n  ${activationMarker.padEnd(13)} trial activation → ${activation.priceId}`);
+  console.log(`\nNEXT_PUBLIC_STRIPE_TRIAL_ACTIVATION_PRICE_ID="${activation.priceId}"`);
   console.log("");
+}
+
+async function syncTrialActivationPrice(
+  stripe: Stripe,
+): Promise<{ productId: string; priceId: string; changed: boolean }> {
+  // Product first — keyed by `metadata.repodcast_role = trial_activation` so
+  // re-runs find and reuse it. The plan Products key on `repodcast_plan`; the
+  // activation Product uses `repodcast_role` instead because it isn't a plan.
+  let product: Stripe.Product | null = null;
+  try {
+    const search = await stripe.products.search({
+      query: `active:"true" AND metadata["${PRICE_ROLE_KEY}"]:"${TRIAL_ACTIVATION_ROLE}"`,
+      limit: 1,
+    });
+    product = search.data[0] ?? null;
+  } catch (err) {
+    if (!(err instanceof Error) || !/search/i.test(err.message)) throw err;
+    const all = await stripe.products.list({ active: true, limit: 100 });
+    product = all.data.find((p) => p.metadata?.[PRICE_ROLE_KEY] === TRIAL_ACTIVATION_ROLE) ?? null;
+  }
+  if (product) {
+    if (
+      product.name !== TRIAL_ACTIVATION_PRODUCT_NAME ||
+      product.description !== TRIAL_ACTIVATION_PRODUCT_DESC
+    ) {
+      product = await stripe.products.update(product.id, {
+        name: TRIAL_ACTIVATION_PRODUCT_NAME,
+        description: TRIAL_ACTIVATION_PRODUCT_DESC,
+      });
+    }
+  } else {
+    product = await stripe.products.create({
+      name: TRIAL_ACTIVATION_PRODUCT_NAME,
+      description: TRIAL_ACTIVATION_PRODUCT_DESC,
+      metadata: { [PRICE_ROLE_KEY]: TRIAL_ACTIVATION_ROLE },
+    });
+  }
+
+  // Price — one-time (no `recurring`) with `currency_options` for every
+  // supported currency at TRIAL_ACTIVATION_FEE_CENTS (defaults to 100 = $1
+  // and its non-USD equivalents; we intentionally use the same integer
+  // count across currencies since the activation is a validation charge,
+  // not an FX-priced good).
+  const desired = buildTrialActivationPricePayload();
+  const priceList = await stripe.prices.list({
+    product: product.id,
+    active: true,
+    limit: 100,
+    expand: ["data.currency_options"],
+  });
+  const existing =
+    priceList.data.find(
+      (p) => p.metadata?.[PRICE_ROLE_KEY] === TRIAL_ACTIVATION_ROLE && p.type === "one_time",
+    ) ?? null;
+
+  if (existing && trialActivationEquivalent(existing, desired)) {
+    return { productId: product.id, priceId: existing.id, changed: false };
+  }
+  const created = await stripe.prices.create({ ...desired, product: product.id });
+  if (existing) {
+    await stripe.prices.update(existing.id, { active: false });
+  }
+  return { productId: product.id, priceId: created.id, changed: true };
+}
+
+function buildTrialActivationPricePayload(): Stripe.PriceCreateParams {
+  const baseCurrency: SupportedCurrency = DEFAULT_CURRENCY;
+  const currencyOptions: CreateCurrencyOptionsMap = {};
+  for (const c of SUPPORTED_CURRENCIES) {
+    if (c === baseCurrency) continue;
+    currencyOptions[CURRENCY_META[c].stripeCode] = {
+      unit_amount: TRIAL_ACTIVATION_FEE_CENTS,
+    };
+  }
+  return {
+    currency: CURRENCY_META[baseCurrency].stripeCode,
+    unit_amount: TRIAL_ACTIVATION_FEE_CENTS,
+    nickname: "Repodcast trial activation ($1 multi-currency)",
+    metadata: { [PRICE_ROLE_KEY]: TRIAL_ACTIVATION_ROLE },
+    currency_options: currencyOptions,
+  };
+}
+
+function trialActivationEquivalent(
+  existing: Stripe.Price,
+  desired: Stripe.PriceCreateParams,
+): boolean {
+  if (existing.currency !== desired.currency) return false;
+  if (existing.unit_amount !== desired.unit_amount) return false;
+  if (existing.type !== "one_time") return false;
+  const desiredOpts = (desired.currency_options ?? {}) as CreateCurrencyOptionsMap;
+  const existingOpts = (existing.currency_options ?? {}) as Record<
+    string,
+    Stripe.Price.CurrencyOptions
+  >;
+  const desiredCurrencies = Object.keys(desiredOpts);
+  const existingCurrencies = Object.keys(existingOpts);
+  if (desiredCurrencies.length !== existingCurrencies.length) return false;
+  for (const c of desiredCurrencies) {
+    if (desiredOpts[c]?.unit_amount !== existingOpts[c]?.unit_amount) return false;
+  }
+  return true;
 }
 
 async function syncPlanPrice(
@@ -173,10 +301,6 @@ async function findCurrentPrice(
     ) ?? null
   );
 }
-
-type CreateCurrencyOptionsMap = {
-  [key: string]: Stripe.PriceCreateParams.CurrencyOptions;
-};
 
 function buildPriceCreatePayload(
   plan: Plan,

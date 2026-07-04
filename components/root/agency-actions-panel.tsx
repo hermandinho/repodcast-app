@@ -157,7 +157,7 @@ function SuspendCard({
 // Plan override
 // ============================================================
 
-const PLAN_OPTIONS: readonly Plan[] = ["STUDIO", "AGENCY", "NETWORK"];
+const PLAN_OPTIONS: readonly Plan[] = ["SOLO", "STUDIO", "NETWORK"];
 
 function PlanOverrideCard({
   agencyId,

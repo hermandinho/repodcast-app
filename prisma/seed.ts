@@ -69,7 +69,7 @@ async function main() {
   const agency = await prisma.agency.create({
     data: {
       name: AGENCY_NAME,
-      plan: "AGENCY",
+      plan: "NETWORK",
       members: {
         create: {
           clerkUserId: DEMO_USER_ID,

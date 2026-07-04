@@ -5,8 +5,8 @@ import { useEffect, useRef, useState, useTransition } from "react";
 
 const PLAN_OPTIONS = [
   { value: "", label: "All plans" },
+  { value: "SOLO", label: "Solo" },
   { value: "STUDIO", label: "Studio" },
-  { value: "AGENCY", label: "Agency" },
   { value: "NETWORK", label: "Network" },
 ];
 

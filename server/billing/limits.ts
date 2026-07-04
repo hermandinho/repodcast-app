@@ -122,8 +122,8 @@ export async function getAgencyPlan(agencyId: string): Promise<Plan> {
  * plan clears a per-feature minimum. Higher rank = more privileged tier.
  */
 const PLAN_RANK: Record<Plan, number> = {
-  STUDIO: 0,
-  AGENCY: 1,
+  SOLO: 0,
+  STUDIO: 1,
   NETWORK: 2,
 };
 
