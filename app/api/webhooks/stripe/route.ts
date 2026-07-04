@@ -1,7 +1,8 @@
 import { type BillingCadence, InvoiceStatus, type Plan, TrialStatus } from "@prisma/client";
 import { headers } from "next/headers";
 import { trackServer } from "@/server/analytics/track";
-import { planAndCadenceForPriceId } from "@/server/billing/prices";
+import { TRIAL_DAYS } from "@/lib/plans";
+import { planAndCadenceForPriceId, priceIdFor } from "@/server/billing/prices";
 import { Stripe, requireStripeClient } from "@/server/billing/stripe";
 import { prisma } from "@/server/db/client";
 import { markWebhookProcessed, unmarkWebhookProcessed } from "@/server/db/webhook-deliveries";
@@ -19,7 +20,12 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!secret) {
-    console.error("[stripe-webhook] STRIPE_WEBHOOK_SECRET is not set");
+    console.error(
+      "[stripe-webhook] STRIPE_WEBHOOK_SECRET is not set — no webhook events will process. " +
+        "In dev: run `stripe listen --forward-to localhost:3000/api/webhooks/stripe` and paste the " +
+        "printed whsec_ into .env.local, then restart the dev server. In prod: paste the secret " +
+        "from Dashboard → Developers → Webhooks → Endpoint details → Signing secret.",
+    );
     return new Response("server misconfigured", { status: 500 });
   }
 
@@ -32,9 +38,20 @@ export async function POST(req: Request) {
     const stripe = requireStripeClient();
     event = stripe.webhooks.constructEvent(raw, sig, secret);
   } catch (err) {
-    console.warn("[stripe-webhook] signature verification failed", err);
+    console.warn(
+      "[stripe-webhook] signature verification failed — the `whsec_` in STRIPE_WEBHOOK_SECRET " +
+        "doesn't match the endpoint signing this event. In dev, this usually means you copied " +
+        "the wrong secret (each `stripe listen` invocation prints a new one) or restarted the " +
+        "listener without updating .env.local.",
+      err,
+    );
     return new Response("invalid signature", { status: 400 });
   }
+
+  // Log every accepted event so operators can confirm end-to-end
+  // delivery when diagnosing (e.g. "did checkout.session.completed
+  // actually reach us?"). Cheap and quiet — no PII.
+  console.log("[stripe-webhook] received", { type: event.type, id: event.id });
 
   // Idempotency: claim this event's id in the dedupe ledger *before*
   // dispatching. Stripe retries on non-2xx, so the same `event.id` can
@@ -43,6 +60,7 @@ export async function POST(req: Request) {
   // deliveries collapse on the unique constraint; the loser short-circuits.
   const claim = await markWebhookProcessed("stripe", event.id, event.type);
   if (claim.deduped) {
+    console.log("[stripe-webhook] deduped", { type: event.type, id: event.id });
     return new Response(null, { status: 204 });
   }
 
@@ -82,6 +100,15 @@ async function dispatch(event: Stripe.Event): Promise<void> {
 
     case "customer.subscription.deleted":
       await handleSubscriptionDeleted(event.data.object as Stripe.Subscription);
+      return;
+
+    // Fires when a Checkout Session completes successfully. We use this to
+    // land the $1 Solo trial activation fee as a SEPARATE immediate invoice
+    // — Stripe defers any one-time `line_items` inside a subscription-mode
+    // Checkout to the trial-end invoice, which would defeat the whole
+    // "sunk-cost commitment" purpose of the fee.
+    case "checkout.session.completed":
+      await handleCheckoutSessionCompleted(event.data.object as Stripe.Checkout.Session);
       return;
 
     case "invoice.paid":
@@ -363,6 +390,172 @@ async function sendTrialExpiredForAgency(agencyId: string): Promise<void> {
   const recipients = (agency?.members ?? []).map((m) => m.email).filter(Boolean);
   if (!agency || recipients.length === 0) return;
   await sendTrialExpiredEmail(recipients, { agencyName: agency.name });
+}
+
+// ============================================================
+// Checkout completion — Solo trial subscription creation
+// ============================================================
+
+/**
+ * Second-half of the Solo trial signup. `checkoutFromOnboardingAction`
+ * created a `mode: 'payment'` Checkout Session for the $1 activation
+ * fee — that's how the user sees "$1 due today" in Stripe's UI and the
+ * card gets saved via `payment_intent_data.setup_future_usage`. This
+ * handler runs when that session completes and creates the actual
+ * subscription (trialing, using the saved card).
+ *
+ * Non-trial paths (Studio, Network, returning-Solo without a fresh
+ * trial) use `mode: 'subscription'` Checkout and don't need this
+ * handler — Stripe creates the subscription itself on that path, and
+ * `customer.subscription.created` fires directly.
+ *
+ * On Solo trial: the subscription-creation call below itself fires a
+ * `customer.subscription.created` event with `status: trialing`, which
+ * our existing `syncSubscription` handler then picks up to stamp
+ * `Agency.trialStatus = ACTIVE`, `trialEndsAt`, etc. So this handler
+ * only owns the Stripe write — the DB write happens downstream.
+ *
+ * Idempotency: Stripe retries `checkout.session.completed` on any
+ * non-2xx. Our top-level `markWebhookProcessed` dedupe covers repeat
+ * deliveries of the same event id. But if we ever re-trigger the same
+ * session id manually, we need to avoid creating duplicate
+ * subscriptions — hence the `stripeSubscriptionId` check on the agency
+ * before touching Stripe.
+ */
+async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
+  const isSoloTrialActivation = session.metadata?.solo_trial_activation === "true";
+  if (!isSoloTrialActivation) return;
+  // Only the mode:'payment' path needs the follow-up subscription create.
+  // A mode:'subscription' session with this metadata means we accidentally
+  // set the flag; skip so we don't double-create a subscription.
+  if (session.mode !== "payment") return;
+
+  const agencyId = session.metadata?.agencyId;
+  const plan = session.metadata?.plan as Plan | undefined;
+  const cadence = session.metadata?.cadence as BillingCadence | undefined;
+  const currency = session.metadata?.currency;
+  if (!agencyId || !plan || !cadence || !currency) {
+    console.error("[stripe-webhook] Solo trial: missing metadata", {
+      sessionId: session.id,
+      metadata: session.metadata,
+    });
+    return;
+  }
+
+  const customerId =
+    typeof session.customer === "string" ? session.customer : (session.customer?.id ?? null);
+  if (!customerId) {
+    console.warn("[stripe-webhook] Solo trial: no customer on session", {
+      sessionId: session.id,
+    });
+    return;
+  }
+
+  // Guard against double-creation. If our own agency row already has a
+  // sub id (from a duplicate delivery that beat this call), skip. Also
+  // stamps `stripeCustomerId` now so a re-attempt to trial from this
+  // agency's account would fail the eligibility gate correctly.
+  const agencyRow = await prisma.agency.findUnique({
+    where: { id: agencyId },
+    select: { stripeSubscriptionId: true, stripeCustomerId: true },
+  });
+  if (agencyRow?.stripeSubscriptionId) {
+    console.log("[stripe-webhook] Solo trial: subscription already created, skipping", {
+      agencyId,
+      sessionId: session.id,
+    });
+    return;
+  }
+
+  const stripe = requireStripeClient();
+
+  // Pull the payment method off the completed PaymentIntent. The
+  // Checkout Session set `setup_future_usage: 'off_session'`, which
+  // attaches the PM to the customer as a reusable payment method — but
+  // it doesn't set it as the customer's `invoice_settings.default_payment_method`.
+  // We do that explicitly so Stripe uses this card for the recurring
+  // charge on day 8 without any additional customer action.
+  const paymentIntentId =
+    typeof session.payment_intent === "string"
+      ? session.payment_intent
+      : (session.payment_intent?.id ?? null);
+  if (!paymentIntentId) {
+    console.error("[stripe-webhook] Solo trial: session has no payment_intent", {
+      sessionId: session.id,
+    });
+    return;
+  }
+
+  try {
+    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+    const paymentMethodId =
+      typeof paymentIntent.payment_method === "string"
+        ? paymentIntent.payment_method
+        : (paymentIntent.payment_method?.id ?? null);
+    if (!paymentMethodId) {
+      console.error("[stripe-webhook] Solo trial: no payment method on PaymentIntent", {
+        paymentIntentId,
+      });
+      return;
+    }
+
+    // Set the PM as the customer default so the recurring charge on
+    // day 8 uses it without prompting.
+    await stripe.customers.update(customerId, {
+      invoice_settings: { default_payment_method: paymentMethodId },
+    });
+
+    const planPriceId = session.metadata?.plan_price_id || priceIdFor(plan, cadence);
+    if (!planPriceId) {
+      console.error("[stripe-webhook] Solo trial: no plan price id available", { plan, cadence });
+      return;
+    }
+
+    // Create the actual subscription. Stripe will fire
+    // `customer.subscription.created` (status: trialing) which our
+    // syncSubscription handler picks up to stamp Agency.trialStatus =
+    // ACTIVE, trialEndsAt, stripeSubscriptionId. Payment attempt on
+    // day 8 uses the default_payment_method we just set.
+    const sub = await stripe.subscriptions.create({
+      customer: customerId,
+      items: [{ price: planPriceId }],
+      trial_period_days: TRIAL_DAYS,
+      default_payment_method: paymentMethodId,
+      metadata: {
+        agencyId,
+        plan,
+        cadence,
+        currency,
+        // Marker for downstream handlers so they know this sub came from
+        // the Solo trial flow (vs a direct subscription Checkout).
+        source: "solo_trial_activation",
+      },
+    });
+
+    console.log("[stripe-webhook] Solo trial subscription created", {
+      agencyId,
+      customerId,
+      subscriptionId: sub.id,
+      trialEnd: sub.trial_end,
+    });
+  } catch (err) {
+    // If subscription creation fails after we already charged the $1,
+    // we're in a bad state — the user paid but has no trial. Log +
+    // capture so ops can manually reconcile. We DON'T rethrow because
+    // Stripe would retry the whole webhook, and by then the sub might
+    // already exist from a prior attempt.
+    console.error("[stripe-webhook] Solo trial subscription creation failed", {
+      agencyId,
+      customerId,
+      sessionId: session.id,
+      err,
+    });
+    captureWebhookFailure("stripe_webhook", err, {
+      sessionId: session.id ?? "unknown",
+      role: "solo_trial_subscription_create",
+      agencyId,
+    });
+  }
 }
 
 // ============================================================

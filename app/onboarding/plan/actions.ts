@@ -10,11 +10,11 @@ import {
   SUPPORTED_CURRENCIES,
 } from "@/lib/currencies";
 import { BillingCadence, Plan } from "@/lib/enums";
-import { TRIAL_DAYS } from "@/lib/plans";
+import { TRIAL_ACTIVATION_FEE_CENTS } from "@/lib/plans";
 import { requireAuthContext } from "@/server/auth/context";
 import { ValidationError } from "@/server/auth/errors";
-import { priceIdFor, trialActivationPriceId } from "@/server/billing/prices";
-import { requireStripeClient } from "@/server/billing/stripe";
+import { priceIdFor } from "@/server/billing/prices";
+import { Stripe, requireStripeClient } from "@/server/billing/stripe";
 import { isLiveDb } from "@/server/data/source";
 import { prisma } from "@/server/db/client";
 
@@ -32,19 +32,26 @@ async function baseUrl(): Promise<string> {
 }
 
 /**
- * Onboarding-side variant of `createCheckoutSessionAction`. Same Stripe
- * plumbing, different UX contract:
+ * Onboarding-side variant of `createCheckoutSessionAction`. Two Checkout
+ * shapes depending on whether the user qualifies for the Solo $1 trial:
  *
- *   - Success redirects to /onboarding/return (which polls for the
- *     webhook, then forwards to /dashboard) — not back to /settings.
- *   - Cancel returns to /onboarding/plan so the user can pick again.
- *   - Called with FormData from the `<PricingPicker mode="onboarding">`
- *     forms, so the input types come in as strings.
+ *   - **Solo trial-eligible** (Solo pick, no prior Stripe customer, no
+ *     prior trial): `mode: 'payment'` for a $1 activation charge with
+ *     `setup_future_usage: 'off_session'`. Stripe UI shows "$1 due
+ *     today", the charge lands as a real PaymentIntent (not a deferred
+ *     invoice), and the card gets saved. The `checkout.session.completed`
+ *     webhook then creates the actual subscription with `trial_period_days:
+ *     7` + the saved payment method — the subscription enters `trialing`
+ *     status and our normal `syncSubscription` handler stamps the agency's
+ *     trial state.
  *
- * We keep the action co-located with the plan page rather than pointing
- * back at /settings/billing/actions because the success/cancel URLs
- * differ. The two actions share the pricing math + Stripe call shape
- * via `priceIdFor`.
+ *   - **Everyone else** (Studio, Network, or returning Solo customer
+ *     re-subscribing after a trial burn): `mode: 'subscription'` with an
+ *     immediate charge, no trial. Same shape as the classic Checkout.
+ *
+ * Success redirects to /onboarding/return (which polls until the sub
+ * shows up in the DB, then forwards to /dashboard). Cancel returns to
+ * /onboarding/plan so the user can pick again.
  */
 export async function checkoutFromOnboardingAction(formData: FormData): Promise<void> {
   const parsed = checkoutInput.safeParse({
@@ -90,47 +97,142 @@ export async function checkoutFromOnboardingAction(formData: FormData): Promise<
     );
   }
 
-  // Trial-eligibility: one trial per Stripe customer. First-time customer
-  // means we've never minted a `stripeCustomerId` (initial signup) AND we've
-  // never stamped a non-NONE trial status. Returning customers whose sub
-  // lapsed reach checkout with `stripeCustomerId` set → no second trial.
-  const trialEligible = !agency?.stripeCustomerId && (agency?.trialStatus ?? "NONE") === "NONE";
+  // Trial-eligibility: SOLO-tier only, one trial per Stripe customer.
+  //
+  // We gate the trial on `plan === SOLO` because the $1 activation is a
+  // 90× loss multiplier at Network's $90 cost cap vs 8× at Solo's $9 —
+  // Studio/Network buyers subscribe directly at full price on day 0.
+  // See MarketingStrategy.md §1 for the full rationale.
+  //
+  // Second-trial ban: `stripeCustomerId` set OR a non-NONE `trialStatus`
+  // means the customer has already burned their one trial.
+  const isSoloPick = plan === Plan.SOLO;
+  const trialEligible =
+    isSoloPick && !agency?.stripeCustomerId && (agency?.trialStatus ?? "NONE") === "NONE";
 
   const stripe = requireStripeClient();
   const url = await baseUrl();
   const returnParams = new URLSearchParams({ plan, cadence, currency: resolvedCurrency });
 
-  // Trial-eligible customers pay a $1 activation fee at day 0 alongside the
-  // deferred recurring plan Price. Stripe bills the non-recurring line item
-  // on the first invoice while the recurring line waits for trial-end.
-  // Returning customers (no trial) don't see the activation fee — they're
-  // paying a full plan Price on day 0 already. See MarketingStrategy.md §1.
-  const activationPriceId = trialEligible ? trialActivationPriceId() : null;
-  const lineItems: { price: string; quantity: number }[] = [];
-  if (activationPriceId) {
-    lineItems.push({ price: activationPriceId, quantity: 1 });
-  }
-  lineItems.push({ price: priceId, quantity: 1 });
+  const sharedMetadata = {
+    agencyId: auth.agency.id,
+    plan,
+    cadence,
+    currency: resolvedCurrency,
+    solo_trial_activation: trialEligible ? "true" : "false",
+  };
 
-  const session = await stripe.checkout.sessions.create({
-    mode: "subscription",
-    line_items: lineItems,
-    currency: CURRENCY_META[resolvedCurrency].stripeCode,
-    success_url: `${url}/onboarding/return?${returnParams.toString()}`,
-    cancel_url: `${url}/onboarding/plan?${returnParams.toString()}`,
-    customer_email: auth.user.email || undefined,
-    client_reference_id: auth.agency.id,
-    metadata: { agencyId: auth.agency.id, plan, cadence, currency: resolvedCurrency },
-    subscription_data: {
-      metadata: { agencyId: auth.agency.id, plan, cadence, currency: resolvedCurrency },
-      ...(trialEligible ? { trial_period_days: TRIAL_DAYS } : {}),
-    },
-    allow_promotion_codes: true,
-  });
+  const session = trialEligible
+    ? await createSoloTrialCheckout({
+        stripe,
+        auth,
+        currency: resolvedCurrency,
+        priceId,
+        successUrl: `${url}/onboarding/return?${returnParams.toString()}`,
+        cancelUrl: `${url}/onboarding/plan?${returnParams.toString()}`,
+        metadata: sharedMetadata,
+      })
+    : await createDirectSubscriptionCheckout({
+        stripe,
+        auth,
+        currency: resolvedCurrency,
+        priceId,
+        successUrl: `${url}/onboarding/return?${returnParams.toString()}`,
+        cancelUrl: `${url}/onboarding/plan?${returnParams.toString()}`,
+        metadata: sharedMetadata,
+      });
 
   if (!session.url) {
     throw new Error("Stripe did not return a Checkout URL.");
   }
 
   redirect(session.url);
+}
+
+// ============================================================
+// Solo trial: mode:'payment' — charge $1 today, save card,
+// create subscription in webhook.
+// ============================================================
+
+async function createSoloTrialCheckout(args: {
+  stripe: Stripe;
+  auth: { user: { email: string }; agency: { id: string } };
+  currency: (typeof SUPPORTED_CURRENCIES)[number];
+  priceId: string;
+  successUrl: string;
+  cancelUrl: string;
+  metadata: Record<string, string>;
+}): Promise<Stripe.Checkout.Session> {
+  const { stripe, auth, currency, priceId, successUrl, cancelUrl, metadata } = args;
+
+  // Stripe UI needs a concrete product/price line item to render "$1 due
+  // today". We use `price_data` (inline) rather than a persisted Price so
+  // there's no bookkeeping in Stripe products/prices for the activation
+  // fee — the fee amount is baked into `TRIAL_ACTIVATION_FEE_CENTS` at
+  // the app layer, single source of truth.
+  return stripe.checkout.sessions.create({
+    mode: "payment",
+    currency: CURRENCY_META[currency].stripeCode,
+    line_items: [
+      {
+        quantity: 1,
+        price_data: {
+          currency: CURRENCY_META[currency].stripeCode,
+          unit_amount: TRIAL_ACTIVATION_FEE_CENTS,
+          product_data: {
+            name: "Solo trial activation",
+            description:
+              "$1 non-refundable activation fee. Your Solo plan ($29/mo) starts on day 8 unless you cancel first.",
+          },
+        },
+      },
+    ],
+    // Force a customer so the webhook can attach the subscription that
+    // follows. Guest-mode payments don't create a Customer object.
+    customer_email: auth.user.email || undefined,
+    customer_creation: "always",
+    // Save the card so we can charge the recurring plan against it when
+    // the trial ends. `off_session` is the right choice — the day-8 charge
+    // fires without user interaction.
+    payment_intent_data: {
+      setup_future_usage: "off_session",
+      description: "Repodcast Solo trial activation ($1)",
+      metadata: { ...metadata, plan_price_id: priceId },
+    },
+    metadata: { ...metadata, plan_price_id: priceId },
+    client_reference_id: auth.agency.id,
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+    submit_type: "pay",
+  });
+}
+
+// ============================================================
+// Non-trial path: mode:'subscription' — immediate recurring charge,
+// no trial period.
+// ============================================================
+
+async function createDirectSubscriptionCheckout(args: {
+  stripe: Stripe;
+  auth: { user: { email: string }; agency: { id: string } };
+  currency: (typeof SUPPORTED_CURRENCIES)[number];
+  priceId: string;
+  successUrl: string;
+  cancelUrl: string;
+  metadata: Record<string, string>;
+}): Promise<Stripe.Checkout.Session> {
+  const { stripe, auth, currency, priceId, successUrl, cancelUrl, metadata } = args;
+
+  return stripe.checkout.sessions.create({
+    mode: "subscription",
+    line_items: [{ price: priceId, quantity: 1 }],
+    currency: CURRENCY_META[currency].stripeCode,
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+    customer_email: auth.user.email || undefined,
+    client_reference_id: auth.agency.id,
+    metadata,
+    subscription_data: { metadata },
+    allow_promotion_codes: true,
+  });
 }

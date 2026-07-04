@@ -15,11 +15,26 @@ const DATE_FMT = new Intl.DateTimeFormat("en-US", {
   year: "numeric",
 });
 
+const INK = "#0a1e3c";
+const MUTED = "#41506b";
+const LIGHT_MUTED = "#8a97ad";
+const CARD_BORDER = "#e4e9f1";
+const ROW_BORDER = "#eef1f6";
+const ACCENT = "#3A5BA0";
+const ACCENT_SOFT = "#eef2fb";
+
+/**
+ * Settings · Agency — revamp visual system (see `ref/UI/Revamp/` 1a).
+ *
+ * Structure: one workspace card (2 rows: agency name + renewal reminders,
+ * each a 260px-label + 1fr-control grid), a plan summary strip, a
+ * three-column meta row (members / created / workspace id), and a danger
+ * zone footer. All cards use the standard `#e4e9f1` outline + 12px radius
+ * on `#ffffff` surfaces against the `#f6f8fc` canvas.
+ */
 export default async function AgencySettingsPage() {
   const [tenant, auth] = await Promise.all([resolveTenantContext(), getAuthContext()]);
 
-  // Pull live row when DB-backed; fall through to STUDIO defaults so the page
-  // renders cleanly on a fresh clone (mirrors the billing page pattern).
   const live = isLiveDb();
   const agency = live
     ? await prisma.agency
@@ -32,6 +47,8 @@ export default async function AgencySettingsPage() {
             createdAt: true,
             renewalRemindersEnabled: true,
             preferredCurrency: true,
+            trialEndsAt: true,
+            trialStatus: true,
           },
         })
         .catch(() => null)
@@ -47,118 +64,259 @@ export default async function AgencySettingsPage() {
   const planMeta = PLAN_DISPLAY[plan];
   const role = auth?.member.role ?? MemberRole.OWNER;
   const canEdit = role === MemberRole.OWNER || role === MemberRole.ADMIN;
+  const currency = asSupportedCurrency(agency?.preferredCurrency) ?? DEFAULT_CURRENCY;
+  const priceLabel = `${formatPlanPrice(priceFor(plan, currency), currency)}/mo`;
+  const trialEndsAt = agency?.trialEndsAt ?? null;
+  const isTrialing = agency?.trialStatus === "ACTIVE" && trialEndsAt !== null;
 
   return (
-    <>
-      {/* Identity card */}
-      <div className="border-border bg-surface shadow-card mb-[18px] rounded-3xl border p-5">
-        <div className="mb-4">
-          <div className="text-muted-2 font-sans text-[11.5px] font-semibold tracking-[0.06em] uppercase">
-            Workspace
-          </div>
-          <div className="font-display text-ink mt-1 text-[20px] font-semibold">{name}</div>
-        </div>
-        <AgencyNameForm initial={name} canEdit={canEdit} />
-      </div>
+    <div style={{ maxWidth: 860, fontFamily: "var(--font-revamp-sans)" }}>
+      {/* Workspace card — agency name + renewal reminders in a 2-row grid */}
+      <Card>
+        <CardRow
+          label="Agency name"
+          description="Shown on the topbar, dashboard greeting, and outgoing emails."
+          border
+        >
+          <AgencyNameForm initial={name} canEdit={canEdit} />
+        </CardRow>
+        <CardRow
+          label="Renewal reminders"
+          description="Email every owner and admin when a client contract renews."
+        >
+          <RenewalRemindersToggle
+            initialEnabled={agency?.renewalRemindersEnabled ?? true}
+            canEdit={canEdit}
+          />
+        </CardRow>
+      </Card>
 
-      {/* Plan summary — links out to billing for changes */}
-      <div className="border-border bg-surface shadow-card mb-[18px] rounded-3xl border p-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="text-muted-2 font-sans text-[11.5px] font-semibold tracking-[0.06em] uppercase">
-              Current plan
-            </div>
-            <div className="mt-1 flex items-baseline gap-3">
-              <span className="font-display text-ink text-[20px] font-semibold">
-                {planMeta.name}
-              </span>
-              <span className="text-muted font-sans text-[13px]">
-                {(() => {
-                  const c = asSupportedCurrency(agency?.preferredCurrency) ?? DEFAULT_CURRENCY;
-                  return `${formatPlanPrice(priceFor(plan, c), c)}/mo`;
-                })()}
-              </span>
-            </div>
-            <p className="text-muted mt-1 text-[13px]">{planMeta.tagline}</p>
-          </div>
-          <Link
-            href="/settings/billing"
-            className="border-border text-ink hover:bg-canvas inline-flex items-center gap-[6px] rounded-lg border bg-white px-3 py-[8px] font-sans text-[12.5px] font-semibold transition-colors"
-          >
-            Change plan
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 13 13"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M5 3l4 3.5L5 10" />
-            </svg>
-          </Link>
-        </div>
-      </div>
-
-      {/* Phase 2.13.6 — renewals-reminder cron mute toggle. OWNER/ADMIN
-          only; non-admins see a read-only summary. */}
-      <div className="border-border bg-surface shadow-card mb-[18px] rounded-3xl border p-5">
-        <div className="mb-3">
-          <div className="text-muted-2 font-sans text-[11.5px] font-semibold tracking-[0.06em] uppercase">
-            Notifications
-          </div>
-          <div className="font-display text-ink mt-1 text-[16px] font-semibold">
-            Renewal reminders
-          </div>
-          <p className="text-muted mt-1 max-w-[640px] text-[12.5px] leading-[1.55]">
-            Get an email when a client&apos;s contract renews — once at 30 days out, once at 7 days
-            out. Sent to every owner and admin.
-          </p>
-        </div>
-        <RenewalRemindersToggle
-          initialEnabled={agency?.renewalRemindersEnabled ?? true}
-          canEdit={canEdit}
-        />
-      </div>
-
-      {/* Read-only facts — bordered grid */}
-      <div
-        className="border-border bg-surface shadow-card grid overflow-hidden rounded-3xl border"
-        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}
+      {/* Plan summary strip */}
+      <Link
+        href="/settings/billing"
+        className="mt-4 flex items-center justify-between no-underline"
+        style={{
+          background: "#ffffff",
+          border: `1px solid ${CARD_BORDER}`,
+          borderRadius: 12,
+          padding: "20px 28px",
+          gap: 24,
+          marginTop: 16,
+        }}
       >
-        <Fact label="Members">
-          <span className="font-display text-ink text-[18px] font-semibold">{memberCount}</span>
-          <Link
-            href="/settings/team"
-            className="text-accent ml-2 font-sans text-[12px] font-semibold hover:underline"
+        <div className="flex items-center" style={{ gap: 16 }}>
+          <div
+            className="grid place-items-center"
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 10,
+              background: ACCENT_SOFT,
+              color: ACCENT,
+              fontWeight: 800,
+              fontSize: 15,
+              flexShrink: 0,
+            }}
           >
-            Manage →
-          </Link>
-        </Fact>
-        <Fact label="Created">
-          <span className="text-ink text-[13.5px]">
+            {planMeta.name[0]}
+          </div>
+          <div>
+            <div className="flex items-baseline" style={{ gap: 8 }}>
+              <span style={{ fontSize: 15.5, fontWeight: 700, color: INK }}>{planMeta.name}</span>
+              <span
+                style={{
+                  fontFamily: "var(--font-revamp-mono)",
+                  fontSize: 12,
+                  color: LIGHT_MUTED,
+                }}
+              >
+                {priceLabel}
+              </span>
+            </div>
+            <div style={{ fontSize: 12.5, color: LIGHT_MUTED, marginTop: 2 }}>
+              {planMeta.tagline}
+              {isTrialing && trialEndsAt
+                ? ` · trial ends ${trialEndsAt.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                : ""}
+            </div>
+          </div>
+        </div>
+        <span style={{ fontSize: 13.5, fontWeight: 600, color: ACCENT }}>Change plan →</span>
+      </Link>
+
+      {/* Meta row: 3 cards */}
+      <div
+        className="grid"
+        style={{
+          gridTemplateColumns: "1fr 1fr 1.4fr",
+          gap: 16,
+          marginTop: 16,
+        }}
+      >
+        <MetaCard label="Members">
+          <div className="flex items-baseline justify-between">
+            <span style={{ fontSize: 22, fontWeight: 800, color: INK }}>{memberCount}</span>
+            <Link
+              href="/settings/team"
+              className="no-underline"
+              style={{ fontSize: 12.5, fontWeight: 600, color: ACCENT }}
+            >
+              Manage →
+            </Link>
+          </div>
+        </MetaCard>
+        <MetaCard label="Created">
+          <div style={{ fontSize: 15, fontWeight: 700, color: INK, marginTop: 10 }}>
             {createdAt ? DATE_FMT.format(createdAt) : "—"}
-          </span>
-        </Fact>
-        <Fact label="Workspace ID">
-          <code className="bg-canvas text-muted rounded px-2 py-[2px] font-mono text-[11.5px]">
-            {agency?.id ?? tenant.agencyId}
-          </code>
-        </Fact>
+          </div>
+        </MetaCard>
+        <MetaCard label="Workspace ID">
+          <div className="flex items-center justify-between" style={{ marginTop: 10, gap: 8 }}>
+            <span
+              className="truncate"
+              style={{
+                fontFamily: "var(--font-revamp-mono)",
+                fontSize: 12.5,
+                color: MUTED,
+              }}
+            >
+              {agency?.id ?? tenant.agencyId}
+            </span>
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: LIGHT_MUTED,
+                border: `1px solid ${CARD_BORDER}`,
+                padding: "4px 10px",
+                borderRadius: 6,
+                flexShrink: 0,
+              }}
+            >
+              Copy
+            </span>
+          </div>
+        </MetaCard>
       </div>
-    </>
+
+      {/* Danger zone — UI only for now; delete-workspace action lands in a
+          follow-up (there's no server action yet). */}
+      {canEdit ? (
+        <div
+          className="flex flex-wrap items-center justify-between"
+          style={{
+            border: "1px dashed #e4c5c5",
+            background: "#fdf8f8",
+            borderRadius: 12,
+            padding: "18px 28px",
+            marginTop: 16,
+            gap: 16,
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#a13c3c" }}>Delete workspace</div>
+            <div style={{ fontSize: 12.5, color: "#b98a8a", marginTop: 2 }}>
+              Removes all clients, shows, and generated content. Irreversible.
+            </div>
+          </div>
+          <button
+            type="button"
+            disabled
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: "#a13c3c",
+              border: "1px solid #e4c5c5",
+              padding: "8px 16px",
+              borderRadius: 8,
+              background: "#fff",
+              cursor: "not-allowed",
+              opacity: 0.7,
+              fontFamily: "inherit",
+            }}
+            title="Delete workflow lands in a follow-up"
+          >
+            Delete…
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
-function Fact({ label, children }: { label: string; children: React.ReactNode }) {
+// ============================================================
+// Local presentational helpers
+// ============================================================
+
+function Card({ children }: { children: React.ReactNode }) {
   return (
-    <div className="border-border border-r p-5 last:border-r-0">
-      <div className="text-muted-2 mb-2 font-sans text-[11.5px] font-semibold tracking-[0.06em] uppercase">
-        {label}
+    <div
+      style={{
+        background: "#ffffff",
+        border: `1px solid ${CARD_BORDER}`,
+        borderRadius: 12,
+        overflow: "hidden",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function CardRow({
+  label,
+  description,
+  children,
+  border = false,
+}: {
+  label: string;
+  description: string;
+  children: React.ReactNode;
+  border?: boolean;
+}) {
+  return (
+    <div
+      className="grid"
+      style={{
+        gridTemplateColumns: "260px 1fr",
+        gap: 32,
+        padding: "24px 28px",
+        borderBottom: border ? `1px solid ${ROW_BORDER}` : undefined,
+      }}
+    >
+      <div>
+        <div style={{ fontSize: 14.5, fontWeight: 700, color: INK }}>{label}</div>
+        <div style={{ fontSize: 12.5, color: LIGHT_MUTED, lineHeight: 1.5, marginTop: 4 }}>
+          {description}
+        </div>
       </div>
-      <div className="flex items-center">{children}</div>
+      <div>{children}</div>
+    </div>
+  );
+}
+
+function MetaCard({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        background: "#ffffff",
+        border: `1px solid ${CARD_BORDER}`,
+        borderRadius: 12,
+        padding: "18px 22px",
+      }}
+    >
+      <div
+        style={{
+          fontFamily: "var(--font-revamp-mono)",
+          fontSize: 10.5,
+          letterSpacing: "0.12em",
+          color: LIGHT_MUTED,
+          fontWeight: 600,
+        }}
+      >
+        {label.toUpperCase()}
+      </div>
+      <div style={{ marginTop: 8 }}>{children}</div>
     </div>
   );
 }

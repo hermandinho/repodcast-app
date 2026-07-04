@@ -36,14 +36,22 @@ export default async function OnboardingWorkspacePage({
   const suggestedName = firstName ? `${firstName}'s Studio` : "My Studio";
 
   return (
-    <div className="flex flex-col gap-8 sm:gap-10">
+    <div className="flex flex-col" style={{ gap: 40 }}>
       <OnboardingStepHeader
         step="workspace"
         title="Name your workspace"
         subtitle="This is what teammates and clients see. You can rename it any time from Settings."
       />
-      <div className="mx-auto w-full max-w-[520px]">
-        <div className="rounded-2xl border border-black/[0.06] bg-white/95 p-5 shadow-sm sm:p-6 lg:p-8">
+      <div className="mx-auto w-full" style={{ maxWidth: 520 }}>
+        <div
+          style={{
+            background: "#fff",
+            border: "1px solid #e4e9f1",
+            borderRadius: 14,
+            padding: 28,
+            boxShadow: "0 1px 2px rgba(10,30,60,0.04)",
+          }}
+        >
           <WorkspaceForm suggestedName={suggestedName} passthroughQs={qs} />
         </div>
       </div>

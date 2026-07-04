@@ -3,17 +3,14 @@ import type { Plan } from "@prisma/client";
 
 /**
  * In-app banner rendered above the main scroller in the dashboard shell
- * whenever an agency is inside their trial window (Phase 3.9). Length is
- * `TRIAL_DAYS` in `lib/plans.ts`.
+ * whenever an agency is inside their trial window. Length is `TRIAL_DAYS`
+ * in `lib/plans.ts`. Only Solo trials exist today (see MarketingStrategy.md
+ * §1), so the trial banner effectively renders for the Solo tier.
  *
- * Two visual states:
- *   - Days-left ≥ 4: neutral tone.
- *   - Days-left ≤ 3: red / urgent — matches the T-3 email cadence Stripe
- *     drives via `subscription.trial_will_end`.
- *
- * Copy focuses on the "you're already set up, keep going" message; the CTA
- * links to /settings/billing so a user who wants to cancel can. We never
- * show an in-app "cancel" button — Stripe Customer Portal owns that surface.
+ * Revamp visual system: dark ink `#0a1e3c` base with a mono pill on the
+ * left carrying the countdown and muted copy explaining the day-8 charge.
+ * The urgent state (≤3 days) swaps the pill tint to a red variant but
+ * keeps the dark base — a red-flood variant reads panicky in the shell.
  *
  * Pure component — `daysLeft` and the formatted end-date label are
  * computed by the async server-component parent (see the dashboard layout)
@@ -29,28 +26,57 @@ export function TrialBanner({
   endsAtLabel: string;
 }) {
   const urgent = daysLeft <= 3;
-  const bg = urgent ? "bg-red-600" : "bg-[#1A2A4A]";
+  // Countdown pill — accent-tint in the calm state, red-tint in the urgent
+  // state. We stay on a dark base regardless so the banner reads as a
+  // persistent status ribbon and not a full-red alert.
+  const pillBg = urgent ? "rgba(255,130,116,0.22)" : "rgba(126,166,255,0.20)";
+  const pillColor = urgent ? "#FBB4A7" : "#7EA6FF";
+  const linkColor = urgent ? "#FBB4A7" : "#7EA6FF";
+
   const label =
     daysLeft === 0
-      ? "Trial ends today"
+      ? `TRIAL · ENDS TODAY`
       : daysLeft === 1
-        ? "1 day left in trial"
-        : `${daysLeft} days left in trial`;
+        ? `TRIAL · 1 DAY LEFT`
+        : `TRIAL · ${daysLeft} DAYS LEFT`;
 
   return (
     <div
-      className={`${bg} flex w-full items-center justify-between gap-4 px-6 py-2 text-[12.5px] font-medium text-white shadow-sm`}
+      className="flex w-full items-center justify-between"
       role="status"
       aria-live="polite"
+      style={{
+        background: "#0a1e3c",
+        color: "#ffffff",
+        padding: "10px 32px",
+        fontFamily: "var(--font-revamp-sans)",
+        fontSize: 13.5,
+      }}
     >
-      <div className="min-w-0 flex-1 truncate">
-        <span className="font-semibold">{label}</span> — you&apos;re on{" "}
-        <span className="font-semibold">{plan}</span>. Card on file will be charged {endsAtLabel}{" "}
-        unless you cancel.
+      <div className="flex min-w-0 items-center" style={{ gap: 10 }}>
+        <span
+          style={{
+            background: pillBg,
+            color: pillColor,
+            fontFamily: "var(--font-revamp-mono)",
+            fontSize: 11,
+            padding: "3px 9px",
+            borderRadius: 99,
+            letterSpacing: "0.06em",
+            fontWeight: 600,
+            flexShrink: 0,
+          }}
+        >
+          {label}
+        </span>
+        <span className="min-w-0 truncate" style={{ color: "#a9b8d4" }}>
+          {plan} plan — card charged {endsAtLabel} unless you cancel.
+        </span>
       </div>
       <Link
         href="/settings/billing"
-        className="rounded border border-white/40 px-3 py-1 text-[11.5px] font-semibold tracking-wider uppercase hover:bg-white/10"
+        className="ml-3 flex-shrink-0 no-underline"
+        style={{ fontSize: 12.5, fontWeight: 600, color: linkColor }}
       >
         Manage billing →
       </Link>

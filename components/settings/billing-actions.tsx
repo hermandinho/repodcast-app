@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from "react";
 import { Plan } from "@/lib/enums";
-import { Button } from "@/components/ui/button";
 import { PLAN_ORDER, PLAN_DISPLAY } from "@/lib/plans";
 import { CURRENCY_META, SUPPORTED_CURRENCIES, type SupportedCurrency } from "@/lib/currencies";
 import {
@@ -11,11 +10,15 @@ import {
   updatePreferredCurrencyAction,
 } from "@/app/(dashboard)/settings/billing/actions";
 
+const ACCENT = "#3A5BA0";
+const ACCENT_ON_DARK = "#8FAEE0";
+const DARK_MUTED = "#a9b8d4";
+
 /**
  * Client island for the billing card. Renders either "Manage subscription"
- * (existing customer) or upgrade/downgrade buttons, plus a currency picker
- * that updates the agency's preferredCurrency and reloads so the plan
- * cards reflect the new prices.
+ * (existing customer) or upgrade/downgrade buttons, plus a currency picker.
+ * Renders on the dark plan card in the revamp layout, so all controls
+ * carry dark-surface styling (white-on-dark text, rgba borders).
  */
 export function BillingActions({
   currentPlan,
@@ -29,9 +32,6 @@ export function BillingActions({
   const [pending, startTransition] = useTransition();
   const [currencyPending, startCurrencyTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  // Optimistic local state — the page is server-rendered, so we reload on
-  // success to refresh the prices everywhere. Keeping the local copy means
-  // the picker doesn't flash back to the old value during the round-trip.
   const [currency, setCurrency] = useState<SupportedCurrency>(initialCurrency);
 
   const onCurrencyChange = (next: SupportedCurrency) => {
@@ -47,8 +47,6 @@ export function BillingActions({
           setError(result.error);
           return;
         }
-        // Server revalidates /settings/billing; a hard reload picks up the
-        // re-rendered prices + active-plan summary in one shot.
         window.location.reload();
       } catch (err) {
         setCurrency(previous);
@@ -90,44 +88,97 @@ export function BillingActions({
   };
 
   return (
-    <div className="flex flex-col items-end gap-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-2 text-[12px] text-[#5A6473]">
-          <span className="text-[10.5px] font-semibold tracking-wide text-[#8B95A6] uppercase">
-            Currency
-          </span>
-          <select
-            value={currency}
-            onChange={(e) => onCurrencyChange(e.target.value as SupportedCurrency)}
-            disabled={currencyPending}
-            className="rounded-[8px] border border-[#C9D4E8] bg-white px-2 py-1 text-[12.5px] text-[#1A2A4A] outline-none"
-          >
-            {SUPPORTED_CURRENCIES.map((c) => (
-              <option key={c} value={c}>
-                {CURRENCY_META[c].symbol} {c}
-              </option>
-            ))}
-          </select>
-        </label>
-        {hasSubscription ? (
-          <Button size="sm" onClick={goPortal} disabled={pending}>
-            {pending ? "Loading…" : "Manage subscription"}
-          </Button>
-        ) : (
-          PLAN_ORDER.filter((p) => p !== currentPlan).map((p) => (
-            <Button
-              key={p}
-              size="sm"
-              variant={p === Plan.STUDIO ? "primary" : "secondary"}
-              onClick={() => goCheckout(p)}
-              disabled={pending}
-            >
-              {pending ? "Loading…" : `Upgrade to ${PLAN_DISPLAY[p].name}`}
-            </Button>
-          ))
-        )}
-      </div>
-      {error && <div className="text-[12px] text-[#A06D12]">{error}</div>}
+    <div className="flex flex-col items-end" style={{ gap: 10 }}>
+      {hasSubscription ? (
+        <button
+          type="button"
+          onClick={goPortal}
+          disabled={pending}
+          style={{
+            background: ACCENT,
+            color: "#ffffff",
+            fontWeight: 600,
+            fontSize: 13.5,
+            padding: "10px 18px",
+            borderRadius: 8,
+            border: "none",
+            fontFamily: "inherit",
+            cursor: pending ? "wait" : "pointer",
+            opacity: pending ? 0.7 : 1,
+          }}
+        >
+          {pending ? "Loading…" : "Manage subscription"}
+        </button>
+      ) : (
+        <div className="flex flex-wrap" style={{ gap: 8 }}>
+          {PLAN_ORDER.filter((p) => p !== currentPlan).map((p) => {
+            const isPrimary = p === Plan.STUDIO || p === Plan.NETWORK;
+            return (
+              <button
+                key={p}
+                type="button"
+                onClick={() => goCheckout(p)}
+                disabled={pending}
+                style={{
+                  background: isPrimary ? ACCENT : "transparent",
+                  color: isPrimary ? "#ffffff" : DARK_MUTED,
+                  fontWeight: 600,
+                  fontSize: 13.5,
+                  padding: "9px 16px",
+                  borderRadius: 8,
+                  border: isPrimary ? "none" : "1px solid rgba(255,255,255,0.20)",
+                  fontFamily: "inherit",
+                  cursor: pending ? "wait" : "pointer",
+                }}
+              >
+                {pending ? "Loading…" : `Upgrade to ${PLAN_DISPLAY[p].name}`}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <label
+        className="inline-flex items-center"
+        style={{ gap: 8, fontSize: 12.5, color: DARK_MUTED }}
+      >
+        <span>Currency</span>
+        <select
+          value={currency}
+          onChange={(e) => onCurrencyChange(e.target.value as SupportedCurrency)}
+          disabled={currencyPending}
+          style={{
+            background: "transparent",
+            color: "#ffffff",
+            border: "1px solid rgba(255,255,255,0.18)",
+            borderRadius: 7,
+            padding: "5px 10px",
+            fontSize: 12.5,
+            fontFamily: "inherit",
+            outline: "none",
+          }}
+        >
+          {SUPPORTED_CURRENCIES.map((c) => (
+            <option key={c} value={c} style={{ color: "#1A2A4A" }}>
+              {CURRENCY_META[c].symbol} {c}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {error && (
+        <div
+          style={{
+            fontSize: 12,
+            color: ACCENT_ON_DARK,
+            background: "rgba(255,255,255,0.06)",
+            padding: "6px 10px",
+            borderRadius: 6,
+          }}
+        >
+          {error}
+        </div>
+      )}
     </div>
   );
 }

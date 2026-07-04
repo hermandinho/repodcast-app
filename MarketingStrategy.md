@@ -69,79 +69,162 @@ Client portals, white-label, and batch are the **Network moat** — three featur
 
 ---
 
-## 1. Free trial — the $1 activation model
+## 1. Free trial — Solo-only $1 activation model
 
-**7-day trial gated behind a $1 non-refundable activation fee. Card captured at Checkout; $1 charged on day 0; recurring plan price starts on day 8.**
+**Trial is Solo-tier only. 7-day trial gated behind a $1 non-refundable activation fee. Card captured at Checkout; $1 charged on day 0; Solo recurring price ($29) starts on day 8. Studio and Network subscribe directly at their monthly price on day 0 with no trial mechanic.**
+
+### Why Solo-only (not "trial on any tier")
+
+The activation fee caps the abuser's cost at $1 while our exposure equals the tier's monthly cost cap:
+
+| Trial tier  | AI-spend cap during trial | Abuser cost | Our loss per abuser |
+| ----------- | ------------------------- | ----------- | ------------------- |
+| Solo        | $9                        | $1          | ~$8                 |
+| ~~Studio~~  | ~~$27~~                   | ~~$1~~      | ~~~$26~~            |
+| ~~Network~~ | ~~$90~~                   | ~~$1~~      | ~~~$89~~            |
+
+A determined bad actor cycling fresh Stripe customers (VPN + disposable email + burner card) would cost us **$89 per attempt at Network vs $8 at Solo — 9× smaller blast radius on Solo-only.**
+
+Beyond the abuse math:
+
+- **Trial-as-conversion-mechanic maps to Solo's buyer.** Solo is the price-sensitive individual creator segment competing for Castmagic mindshare. A $1 "try before you buy" fits their decision process; a $299/mo agency owner doesn't need a $1 test.
+- **Studio/Network buyers don't need a trial.** They have approved budgets and know they want the product. A trial mechanic reads gimmicky at those price points, not enterprise-y.
+- **Natural upsell funnel.** Solo trialists who love the voice engine can upgrade to Studio/Network on day 8+ (full plan charge, no re-trial). Solo becomes the entry, Studio/Network becomes "you've validated it, now scale."
+- **Nothing evaluable is behind a Studio/Network paywall for triallability.** Solo includes voice matching, approval workflow, and Buffer scheduling — 80% of the product's evaluable value. Client portals + batch (Network-only) are features you _need_ when you have clients, not features you _try_.
 
 ### Why paid-trial, not free-trial
 
-| Option                                    | Verdict    | Reason                                                                                                                                                         |
-| ----------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| No-card 7-day trial                       | Rejected   | 3–5× lower paid conversion in B2B SaaS. Attracts tire-kickers, burns Anthropic tokens on non-buyers.                                                           |
-| Card-required, no charge (previous model) | Rejected   | Card doesn't validate on capture — dead cards discover on day 8 when the real charge fails, we lose the conversion silently.                                   |
-| Freemium at any tier                      | Rejected   | Unbounded AI generation cost on non-converters. No forcing function.                                                                                           |
-| **$1 activation + 7-day trial**           | **Chosen** | Validates the card lives, filters signups who won't pay $1 to try, small sunk-cost lifts conversion. Castmagic uses the same model → users won't be surprised. |
+| Option                                    | Verdict    | Reason                                                                                                                                                  |
+| ----------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No-card 7-day trial                       | Rejected   | 3–5× lower paid conversion in B2B SaaS. Attracts tire-kickers, burns Anthropic tokens on non-buyers.                                                    |
+| Card-required, no charge (previous model) | Rejected   | Card doesn't validate on capture — dead cards discover on day 8 when the real charge fails, we lose the conversion silently.                            |
+| Trial on all three tiers                  | Rejected   | See abuse table above — Network trial exposes $89/incident vs $8 on Solo-only. Studio/Network buyers don't need a trial anyway.                         |
+| Freemium at any tier                      | Rejected   | Unbounded AI generation cost on non-converters. No forcing function.                                                                                    |
+| **Solo-only $1 activation + 7-day trial** | **Chosen** | Validates the card lives, filters signups who won't pay $1 to try, small sunk-cost lifts conversion, and caps abuse blast radius at Solo's $9 cost cap. |
 
 ### Trial mechanics
 
+- **Eligible tier:** Solo only. Studio/Network Checkout sessions don't set `trial_period_days` and don't include the activation-fee line item — full plan price charges on day 0.
 - **Trial length:** 7 days (industry standard; matches Linear, Cal.com, Vercel, Castmagic)
-- **Activation fee:** $1 USD / €1 / £1 / C$1 / A$1 — one-time charge on day 0
+- **Activation fee:** $1 USD / €1 / £1 / C$1 / A$1 — one-time charge on day 0, Solo-only
 - **Refund policy:** Non-refundable. Framed as "activation fee" not "prorated first day". Same as Castmagic.
-- **Trial tier:** Whichever tier the user picks at Checkout — trial applies to Solo, Studio, or Network. No "trial always gets Network features" gimmick.
 - **Card required:** Yes (Stripe Checkout collects it before the $1 charge is authorized)
-- **On trial-end + payment success:** Auto-flip to paid plan at chosen tier, no user action
-- **On trial-end + payment failure:** `handleSubscriptionDeleted` webhook path — access degrades to a downgrade path (see below), data unchanged
+- **On trial-end + payment success:** Auto-flip to paid Solo, no user action
+- **On trial-end + payment failure:** `handleSubscriptionDeleted` webhook — access degrades to a downgrade path (drops to SOLO limits with sub cleared), data unchanged
 - **Cancellation during trial:** Cancel anytime in-app; $1 is not refunded; no recurring charge on day 8; workspace freezes to read-only 30 days post-cancel
-- **Second-trial policy:** No. Enforced by `stripeCustomerId` check — once a customer has trialed once, they go straight to paid on any future signup
-- **Extension:** Ops can grant +7 days via `SystemAdmin` action (audit-logged)
+- **Mid-trial upgrade (Solo → Studio/Network):** Allowed via Stripe Customer Portal. Stripe ends the trial early and prorates the diff onto the first invoice at the new tier. The user's $1 activation is not refunded (already spent) but they get the higher tier immediately.
+- **Second-trial policy:** No. Enforced by `stripeCustomerId` check — once a customer has trialed once, they go straight to paid on any future signup regardless of tier picked.
+- **Extension:** Ops can grant +7 days via `SystemAdmin` action (audit-logged). Only meaningful for active Solo trials.
 
 ### Stripe implementation shape
 
-- Checkout `mode: 'subscription'` with `subscription_data.trial_period_days: 7`
-- `line_items`: **two entries** — the recurring plan Price + a one-time "Trial activation" Price ($1 in each supported currency via `currency_options`)
-- Stripe bills the non-recurring line item on the first invoice (day 0) while deferring the recurring line item to trial-end (day 8)
-- One Product `trial_activation`, one Price with 5-currency options — provisioned by `scripts/configure-stripe-plans.ts` alongside the plan Prices
-- Env var: `NEXT_PUBLIC_STRIPE_TRIAL_ACTIVATION_PRICE_ID`
+Two Checkout modes depending on eligibility. The Solo trial path uses
+`mode: 'payment'` — this is the load-bearing decision that makes "$1
+today" visible in Stripe's own UI (`mode: 'subscription'` with
+`trial_period_days` shows "$0 due today" and defers the entire first
+invoice, which is why the earlier design was wrong).
 
-**Verification required in test mode before shipping:** confirm Stripe actually charges the non-recurring line item on day 0 with `trial_period_days` in effect. If deferred, fallback is a separate `PaymentIntent` fired from the `checkout.session.completed` webhook.
+**Solo trial (Solo + no prior Stripe customer + no prior trial)** —
+`checkoutFromOnboardingAction` uses `createSoloTrialCheckout`:
+
+- `mode: 'payment'`
+- `line_items`: single inline `price_data` for $1 with product name
+  "Solo trial activation" (no persisted Stripe Price — amount is baked
+  into `TRIAL_ACTIVATION_FEE_CENTS` in `lib/plans.ts`, single source of
+  truth)
+- `payment_intent_data.setup_future_usage: 'off_session'` — saves the
+  card for the recurring charge on day 8 without asking again
+- `customer_creation: 'always'` — forces a Stripe Customer so the
+  webhook can attach the follow-up subscription
+- `submit_type: 'pay'`, metadata `solo_trial_activation: 'true'` +
+  `plan_price_id` (the recurring plan Price ID) so the webhook doesn't
+  need a second env-var lookup
+
+Stripe's checkout page now shows "$1 due today" clearly. On success,
+`checkout.session.completed` fires. The webhook handler
+(`handleCheckoutSessionCompleted`):
+
+1. Verifies `metadata.solo_trial_activation === 'true'` and `mode === 'payment'`
+2. Guards against double-creation (agency already has a `stripeSubscriptionId`)
+3. Retrieves the PaymentIntent, extracts the saved payment method
+4. Sets it as the customer's `invoice_settings.default_payment_method`
+5. Creates the subscription via `stripe.subscriptions.create` with
+   `trial_period_days: 7` + `default_payment_method` + the plan Price
+6. That subscription creation itself fires `customer.subscription.created`
+   with `status: trialing`, which our existing `syncSubscription` picks
+   up to stamp `Agency.trialStatus = ACTIVE`, `trialEndsAt`,
+   `stripeSubscriptionId`, etc.
+
+The $1 charge lands as a proper PaymentIntent (not an invoice) tied to
+the customer. The recurring $29 charge on day 8 is invoiced by Stripe
+normally against the saved card.
+
+**Non-trial (Studio, Network, or returning-Solo customer)** —
+`createDirectSubscriptionCheckout`:
+
+- `mode: 'subscription'`
+- Single recurring `line_items` entry
+- No `trial_period_days`, no activation fee
+- Metadata `solo_trial_activation: 'false'`
+
+Stripe charges the full plan price on day 0 and fires
+`customer.subscription.created` immediately. No follow-up webhook work
+needed for this path.
+
+**Eligibility gate** (`checkoutFromOnboardingAction`):
+
+```ts
+const isSoloPick = plan === Plan.SOLO;
+const trialEligible = isSoloPick && !stripeCustomerId && trialStatus === "NONE";
+```
+
+Same boolean drives both the Checkout mode selection and the
+`solo_trial_activation` metadata flag.
+
+**No env var for the activation Price** — the amount is inlined via
+`price_data.unit_amount` from `TRIAL_ACTIVATION_FEE_CENTS`.
 
 ### Copy on the pricing page
 
-- CTA: **"Start 7-day trial — $1 today"**
-- Sub-copy: **"$1 today, then $29/mo after 7 days. Cancel anytime — no charge on day 8 if you cancel. $1 is non-refundable."**
-- Same treatment for Studio ($89) and Network ($299)
+- **Solo card:** CTA `Start 7-day trial`. Sub-copy: `$1 today, then $29/mo after 7 days`.
+- **Studio card:** CTA `Get started`. Sub-copy: `Billed monthly` (or `Billed $890 yearly` on annual).
+- **Network card:** CTA `Get started`. Sub-copy: `Billed monthly` (or `Billed $2,990 yearly` on annual).
+- Trust footer under the cards: `Secure checkout — you'll be redirected to Stripe to enter card details.` (applies to all three).
 
 ### UI checklist
 
-- [ ] `/pricing` page: CTAs read "Start 7-day trial — $1 today"
-- [ ] `/onboarding/plan`: each PlanCard shows "$1 today, then $X/mo after 7 days"
-- [ ] Trial banner in tenant nav: "X days left in trial · Upgrade now" with dismiss + upgrade CTA
-- [ ] Trial-end warning banner (last 3 days): non-dismissable
-- [ ] `/settings/billing`: show trial status + card-on-file + trial-end date
+- [ ] `/pricing` page: Solo CTA reads "Start 7-day trial", Studio/Network read "Get started"
+- [ ] `/onboarding/plan`: Solo card shows the trial sub-line; Studio/Network show `Billed monthly` / `Billed X yearly`
+- [ ] Trial banner in tenant nav: "X days left in trial · Upgrade now" with dismiss + upgrade CTA (Solo users only)
+- [ ] Trial-end warning banner (last 3 days): non-dismissable (Solo users only)
+- [ ] `/settings/billing`: show trial status + card-on-file + trial-end date (Solo users only)
+- [ ] Compare table sticky CTA row: Solo cell reads `Start 7-day trial`; Studio/Network read `Choose Studio` / `Choose Network`
 
-### Emails (via Resend)
+### Emails (via Resend, Solo trialists only)
 
 - [ ] Day 0: "Welcome — trial ends [DATE], $1 activation charge confirmed" with quick-start checklist
 - [ ] Day 2: "You've generated N outputs — here's what your first week looks like"
 - [ ] Day 4 (T-3): "Trial ends in 3 days — [CTA]" (matches Stripe's `trial_will_end` webhook)
-- [ ] Day 8: "Trial converted — first invoice for $[X]" OR "Trial ended — you weren't charged. Come back anytime."
+- [ ] Day 8: "Trial converted — first invoice for $29" OR "Trial ended — you weren't charged. Come back anytime."
 
 ### Analytics (PostHog)
 
-- [ ] `trial_started` (plan, cadence, currency, referral source)
+- [ ] `trial_started` (always plan=SOLO, cadence, currency, referral source)
 - [ ] `trial_activation_fee_charged` (Stripe confirms $1 succeeded on day 0)
 - [ ] `trial_activation_fee_failed` (card declined — filter these out of the funnel)
-- [ ] `trial_converted` (day 8 recurring charge succeeded)
+- [ ] `trial_converted` (day 8 Solo recurring charge succeeded)
 - [ ] `trial_expired_no_conversion` (canceled before day 8, no recurring charge)
 - [ ] `trial_canceled_early`
-- [ ] Funnel: signup → workspace-created → $1 charged → first-episode-generated → trial-converted
+- [ ] `trial_upgrade_mid_trial` (Solo trialist upgraded to Studio/Network before day 8 — indicates trial converted+expanded in one motion)
+- [ ] Funnel: signup → workspace-created → Solo pick → $1 charged → first-episode-generated → trial-converted (or upgraded)
 
 ### System-admin surface
 
-- [ ] `/root/agencies` filter: "Currently on trial"
+- [ ] `/root/agencies` filter: "Currently on trial" (implicitly Solo-only)
 - [ ] Bulk email trial cohorts from ROOT
 - [ ] Extend-trial action with audit log entry
 - [ ] "$1 activation charge failed" alert in ROOT overview
+- [ ] Alert when a Solo trial abuse pattern is detected (multiple `trial_activation_fee_charged` events from the same IP / device fingerprint within N days)
 
 ---
 
@@ -302,15 +385,16 @@ Client portals, white-label, and batch are the **Network moat** — three featur
 
 ## Appendix A — decisions taken 2026-07-04
 
-| Decision                  | Verdict                     | Reason                                                                              |
-| ------------------------- | --------------------------- | ----------------------------------------------------------------------------------- |
-| Number of tiers           | 3 (Solo, Studio, Network)   | Cleaner mental model, no straddle tier, Network becomes unambiguous agency SKU      |
-| Solo pricing              | $29/mo, 20 ep/mo            | Match Castmagic's price floor; beat their generosity framing                        |
-| Studio pricing            | $89/mo (was $59, older $99) | Absorbs old Agency features minus client portals; still accessible to small studios |
-| Network pricing           | $299/mo (was $499)          | Clean 3.4× step from Studio; within reach for 5-person agencies                     |
-| Cost cap %                | 30% of USD monthly          | Tighter incident ceiling; forces clearer investigation trigger                      |
-| Client portal gating      | Network only                | Concentrates the "look professional to clients" story on one tier                   |
-| Trial mechanism           | $1 activation + 7-day trial | Card validation on day 0; filters tire-kickers; matches Castmagic                   |
-| Refund on $1              | No                          | Framed as activation fee, not prorated day                                          |
-| Trial tier                | User-picked at Checkout     | No "always trial Network" gimmick — user commits to a plan on day 0                 |
-| Second trial per customer | No                          | Enforced via `stripeCustomerId` check                                               |
+| Decision                  | Verdict                     | Reason                                                                                                                                            |
+| ------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Number of tiers           | 3 (Solo, Studio, Network)   | Cleaner mental model, no straddle tier, Network becomes unambiguous agency SKU                                                                    |
+| Solo pricing              | $29/mo, 20 ep/mo            | Match Castmagic's price floor; beat their generosity framing                                                                                      |
+| Studio pricing            | $89/mo (was $59, older $99) | Absorbs old Agency features minus client portals; still accessible to small studios                                                               |
+| Network pricing           | $299/mo (was $499)          | Clean 3.4× step from Studio; within reach for 5-person agencies                                                                                   |
+| Cost cap %                | 30% of USD monthly          | Tighter incident ceiling; forces clearer investigation trigger                                                                                    |
+| Client portal gating      | Network only                | Concentrates the "look professional to clients" story on one tier                                                                                 |
+| Trial mechanism           | $1 activation + 7-day trial | Card validation on day 0; filters tire-kickers; matches Castmagic                                                                                 |
+| Refund on $1              | No                          | Framed as activation fee, not prorated day                                                                                                        |
+| Trial-eligible tier       | **Solo only**               | Abuse math: Network's $90 cost cap = $89 loss per abuser vs $8 on Solo — 9× smaller blast radius. Studio/Network buyers subscribe directly.       |
+| Mid-trial upgrade         | Allowed, prorated           | Solo → Studio/Network via Stripe Customer Portal; trial ends early, diff prorated onto first invoice; $1 activation not refunded (already spent). |
+| Second trial per customer | No                          | Enforced via `stripeCustomerId` check                                                                                                             |

@@ -98,11 +98,22 @@ export async function getAuthContext(): Promise<AuthContext | null> {
   }
 
   // Run Clerk + DB lookups concurrently — they're independent.
+  //
+  // Multi-agency users: we prefer the OWNER membership first (users get
+  // *their* workspace, not one they were invited to), then fall back to
+  // most-recently-updated so recent activity still wins for peers-only
+  // memberships. This matches `getOnboardingStateForUser` in
+  // `server/db/agencies.ts`; drift between the two caused Bug 1 (an
+  // active-subscription client bounced to /onboarding because
+  // getOnboardingStateForUser returned the older non-paying agency
+  // while this function returned the paying one, tripping the
+  // stripeSubscriptionId gate in the layout). Both functions must
+  // resolve to the SAME row.
   const [user, member] = await Promise.all([
     currentUser(),
     prisma.member.findFirst({
       where: { clerkUserId: userId },
-      orderBy: { updatedAt: "desc" },
+      orderBy: [{ role: "asc" }, { updatedAt: "desc" }],
       select: {
         id: true,
         role: true,

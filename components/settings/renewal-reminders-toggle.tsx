@@ -4,9 +4,16 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateRenewalRemindersAction } from "@/app/(dashboard)/settings/agency/actions";
 
+const INK = "#0a1e3c";
+const LIGHT_MUTED = "#8a97ad";
+const ACCENT = "#3A5BA0";
+
 /**
- * Phase 2.13.6 — one-checkbox affordance for the renewals-reminder cron's
- * mute switch. Optimistic local state; rolls back on action failure.
+ * Toggle switch for the renewals-reminder cron mute. Renders as a self-
+ * contained row (title + subtitle + switch) — the settings/agency page
+ * wraps it in the right column of a two-column card, so this component
+ * does NOT provide its own outer card chrome. Optimistic local state
+ * rolls back on failure so the UI doesn't lie about the persisted state.
  */
 export function RenewalRemindersToggle({
   initialEnabled,
@@ -23,8 +30,6 @@ export function RenewalRemindersToggle({
   const onToggle = () => {
     if (!canEdit) return;
     const next = !enabled;
-    // Optimistic flip — rollback on error so the UI doesn't lie about
-    // the persisted state.
     setEnabled(next);
     setError(null);
     startTransition(async () => {
@@ -35,8 +40,6 @@ export function RenewalRemindersToggle({
           setError(result.error);
           return;
         }
-        // Keep server-rendered surfaces (the agency settings page itself)
-        // in sync with the new value.
         router.refresh();
       } catch (err) {
         setEnabled(!next);
@@ -45,24 +48,19 @@ export function RenewalRemindersToggle({
     });
   };
 
-  const stateLabel = enabled ? "On" : "Off";
-  const stateColor = enabled ? "#1E7A47" : "#8B95A6";
-
   return (
-    <div className="border-border-subtle bg-surface-2 flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-4">
-      <div>
-        <div className="text-ink font-sans text-[13px] font-semibold">Renewals cron</div>
-        <div className="text-muted-2 mt-[2px] text-[12px]">
-          {enabled
-            ? "We'll email you 30 days and 7 days before each renewal."
-            : "Muted. We won't email about upcoming renewals."}
+    <div className="flex flex-col" style={{ gap: 8 }}>
+      <div className="flex items-center justify-between" style={{ maxWidth: 420, gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: INK }}>
+            30 &amp; 7 days before renewal
+          </div>
+          <div style={{ fontSize: 12.5, color: LIGHT_MUTED, marginTop: 2 }}>
+            {enabled
+              ? "Sent automatically per client contract"
+              : "Muted — no renewal emails will fire"}
+          </div>
         </div>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <span className="font-sans text-[12.5px] font-semibold" style={{ color: stateColor }}>
-          {stateLabel}
-        </span>
         <button
           type="button"
           onClick={onToggle}
@@ -70,27 +68,44 @@ export function RenewalRemindersToggle({
           role="switch"
           aria-checked={enabled}
           aria-label="Toggle renewal reminders"
-          className="relative inline-flex h-[24px] w-[44px] flex-shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+          className="relative inline-flex flex-shrink-0 cursor-pointer items-center disabled:cursor-not-allowed disabled:opacity-50"
           style={{
-            background: enabled ? "var(--color-accent)" : "#C9D4E8",
+            width: 40,
+            height: 23,
+            borderRadius: 99,
+            background: enabled ? ACCENT : "#C9D4E8",
+            border: "none",
+            transition: "background-color 120ms",
           }}
         >
           <span
-            className="inline-block h-[18px] w-[18px] transform rounded-full bg-white shadow-sm transition-transform"
+            className="inline-block rounded-full bg-white shadow-sm"
             style={{
-              transform: enabled ? "translateX(23px)" : "translateX(3px)",
+              width: 18,
+              height: 18,
+              transform: enabled ? "translateX(19.5px)" : "translateX(2.5px)",
+              transition: "transform 120ms",
             }}
           />
         </button>
       </div>
 
       {error && (
-        <div className="basis-full rounded-md bg-[#FBEDEC] px-3 py-2 font-sans text-[12px] font-medium text-[#8A2A1F]">
+        <div
+          style={{
+            background: "#FBEDEC",
+            color: "#8A2A1F",
+            fontSize: 12,
+            fontWeight: 500,
+            padding: "8px 12px",
+            borderRadius: 6,
+          }}
+        >
           {error}
         </div>
       )}
       {!canEdit && (
-        <div className="text-muted-2 basis-full font-sans text-[11.5px]">
+        <div style={{ fontSize: 11.5, color: LIGHT_MUTED }}>
           Only owners and admins can change this setting.
         </div>
       )}

@@ -1,4 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
 
 // NOTE: Next 16 deprecates `middleware.ts` in favour of `proxy.ts` (Node-only).
 // Clerk 7.5 ships `clerkMiddleware` but not yet a `clerkProxy` companion, and
@@ -33,9 +34,38 @@ const isPublicRoute = createRouteMatcher([
   // Phase 3.6.10 — public abuse-report intake. Anonymous submission is
   // the whole point; the queue at /root/quality picks it up for triage.
   "/legal/(.*)",
+  // Pre-launch splash — when `NEXT_PUBLIC_COMING_SOON="true"` we route
+  // every non-allowlisted request to this page. Must be public so the
+  // splash itself renders without auth.
+  "/coming-soon",
 ]);
 
+/**
+ * Paths that stay live even when the coming-soon flag is on. Webhooks,
+ * background workers, and health checks must never see the splash — a
+ * webhook redirected to HTML would 302 back to Stripe with a garbage
+ * body, and Stripe would retry until it gives up.
+ */
+const isPreLaunchAllowlisted = createRouteMatcher([
+  "/coming-soon",
+  "/api/webhooks/(.*)",
+  "/api/health",
+  "/api/inngest(.*)",
+]);
+
+const COMING_SOON_ENABLED = process.env.NEXT_PUBLIC_COMING_SOON === "true";
+
 export default clerkMiddleware(async (auth, req) => {
+  // Coming-soon short-circuit — runs BEFORE the Clerk auth check so
+  // logged-in users also land on the splash (no accidental staff back-
+  // door once the flag flips on).
+  if (COMING_SOON_ENABLED && !isPreLaunchAllowlisted(req)) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/coming-soon";
+    url.search = "";
+    return NextResponse.rewrite(url);
+  }
+
   if (!isPublicRoute(req)) {
     await auth.protect();
   }

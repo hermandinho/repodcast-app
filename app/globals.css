@@ -8,9 +8,9 @@
   --color-surface: #ffffff;
   --color-surface-2: #fbfcfe;
   --color-surface-3: #f7f9fc;
-  --color-sidebar: #16243f;
-  --color-sidebar-text: #aeb9cc;
-  --color-sidebar-label: #5e6f8c;
+  --color-sidebar: #0a1e3c;
+  --color-sidebar-text: #a9b8d4;
+  --color-sidebar-label: #5c6f92;
   --color-sidebar-user: #2c4068;
 
   /* ============================================================
@@ -98,6 +98,11 @@
   --font-display: var(--font-sora), system-ui, sans-serif;
   --font-sans: var(--font-inter), system-ui, sans-serif;
   --font-mono: var(--font-mono), "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Revamp typography — used on `/onboarding/*` (Settings + Landing to
+     follow). Existing pages continue to inherit the tokens above. */
+  --font-revamp-sans: var(--font-schibsted), system-ui, sans-serif;
+  --font-revamp-mono:
+    var(--font-spline-mono), "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* ============================================================
      Radii
@@ -124,7 +129,7 @@
    Layout dimensions (non-color tokens used in app shell)
    ============================================================ */
 :root {
-  --sidebar-width: 236px;
+  --sidebar-width: 248px;
   --topbar-height: 60px;
 }
 

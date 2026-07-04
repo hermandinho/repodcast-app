@@ -5,11 +5,14 @@ import { isLiveDb } from "@/server/data/source";
 import { resolveTenantContext } from "@/server/data/tenant";
 import { prisma } from "@/server/db/client";
 
+/**
+ * Settings · Branding — revamp visual system (see `ref/UI/Revamp/` 2b).
+ * All the layout lives inside `<BrandingForm>` (two-column controls +
+ * live portal preview). The page is just the data-fetch shell.
+ */
 export default async function BrandingPage() {
   const [tenant, auth] = await Promise.all([resolveTenantContext(), getAuthContext()]);
 
-  // Live DB read with a sample-data fallback — mirrors the agency settings
-  // page so a fresh clone renders cleanly without `DATABASE_URL`.
   const live = isLiveDb();
   const agency = live
     ? await prisma.agency
@@ -25,21 +28,7 @@ export default async function BrandingPage() {
   const canEdit = role === MemberRole.OWNER || role === MemberRole.ADMIN;
 
   return (
-    <div className="border-border bg-surface shadow-card rounded-3xl border p-6">
-      <div className="mb-5">
-        <div className="text-muted-2 font-sans text-[11.5px] font-semibold tracking-[0.06em] uppercase">
-          White-label
-        </div>
-        <div className="font-display text-ink mt-1 text-[18px] font-semibold">
-          Client-facing branding
-        </div>
-        <p className="text-muted mt-1 max-w-[640px] text-[12.5px] leading-[1.55]">
-          Logo and accent color used on the client portal and branded exports. The Repodcast
-          dashboard itself stays on our default theme — these settings only affect surfaces your
-          clients see.
-        </p>
-      </div>
-
+    <div style={{ maxWidth: 1060, fontFamily: "var(--font-revamp-sans)" }}>
       <BrandingForm
         agencyName={name}
         initialLogoUrl={agency?.brandLogoUrl ?? null}

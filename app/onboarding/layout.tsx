@@ -1,5 +1,5 @@
 import { UserButton } from "@clerk/nextjs";
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BrandMark } from "@/components/landing/nav";
@@ -7,7 +7,7 @@ import { getOnboardingStateForUser } from "@/server/db/agencies";
 import { isLiveDb } from "@/server/data/source";
 
 /**
- * `/onboarding/*` shell.
+ * `/onboarding/*` shell — revamp visual system (see `ref/UI/Revamp/`).
  *
  * Gate: unauthenticated → /sign-in. Users who already have a live Stripe
  * subscription short-circuit to /dashboard (in case they land here by
@@ -15,54 +15,45 @@ import { isLiveDb } from "@/server/data/source";
  * OR agency-but-no-sub — passes through to whichever substep the child
  * route renders.
  *
- * Layout structure:
- *   - Sticky top nav: BrandMark (left) + UserButton (right). Hugs the true
- *     viewport edges via a full-width flex row so on wide monitors the two
- *     don't cluster next to the centered content column.
- *   - Body: top-aligned centered column (max-w-4xl) so long content
- *     (comparison table on the plan step) scrolls naturally instead of
- *     being vertically centered and pushed off-screen.
- *
- * Fully responsive:
- *   - `px-4 → sm:px-6 → lg:px-8` horizontal padding at three breakpoints.
- *   - Sticky nav shrinks vertical padding on narrow viewports.
- *   - Background decor scales down + off-viewport on mobile so it never
- *     clips the content card.
+ * Visual system (drift from the app-wide shell):
+ *   - Page background is a solid cool white (`#f6f8fc`), no ambient
+ *     gradients. Content is meant to feel product-y, not landing-y.
+ *   - Topbar is a solid white bar with the wordmark on the left and a
+ *     "email · avatar" cluster on the right (mirrors the ref mock). No
+ *     backdrop-blur / translucency — the topbar reads as a UI chrome
+ *     surface, not a marketing header.
+ *   - Content column widens to ~1080px so the plan-comparison table can
+ *     stretch out without horizontal scroll.
+ *   - Typography swaps to Schibsted Grotesk (sans) + Spline Sans Mono
+ *     (mono) via `--font-revamp-*` — see `app/globals.css`.
  */
 export default async function OnboardingLayout({ children }: { children: React.ReactNode }) {
+  let userEmail: string | null = null;
   if (isLiveDb()) {
     const { userId } = await auth();
     if (!userId) redirect("/sign-in?redirect_url=%2Fonboarding");
     const state = await getOnboardingStateForUser(userId);
     if (state.kind === "paying") redirect("/dashboard");
+    const user = await currentUser().catch(() => null);
+    userEmail =
+      user?.emailAddresses?.find((e) => e.id === user?.primaryEmailAddressId)?.emailAddress ??
+      user?.emailAddresses?.[0]?.emailAddress ??
+      null;
   }
   return (
     <div
       className="relative flex min-h-screen w-full flex-col overflow-x-hidden"
       style={{
-        background: "radial-gradient(120% 80% at 100% 0%, #EEF2FB 0%, #F4F6FA 45%, #F4F6FA 100%)",
-        color: "#1A2A4A",
+        background: "#f6f8fc",
+        color: "#0a1e3c",
+        fontFamily: "var(--font-revamp-sans)",
       }}
     >
-      {/* Ambient background decor — pointer-events-none, hidden below sm to
-          keep the mobile view clean. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -top-24 -right-24 hidden h-[420px] w-[420px] rounded-full sm:block"
-        style={{
-          background: "radial-gradient(circle, rgba(58,91,160,0.16) 0%, rgba(58,91,160,0) 70%)",
-        }}
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -bottom-32 -left-24 hidden h-[460px] w-[460px] rounded-full sm:block"
-        style={{
-          background: "radial-gradient(circle, rgba(46,158,91,0.12) 0%, rgba(46,158,91,0) 70%)",
-        }}
-      />
-
-      <header className="sticky top-0 z-20 w-full border-b border-black/[0.06] bg-white/70 backdrop-blur-md">
-        <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
+      <header
+        className="sticky top-0 z-20 w-full"
+        style={{ background: "#ffffff", borderBottom: "1px solid #eef1f6" }}
+      >
+        <div className="mx-auto flex h-[58px] w-full max-w-[1200px] items-center justify-between px-6 sm:px-10">
           <Link
             href="/"
             className="no-underline transition-opacity hover:opacity-80"
@@ -70,14 +61,19 @@ export default async function OnboardingLayout({ children }: { children: React.R
           >
             <BrandMark />
           </Link>
-          <div className="flex items-center">
+          <div className="flex items-center gap-4">
+            {userEmail ? (
+              <span className="hidden sm:inline" style={{ fontSize: 13, color: "#8a97ad" }}>
+                {userEmail}
+              </span>
+            ) : null}
             <UserButton appearance={{ elements: { avatarBox: "h-8 w-8" } }} />
           </div>
         </div>
       </header>
 
       <main className="relative z-10 flex w-full flex-1 justify-center">
-        <div className="w-full max-w-4xl px-4 py-6 sm:px-6 sm:py-10 lg:px-8 lg:py-14">
+        <div className="w-full max-w-[1080px] px-5 py-10 sm:px-8 sm:py-14 lg:py-[52px]">
           {children}
         </div>
       </main>

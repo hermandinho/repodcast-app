@@ -12,15 +12,24 @@ import { MemberActivityFeed } from "@/components/settings/member-activity-feed";
 import { MemberRow } from "@/components/settings/member-row";
 import { PendingInviteRow } from "@/components/settings/pending-invite-row";
 
+const INK = "#0a1e3c";
+const MUTED = "#41506b";
+const LIGHT_MUTED = "#8a97ad";
+const CARD_BORDER = "#e4e9f1";
+const ROW_BORDER = "#eef1f6";
+const ACCENT = "#3A5BA0";
+
+/**
+ * Settings · Team — revamp visual system (see `ref/UI/Revamp/` 2a).
+ *
+ * Single members card with a seat meter in the header, an inline invite
+ * row on a subtle canvas strip, member rows below, and an empty-seats
+ * dashed row when there's headroom. Recent activity is a separate card.
+ */
 export default async function TeamPage() {
-  // Use the shared resolver so we work in three states cleanly:
-  //   - signed in + Member synced → real auth context
-  //   - signed in but Member missing (webhook pending) → resolved demo agency
-  //   - DB not configured → synthetic demo tenant + sample fallback
   const tenant = await resolveTenantContext();
   const auth = await getAuthContext();
 
-  // Determine plan from the real Agency row when available, else STUDIO baseline.
   const agency = isLiveDb()
     ? await prisma.agency
         .findUnique({
@@ -31,7 +40,6 @@ export default async function TeamPage() {
     : null;
   const plan: Plan = agency?.plan ?? Plan.STUDIO;
 
-  // Member list: live rows when DB is reachable, synthetic single-member fallback otherwise.
   const liveMembers = isLiveDb()
     ? await prisma.member
         .findMany({
@@ -42,16 +50,12 @@ export default async function TeamPage() {
     : null;
   const members: Member[] = liveMembers ?? makeSampleMembers(auth);
 
-  // Pending invites — only show to OWNER/ADMIN viewers (the only roles
-  // that can revoke). Editors don't get to see the queue.
   const canManageInvites =
     (auth?.member.role ?? MemberRole.OWNER) === MemberRole.OWNER ||
     (auth?.member.role ?? MemberRole.OWNER) === MemberRole.ADMIN;
   const pendingInvites: MemberInvite[] =
     isLiveDb() && canManageInvites ? await listPendingInvites(tenant).catch(() => []) : [];
 
-  // Activity feed — visible to all roles (audit log is a read for everyone).
-  // Capped at 20 rows; we'll add pagination if a churny agency outgrows it.
   const memberTransitions = isLiveDb()
     ? await listMemberTransitions(tenant, 20).catch(() => [])
     : [];
@@ -60,50 +64,156 @@ export default async function TeamPage() {
     ? await planCapacity(tenant.agencyId, plan, "members")
     : { used: members.length, limit: planLimitsFor(plan).seats };
 
-  // Sample-data mode keeps the form's banner empty so the design preview
-  // doesn't surface synthetic-tenant warnings.
   const bannerCapacity = isLiveDb() ? { ...capacity, plan, resource: "members" as const } : null;
 
-  const seatsRemaining = Math.max(0, capacity.limit - capacity.used);
+  const seatsUsed = capacity.used;
+  const seatsLimit = capacity.limit;
+  const seatsRemaining = Math.max(0, seatsLimit - seatsUsed);
+  const seatPct = seatsLimit > 0 ? Math.min(100, Math.round((seatsUsed / seatsLimit) * 100)) : 0;
+
   const viewerMemberId = auth?.member.id ?? members[0]?.id ?? "";
   const viewerRole = auth?.member.role ?? MemberRole.OWNER;
 
   return (
-    <>
-      <div className="border-border bg-surface shadow-card mb-[18px] rounded-3xl border p-5">
-        <div className="mb-[14px] flex flex-wrap items-baseline justify-between gap-3">
+    <div style={{ maxWidth: 860, fontFamily: "var(--font-revamp-sans)" }}>
+      {/* Members card */}
+      <div
+        style={{
+          background: "#ffffff",
+          border: `1px solid ${CARD_BORDER}`,
+          borderRadius: 12,
+          overflow: "hidden",
+        }}
+      >
+        <div
+          className="flex flex-wrap items-center justify-between"
+          style={{
+            padding: "20px 28px",
+            borderBottom: `1px solid ${ROW_BORDER}`,
+            gap: 16,
+          }}
+        >
           <div>
-            <div className="font-display text-ink text-[16px] font-semibold">Members</div>
-            <div className="text-muted-2 mt-[3px] text-[12.5px]">
-              {members.length} of {capacity.limit} seats used · {seatsRemaining} left on the {plan}{" "}
-              plan
+            <div style={{ fontSize: 16, fontWeight: 700, color: INK }}>Members</div>
+            <div style={{ fontSize: 12.5, color: LIGHT_MUTED, marginTop: 3 }}>
+              Editors generate + edit. Admins also manage team and billing.
+            </div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 12.5, color: MUTED, fontWeight: 600 }}>
+              {seatsUsed} of {seatsLimit} seats used
+            </div>
+            <div
+              style={{
+                width: 110,
+                height: 5,
+                borderRadius: 99,
+                background: "#eef1f6",
+                marginTop: 6,
+                marginLeft: "auto",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: `${seatPct}%`,
+                  height: "100%",
+                  borderRadius: 99,
+                  background: seatPct >= 80 ? "#C9952B" : ACCENT,
+                }}
+              />
             </div>
           </div>
         </div>
 
-        <div>
-          {members.length === 0 ? (
-            <div className="text-muted-2 py-6 text-center text-[12.5px]">
-              No members yet — invite teammates below.
-            </div>
-          ) : (
-            members.map((m) => (
+        {/* Invite row on subtle canvas strip */}
+        {canManageInvites ? (
+          <div
+            style={{
+              background: "#f6f8fc",
+              borderBottom: `1px solid ${ROW_BORDER}`,
+              padding: "18px 28px",
+            }}
+          >
+            <InviteMemberForm seatsRemaining={seatsRemaining} capacity={bannerCapacity} />
+          </div>
+        ) : null}
+
+        {/* Member rows */}
+        {members.length === 0 ? (
+          <div
+            style={{
+              padding: "32px 28px",
+              textAlign: "center",
+              fontSize: 12.5,
+              color: LIGHT_MUTED,
+            }}
+          >
+            No members yet — invite teammates above.
+          </div>
+        ) : (
+          <div>
+            {members.map((m) => (
               <MemberRow
                 key={m.id}
                 member={m}
                 isSelf={m.id === viewerMemberId}
                 viewerRole={viewerRole}
               />
-            ))
-          )}
-        </div>
+            ))}
+          </div>
+        )}
+
+        {/* Empty-seats row — dashed placeholder */}
+        {seatsRemaining > 0 && seatsLimit > 1 ? (
+          <div
+            className="flex flex-wrap items-center"
+            style={{
+              gap: 12,
+              padding: "14px 28px",
+              borderTop: `1px dashed ${CARD_BORDER}`,
+              color: LIGHT_MUTED,
+            }}
+          >
+            <div
+              className="flex-shrink-0"
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 999,
+                border: `1.5px dashed ${LIGHT_MUTED}`,
+              }}
+            />
+            <div style={{ fontSize: 13 }}>
+              {seatsRemaining === 1 ? "1 open seat" : `${seatsRemaining} open seats`} on {plan} —
+              {canManageInvites ? <> invite a teammate above or </> : " ask an admin to "}
+              <a
+                href="/settings/billing"
+                className="no-underline"
+                style={{ color: ACCENT, fontWeight: 600 }}
+              >
+                compare plans
+              </a>
+              .
+            </div>
+          </div>
+        ) : null}
       </div>
 
-      {pendingInvites.length > 0 && (
-        <div className="border-border bg-surface shadow-card mb-[18px] rounded-3xl border p-5">
-          <div className="mb-[14px]">
-            <div className="font-display text-ink text-[16px] font-semibold">Pending invites</div>
-            <div className="text-muted-2 mt-[3px] text-[12.5px]">
+      {/* Pending invites — separate card so revocation actions have their own space */}
+      {pendingInvites.length > 0 ? (
+        <div
+          style={{
+            background: "#ffffff",
+            border: `1px solid ${CARD_BORDER}`,
+            borderRadius: 12,
+            padding: "20px 28px",
+            marginTop: 16,
+          }}
+        >
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: INK }}>Pending invites</div>
+            <div style={{ fontSize: 12.5, color: LIGHT_MUTED, marginTop: 3 }}>
               {pendingInvites.length} waiting to be accepted · expire after 14 days
             </div>
           </div>
@@ -113,41 +223,41 @@ export default async function TeamPage() {
             ))}
           </div>
         </div>
-      )}
+      ) : null}
 
-      <div className="border-border bg-surface shadow-card rounded-3xl border p-5">
-        <div className="mb-[14px]">
-          <div className="font-display text-ink text-[16px] font-semibold">Invite a teammate</div>
-          <div className="text-muted-2 mt-[3px] text-[12.5px]">
-            They&apos;ll get an email with a link to join. Editors generate + edit; Admins also
-            manage team and billing.
+      {/* Recent team activity */}
+      {isLiveDb() ? (
+        <div
+          style={{
+            background: "#ffffff",
+            border: `1px solid ${CARD_BORDER}`,
+            borderRadius: 12,
+            padding: "22px 28px",
+            marginTop: 16,
+          }}
+        >
+          <div className="flex items-baseline justify-between">
+            <div style={{ fontSize: 16, fontWeight: 700, color: INK }}>Recent team activity</div>
+            <span
+              style={{
+                fontFamily: "var(--font-revamp-mono)",
+                fontSize: 11,
+                color: LIGHT_MUTED,
+                letterSpacing: "0.06em",
+              }}
+            >
+              AUDIT TRAIL
+            </span>
+          </div>
+          <div style={{ marginTop: 14 }}>
+            <MemberActivityFeed items={memberTransitions} />
           </div>
         </div>
-        <InviteMemberForm seatsRemaining={seatsRemaining} capacity={bannerCapacity} />
-      </div>
-
-      {isLiveDb() && (
-        <div className="border-border bg-surface shadow-card mt-[18px] rounded-3xl border p-5">
-          <div className="mb-[14px]">
-            <div className="font-display text-ink text-[16px] font-semibold">
-              Recent team activity
-            </div>
-            <div className="text-muted-2 mt-[3px] text-[12.5px]">
-              Audit trail of invites, role changes, removals, and ownership transfers.
-            </div>
-          </div>
-          <MemberActivityFeed items={memberTransitions} />
-        </div>
-      )}
-    </>
+      ) : null}
+    </div>
   );
 }
 
-/**
- * Synthetic single-member list used when the DB isn't configured OR the
- * caller isn't synced yet. Reflects whatever we *do* know about the user
- * from Clerk.
- */
 function makeSampleMembers(
   auth: {
     user: { clerkUserId: string; email: string; name: string | null };

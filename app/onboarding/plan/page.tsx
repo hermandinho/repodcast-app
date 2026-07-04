@@ -35,6 +35,7 @@ export default async function OnboardingPlanPage({
   const suffix = qs ? `?${qs}` : "";
 
   let trialEligible = true;
+  let ineligibleReason: "customer_exists" | "prior_trial" | null = null;
   if (isLiveDb()) {
     const { userId } = await auth();
     if (!userId) redirect("/sign-in?redirect_url=%2Fonboarding%2Fplan");
@@ -49,7 +50,19 @@ export default async function OnboardingPlanPage({
         where: { id: state.agencyId },
         select: { stripeCustomerId: true, trialStatus: true },
       });
-      trialEligible = !agency?.stripeCustomerId && (agency?.trialStatus ?? "NONE") === "NONE";
+      const hasPriorCustomer = Boolean(agency?.stripeCustomerId);
+      const hasPriorTrial = (agency?.trialStatus ?? "NONE") !== "NONE";
+      trialEligible = !hasPriorCustomer && !hasPriorTrial;
+      if (!trialEligible) {
+        ineligibleReason = hasPriorTrial ? "prior_trial" : "customer_exists";
+        // Log to help diagnose confusion where a user expects the trial CTA
+        // but their agency has stale Stripe state from a prior attempt.
+        console.log("[onboarding/plan] trial ineligible", {
+          agencyId: state.agencyId,
+          stripeCustomerId: agency?.stripeCustomerId,
+          trialStatus: agency?.trialStatus,
+        });
+      }
     }
   }
 
@@ -62,35 +75,33 @@ export default async function OnboardingPlanPage({
   const initialCurrency = asSupportedCurrency(single(params.currency)) ?? DEFAULT_CURRENCY;
 
   return (
-    <div className="flex flex-col gap-8 sm:gap-10">
+    <div className="flex flex-col" style={{ gap: 40 }}>
       <OnboardingStepHeader
         step="plan"
-        title={trialEligible ? "Start your 7-day trial" : "Choose a plan"}
+        title="Choose your plan"
         subtitle={
           trialEligible
-            ? `$1 activation fee today, then your plan starts on day ${TRIAL_DAYS + 1}. Cancel any time from Settings → Billing — the $1 is non-refundable.`
-            : "Pay by card via Stripe. Annual saves you two months. Switch or cancel any time from Settings → Billing."
+            ? `Solo comes with a 7-day trial for $1. Studio and Network start immediately at their monthly price. Cancel any time from Settings → Billing.`
+            : ineligibleReason === "prior_trial"
+              ? "You've used your Solo trial — every plan starts immediately at its monthly price. Cancel any time from Settings → Billing."
+              : "Pay by card via Stripe. Annual saves you two months. Switch or cancel any time from Settings → Billing."
         }
       />
 
-      <PricingPicker
-        kind="onboarding"
-        submit={checkoutFromOnboardingAction}
-        initialPlan={initialPlan}
-        initialCadence={initialCadence}
-        initialCurrency={initialCurrency}
-        submittingLabel={
-          trialEligible ? `Start ${TRIAL_DAYS}-day trial · $1 today` : "Continue to checkout"
-        }
-        trialEligible={trialEligible}
-      />
-      <p className="text-center text-[12.5px] text-[#8B95A6]">
-        You&apos;ll be redirected to Stripe to enter card details.
-      </p>
-
-      <div className="mt-2">
-        <PlanComparisonTable compact />
+      {/* Anchor target for the sticky CTA row inside <PlanComparisonTable>. */}
+      <div id="top-plans" style={{ scrollMarginTop: 80 }}>
+        <PricingPicker
+          kind="onboarding"
+          submit={checkoutFromOnboardingAction}
+          initialPlan={initialPlan}
+          initialCadence={initialCadence}
+          initialCurrency={initialCurrency}
+          submittingLabel={`Start ${TRIAL_DAYS}-day trial`}
+          trialEligible={trialEligible}
+        />
       </div>
+
+      <PlanComparisonTable compact />
     </div>
   );
 }

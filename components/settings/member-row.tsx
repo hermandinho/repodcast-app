@@ -4,7 +4,6 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Member } from "@prisma/client";
 import { MemberRole } from "@/lib/enums";
-import { Button } from "@/components/ui/button";
 import { Modal, ModalBody, ModalFooter, ModalHeader } from "@/components/ui/modal";
 import {
   changeMemberRoleAction,
@@ -12,11 +11,17 @@ import {
   transferOwnershipAction,
 } from "@/app/(dashboard)/settings/team/actions";
 
+const INK = "#0a1e3c";
+const MUTED = "#41506b";
+const LIGHT_MUTED = "#8a97ad";
+const ACCENT = "#3A5BA0";
+const ACCENT_SOFT = "#eef2fb";
+
 const ROLE_LABEL: Record<MemberRole, string> = {
-  OWNER: "Owner",
-  ADMIN: "Admin",
-  EDITOR: "Editor",
-  REVIEWER: "Reviewer",
+  OWNER: "OWNER",
+  ADMIN: "ADMIN",
+  EDITOR: "EDITOR",
+  REVIEWER: "REVIEWER",
 };
 
 function initialsOf(name: string | null, email: string): string {
@@ -31,6 +36,12 @@ function initialsOf(name: string | null, email: string): string {
   return (email[0] ?? "?").toUpperCase();
 }
 
+/**
+ * Single member row rendered inside the Members card on the revamp Team
+ * page. Revamped visual: 36×36 dark-ink circle avatar, name+email stack,
+ * mono uppercase role pill (accent-soft for the viewer's own role), and
+ * inline role/remove controls for admins.
+ */
 export function MemberRow({
   member,
   isSelf,
@@ -46,13 +57,11 @@ export function MemberRow({
   const [confirmTransfer, setConfirmTransfer] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Only OWNER/ADMIN can manage roles; you can't change your own role.
   const canManage =
     !isSelf &&
     (viewerRole === MemberRole.OWNER || viewerRole === MemberRole.ADMIN) &&
-    member.role !== MemberRole.OWNER; // OWNER role is set out-of-band, not via this UI
+    member.role !== MemberRole.OWNER;
 
-  // Only the OWNER can transfer ownership, and only to an existing ADMIN.
   const canTransferOwnership =
     !isSelf && viewerRole === MemberRole.OWNER && member.role === MemberRole.ADMIN;
 
@@ -60,10 +69,7 @@ export function MemberRow({
     setError(null);
     startTransition(async () => {
       try {
-        const result = await changeMemberRoleAction({
-          memberId: member.id,
-          role: next,
-        });
+        const result = await changeMemberRoleAction({ memberId: member.id, role: next });
         if (!result.ok) {
           setError(result.error);
           return;
@@ -110,20 +116,44 @@ export function MemberRow({
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-3 border-t border-[#F0F3F8] px-[6px] py-3 first:border-t-0">
-      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-[#2C4068] font-sans text-[12px] font-semibold text-[#CDD7E8]">
+    <div
+      className="flex flex-wrap items-center"
+      style={{
+        gap: 12,
+        padding: "16px 28px",
+        borderTop: "1px solid #f4f6fa",
+      }}
+    >
+      <div
+        className="grid flex-shrink-0 place-items-center rounded-full"
+        style={{
+          width: 36,
+          height: 36,
+          background: INK,
+          color: "#ffffff",
+          fontSize: 12,
+          fontWeight: 700,
+        }}
+      >
         {initialsOf(member.name, member.email)}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="text-ink truncate font-sans text-[13.5px] font-medium">
+        <div style={{ fontSize: 14, fontWeight: 600, color: INK }}>
           {member.name ?? member.email.split("@")[0]}
-          {isSelf && <span className="text-muted-2 ml-2 text-[11.5px]">(you)</span>}
+          {isSelf && (
+            <span style={{ fontSize: 12, fontWeight: 500, color: LIGHT_MUTED, marginLeft: 8 }}>
+              (you)
+            </span>
+          )}
         </div>
-        <div className="text-muted-2 truncate text-[11.5px]">{member.email}</div>
+        <div style={{ fontSize: 12.5, color: LIGHT_MUTED }}>{member.email}</div>
       </div>
 
       {canManage ? (
-        <div className="border-border flex items-stretch overflow-hidden rounded-md border">
+        <div
+          className="flex items-stretch overflow-hidden"
+          style={{ border: "1px solid #e4e9f1", borderRadius: 8 }}
+        >
           {(["member", "admin"] as const).map((r) => {
             const active =
               (r === "admin" && member.role === MemberRole.ADMIN) ||
@@ -134,10 +164,15 @@ export function MemberRow({
                 type="button"
                 onClick={() => !active && onRoleChange(r)}
                 disabled={pending || active}
-                className="px-[12px] py-[6px] font-sans text-[11.5px] font-semibold transition-colors disabled:cursor-default"
                 style={{
-                  background: active ? "var(--color-accent-soft)" : "#fff",
-                  color: active ? "var(--color-accent)" : "var(--color-muted)",
+                  padding: "6px 12px",
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  background: active ? ACCENT_SOFT : "#fff",
+                  color: active ? ACCENT : MUTED,
+                  border: "none",
+                  cursor: active ? "default" : "pointer",
+                  fontFamily: "inherit",
                 }}
               >
                 {r === "member" ? "Editor" : "Admin"}
@@ -146,35 +181,72 @@ export function MemberRow({
           })}
         </div>
       ) : (
-        <span className="rounded-pill bg-canvas text-muted px-[9px] py-[3px] font-sans text-[11px] font-semibold uppercase">
+        <span
+          style={{
+            fontFamily: "var(--font-revamp-mono)",
+            fontSize: 10.5,
+            letterSpacing: "0.1em",
+            color: ACCENT,
+            background: ACCENT_SOFT,
+            padding: "4px 10px",
+            borderRadius: 99,
+            fontWeight: 600,
+          }}
+        >
           {ROLE_LABEL[member.role]}
         </span>
       )}
 
       {canTransferOwnership && (
-        <Button
-          variant="secondary"
-          size="sm"
+        <button
+          type="button"
           onClick={() => setConfirmTransfer(true)}
           disabled={pending}
+          style={{
+            background: "#fff",
+            color: MUTED,
+            border: "1px solid #d4dbe7",
+            borderRadius: 8,
+            padding: "6px 12px",
+            fontSize: 12,
+            fontWeight: 600,
+            fontFamily: "inherit",
+            cursor: pending ? "wait" : "pointer",
+          }}
         >
           Make owner
-        </Button>
+        </button>
       )}
 
       {canManage && (
-        <Button
-          variant="secondary"
-          size="sm"
+        <button
+          type="button"
           onClick={() => setConfirmRemove(true)}
           disabled={pending}
-          className="text-[#A06D12]"
+          style={{
+            background: "#fff",
+            color: "#A02B1C",
+            border: "1px solid #e4c5c5",
+            borderRadius: 8,
+            padding: "6px 12px",
+            fontSize: 12,
+            fontWeight: 600,
+            fontFamily: "inherit",
+            cursor: pending ? "wait" : "pointer",
+          }}
         >
           Remove
-        </Button>
+        </button>
       )}
 
-      {error && <div className="basis-full text-right text-[11.5px] text-[#A06D12]">{error}</div>}
+      {error && (
+        <div
+          className="basis-full"
+          style={{ fontSize: 11.5, color: "#A06D12", textAlign: "right" }}
+        >
+          {error}
+        </div>
+      )}
 
       <Modal
         open={confirmRemove}
@@ -187,27 +259,47 @@ export function MemberRow({
           onClose={pending ? undefined : () => setConfirmRemove(false)}
         />
         <ModalBody>
-          <p className="text-muted text-[13px]">
-            You can re-invite them anytime from the form below.
+          <p style={{ fontSize: 13, color: MUTED }}>
+            You can re-invite them anytime from the invite row above.
           </p>
         </ModalBody>
         <ModalFooter>
-          <Button
-            variant="secondary"
+          <button
             type="button"
             onClick={() => setConfirmRemove(false)}
             disabled={pending}
+            style={{
+              background: "#fff",
+              color: MUTED,
+              border: "1px solid #d4dbe7",
+              borderRadius: 8,
+              padding: "9px 16px",
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: pending ? "wait" : "pointer",
+              fontFamily: "inherit",
+            }}
           >
             Cancel
-          </Button>
-          <Button
+          </button>
+          <button
             type="button"
             onClick={onRemove}
             disabled={pending}
-            className="bg-[#C0392B] hover:!brightness-95"
+            style={{
+              background: "#C0392B",
+              color: "#fff",
+              border: "none",
+              borderRadius: 8,
+              padding: "9px 16px",
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: pending ? "wait" : "pointer",
+              fontFamily: "inherit",
+            }}
           >
             {pending ? "Removing…" : "Remove member"}
-          </Button>
+          </button>
         </ModalFooter>
       </Modal>
 
@@ -222,23 +314,48 @@ export function MemberRow({
           onClose={pending ? undefined : () => setConfirmTransfer(false)}
         />
         <ModalBody>
-          <p className="text-muted text-[13px]">
+          <p style={{ fontSize: 13, color: MUTED }}>
             Only the Owner can manage billing and transfer ownership again. They can transfer it
             back to you any time.
           </p>
         </ModalBody>
         <ModalFooter>
-          <Button
-            variant="secondary"
+          <button
             type="button"
             onClick={() => setConfirmTransfer(false)}
             disabled={pending}
+            style={{
+              background: "#fff",
+              color: MUTED,
+              border: "1px solid #d4dbe7",
+              borderRadius: 8,
+              padding: "9px 16px",
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: pending ? "wait" : "pointer",
+              fontFamily: "inherit",
+            }}
           >
             Cancel
-          </Button>
-          <Button type="button" onClick={onTransferOwnership} disabled={pending}>
+          </button>
+          <button
+            type="button"
+            onClick={onTransferOwnership}
+            disabled={pending}
+            style={{
+              background: ACCENT,
+              color: "#fff",
+              border: "none",
+              borderRadius: 8,
+              padding: "9px 16px",
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: pending ? "wait" : "pointer",
+              fontFamily: "inherit",
+            }}
+          >
             {pending ? "Transferring…" : "Transfer ownership"}
-          </Button>
+          </button>
         </ModalFooter>
       </Modal>
     </div>

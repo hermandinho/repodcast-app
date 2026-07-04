@@ -5,6 +5,15 @@ import { listClientsForUI, listShowsForUI } from "@/server/data/source";
 import { resolveTenantContext } from "@/server/data/tenant";
 import { ClientSwitcher, type ClientWithCounts } from "./client-switcher";
 
+/**
+ * Dashboard topbar — revamp visual system (see `ref/UI/Revamp/`).
+ *
+ * Left cluster: agency name (15/700), thin vertical divider (18px tall),
+ * `<ClientSwitcher>` rendered as a bordered dropdown pill.
+ * Right cluster: `+ New episode` primary button (our accent, 8px radius,
+ * 9/16 padding) and Clerk's `<UserButton>` avatar (32px). Solid white bg
+ * with a hairline bottom border matches ref.
+ */
 export async function Topbar() {
   const [auth, tenant] = await Promise.all([getAuthContext(), resolveTenantContext()]);
 
@@ -27,37 +36,46 @@ export async function Topbar() {
   );
 
   const agencyName = auth?.agency.name ?? "Northbeam Studio";
-  const agencyInitial = (agencyName[0] ?? "·").toUpperCase();
 
   return (
     <header
-      className="border-border bg-surface z-20 flex flex-shrink-0 items-center gap-3 border-b px-4 sm:gap-4 sm:px-5 md:gap-[18px] md:px-[26px]"
-      style={{ height: "var(--topbar-height)" }}
+      className="z-20 flex flex-shrink-0 items-center justify-between"
+      style={{
+        background: "#ffffff",
+        borderBottom: "1px solid #eef1f6",
+        padding: "12px 32px",
+        fontFamily: "var(--font-revamp-sans)",
+      }}
     >
-      {/* Agency badge + name. On mobile only the initial-badge renders so
-          the ClientSwitcher has room to breathe. */}
-      <div className="flex min-w-0 items-center gap-[10px]">
-        <div className="bg-ink font-display flex h-[22px] w-[22px] flex-shrink-0 items-center justify-center rounded-md text-[11px] font-bold text-white">
-          {agencyInitial}
-        </div>
-        <span className="font-display text-ink hidden truncate text-[15px] font-semibold sm:inline">
+      <div className="flex min-w-0 items-center" style={{ gap: 14 }}>
+        <span className="truncate" style={{ fontSize: 15, fontWeight: 700, color: "#0a1e3c" }}>
           {agencyName}
         </span>
+        <span
+          aria-hidden
+          className="hidden sm:block"
+          style={{ width: 1, height: 18, background: "#e4e9f1" }}
+        />
+        <div className="hidden min-w-0 sm:block">
+          <ClientSwitcher clients={clients} showsByKey={showsByKey} />
+        </div>
       </div>
 
-      <div className="bg-border hidden h-6 w-px sm:block" />
-
-      {/* ClientSwitcher — grows to fill the middle on wide viewports; on
-          narrow ones min-w-0 lets its own truncation kick in. */}
-      <div className="min-w-0 flex-1 sm:flex-none">
-        <ClientSwitcher clients={clients} showsByKey={showsByKey} />
-      </div>
-
-      <div className="ml-auto flex flex-shrink-0 items-center gap-2 sm:gap-3 md:gap-[14px]">
+      <div className="ml-auto flex flex-shrink-0 items-center" style={{ gap: 12 }}>
         <Link
           href="/episodes/new"
           aria-label="New episode"
-          className="bg-accent shadow-card inline-flex items-center gap-[7px] rounded-[10px] px-3 py-[8px] font-sans text-[13px] font-semibold text-white transition-[filter] hover:brightness-95 sm:px-[14px]"
+          className="inline-flex items-center no-underline transition-[filter] hover:brightness-95"
+          style={{
+            background: "var(--color-accent)",
+            color: "#ffffff",
+            fontWeight: 600,
+            fontSize: 13.5,
+            padding: "9px 16px",
+            borderRadius: 8,
+            gap: 7,
+            fontFamily: "inherit",
+          }}
         >
           <svg
             width="13"
@@ -76,7 +94,7 @@ export async function Topbar() {
         <UserButton
           appearance={{
             elements: {
-              avatarBox: { width: 30, height: 30 },
+              avatarBox: { width: 32, height: 32 },
             },
           }}
         />

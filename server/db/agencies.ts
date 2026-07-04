@@ -174,9 +174,14 @@ export type OnboardingStateForUser =
 export async function getOnboardingStateForUser(
   clerkUserId: string,
 ): Promise<OnboardingStateForUser> {
+  // Prefer OWNER role first, then most-recently-updated for tie-breakers.
+  // MUST match `getAuthContext` in `server/auth/context.ts` — divergence
+  // between the two caused Bug 1 (an active-subscription client bounced
+  // to /onboarding because this function returned the older non-paying
+  // agency while getAuthContext returned the paying one).
   const member = await prisma.member.findFirst({
     where: { clerkUserId },
-    orderBy: { createdAt: "asc" },
+    orderBy: [{ role: "asc" }, { updatedAt: "desc" }],
     select: {
       agency: { select: { id: true, name: true, stripeSubscriptionId: true } },
     },

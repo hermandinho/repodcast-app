@@ -6,6 +6,19 @@ import { BufferIntegrationCard } from "@/components/settings/buffer-integration-
 
 export const dynamic = "force-dynamic";
 
+const INK = "#0a1e3c";
+const MUTED = "#41506b";
+const LIGHT_MUTED = "#8a97ad";
+const CARD_BORDER = "#e4e9f1";
+const OUTLINE_STRONG = "#d4dbe7";
+const ACCENT = "#3A5BA0";
+
+/**
+ * Settings · Integrations — revamp visual system (see `ref/UI/Revamp/` 2c).
+ * Structure: status banners at top (buffer connected / disconnected /
+ * error), the primary Buffer integration card, then a "on the roadmap"
+ * card with two dashed placeholders for coming-soon integrations.
+ */
 export default async function IntegrationsPage({
   searchParams,
 }: {
@@ -19,39 +32,143 @@ export default async function IntegrationsPage({
   const canManage = auth.member.role === MemberRole.OWNER || auth.member.role === MemberRole.ADMIN;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div
+      className="flex flex-col"
+      style={{ gap: 16, maxWidth: 920, fontFamily: "var(--font-revamp-sans)" }}
+    >
       {sp.buffer === "connected" ? (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] text-emerald-900">
+        <StatusBanner tone="success">
           Buffer connected. Approved posts on Twitter, LinkedIn, Instagram, and TikTok can now be
           scheduled through Buffer.
-        </div>
+        </StatusBanner>
       ) : null}
       {sp.buffer === "disconnected" ? (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
+        <StatusBanner tone="warning">
           Buffer disconnected. In-flight scheduled posts have been downgraded to manual — verify
           them on Buffer&apos;s side.
-        </div>
+        </StatusBanner>
       ) : null}
       {sp.error ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-900">
+        <StatusBanner tone="error">
           {BUFFER_ERROR_COPY[sp.error] ?? BUFFER_ERROR_COPY.unknown}
-        </div>
+        </StatusBanner>
       ) : null}
 
       <BufferIntegrationCard integration={buffer} canManage={canManage} />
 
-      <div className="border-border bg-surface shadow-card rounded-3xl border p-6 opacity-60">
-        <div className="text-muted-2 font-sans text-[11.5px] font-semibold tracking-[0.06em] uppercase">
-          Coming soon
+      {/* Roadmap */}
+      <div
+        style={{
+          background: "#ffffff",
+          border: `1px solid ${CARD_BORDER}`,
+          borderRadius: 12,
+          padding: "24px 28px",
+        }}
+      >
+        <div className="flex items-baseline justify-between">
+          <div style={{ fontSize: 16, fontWeight: 700, color: INK }}>On the roadmap</div>
+          <span
+            style={{
+              fontSize: 12.5,
+              fontWeight: 600,
+              color: ACCENT,
+              cursor: "pointer",
+            }}
+          >
+            Request an integration →
+          </span>
         </div>
-        <div className="font-display text-ink mt-1 text-[18px] font-semibold">
-          Typefully & native publishing
+        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 16 }}>
+          <RoadmapCard
+            icon="T"
+            label="Typefully"
+            desc="Thread drafting with Typefully-style previews before posts go out."
+          />
+          <RoadmapCard
+            icon="⤴"
+            label="Native publishing"
+            desc="First-party publishing to Twitter, LinkedIn, Instagram, and TikTok — no middleman. Buffer covers the same four today."
+          />
         </div>
-        <p className="text-muted mt-1 max-w-[640px] text-[12.5px] leading-[1.55]">
-          Typefully-style thread drafting, plus first-party publishing directly to Twitter,
-          LinkedIn, Instagram, and TikTok, are on the roadmap. For now, Buffer covers the same four
-          platforms with a single connection.
-        </p>
+      </div>
+    </div>
+  );
+}
+
+function StatusBanner({
+  tone,
+  children,
+}: {
+  tone: "success" | "warning" | "error";
+  children: React.ReactNode;
+}) {
+  const styles =
+    tone === "success"
+      ? { bg: "#E6F1EA", border: "#B8DBC5", fg: "#1E5A34" }
+      : tone === "warning"
+        ? { bg: "#FBF1DE", border: "#E6D9B8", fg: "#7A5410" }
+        : { bg: "#FBE7E4", border: "#E4C5C5", fg: "#8A2A1F" };
+
+  return (
+    <div
+      style={{
+        background: styles.bg,
+        border: `1px solid ${styles.border}`,
+        color: styles.fg,
+        borderRadius: 10,
+        padding: "10px 14px",
+        fontSize: 13,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function RoadmapCard({ icon, label, desc }: { icon: string; label: string; desc: string }) {
+  return (
+    <div
+      style={{
+        border: `1px dashed ${OUTLINE_STRONG}`,
+        background: "#fbfcfe",
+        borderRadius: 10,
+        padding: "18px 20px",
+      }}
+    >
+      <div className="flex items-center" style={{ gap: 10 }}>
+        <div
+          className="grid flex-shrink-0 place-items-center"
+          style={{
+            width: 34,
+            height: 34,
+            borderRadius: 9,
+            background: "#f1f4f9",
+            color: LIGHT_MUTED,
+            fontWeight: 800,
+            fontSize: 14,
+          }}
+        >
+          {icon}
+        </div>
+        <span style={{ fontSize: 14.5, fontWeight: 700, color: MUTED }}>{label}</span>
+        <span
+          className="ml-auto"
+          style={{
+            fontFamily: "var(--font-revamp-mono)",
+            fontSize: 9.5,
+            letterSpacing: "0.1em",
+            color: LIGHT_MUTED,
+            background: "#f1f4f9",
+            padding: "3px 8px",
+            borderRadius: 99,
+            fontWeight: 600,
+          }}
+        >
+          COMING SOON
+        </span>
+      </div>
+      <div style={{ fontSize: 12.5, color: LIGHT_MUTED, lineHeight: 1.55, marginTop: 10 }}>
+        {desc}
       </div>
     </div>
   );

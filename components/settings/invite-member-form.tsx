@@ -2,11 +2,22 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { PlanLimitBanner, type PlanLimitCapacity } from "@/components/billing/plan-limit-banner";
 import { inviteMemberAction } from "@/app/(dashboard)/settings/team/actions";
 
+const INK = "#0a1e3c";
+const MUTED = "#41506b";
+const LIGHT_MUTED = "#8a97ad";
+const OUTLINE_STRONG = "#d4dbe7";
+const ACCENT = "#3A5BA0";
+const PANEL_BG = "#eef1f6";
+
+/**
+ * Invite-member row rendered inside the Members card. Layout mirrors the
+ * ref (email input + Editor/Admin toggle + Send invite button, all in one
+ * horizontal band). The plan-limit banner still lives at the top; a hit-
+ * limit state disables the whole row and shows the amber upgrade nudge.
+ */
 export function InviteMemberForm({
   seatsRemaining,
   capacity = null,
@@ -50,17 +61,38 @@ export function InviteMemberForm({
   };
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-3">
+    <form onSubmit={onSubmit} className="flex flex-col" style={{ gap: 10 }}>
       <PlanLimitBanner capacity={capacity} />
-      <div className="flex flex-col gap-3 sm:flex-row">
-        <Input
+      <div className="flex flex-wrap items-center" style={{ gap: 10 }}>
+        <input
           type="email"
           placeholder="teammate@example.com"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           disabled={blocked || pending}
+          aria-label="Teammate email"
+          style={{
+            flex: 1,
+            minWidth: 200,
+            border: `1px solid ${OUTLINE_STRONG}`,
+            borderRadius: 8,
+            padding: "10px 14px",
+            fontSize: 14,
+            color: INK,
+            background: "#fff",
+            fontFamily: "inherit",
+            outline: "none",
+          }}
         />
-        <div className="border-border bg-surface flex items-stretch overflow-hidden rounded-[10px] border">
+        <div
+          className="flex"
+          style={{
+            background: PANEL_BG,
+            borderRadius: 8,
+            padding: 3,
+            gap: 2,
+          }}
+        >
           {(["member", "admin"] as const).map((r) => {
             const active = role === r;
             return (
@@ -69,10 +101,17 @@ export function InviteMemberForm({
                 type="button"
                 onClick={() => setRole(r)}
                 disabled={blocked || pending}
-                className="px-[14px] py-[10px] font-sans text-[12.5px] font-semibold transition-colors disabled:cursor-not-allowed"
                 style={{
-                  background: active ? "var(--color-accent-soft)" : "transparent",
-                  color: active ? "var(--color-accent)" : "var(--color-muted)",
+                  padding: "7px 14px",
+                  fontSize: 12.5,
+                  fontWeight: active ? 600 : 500,
+                  color: active ? INK : MUTED,
+                  background: active ? "#fff" : "transparent",
+                  border: "none",
+                  borderRadius: 6,
+                  boxShadow: active ? "0 1px 3px rgba(10,30,60,0.10)" : "none",
+                  cursor: blocked || pending ? "not-allowed" : "pointer",
+                  fontFamily: "inherit",
                 }}
               >
                 {r === "member" ? "Editor" : "Admin"}
@@ -80,19 +119,42 @@ export function InviteMemberForm({
             );
           })}
         </div>
-        <Button type="submit" disabled={blocked || pending}>
+        <button
+          type="submit"
+          disabled={blocked || pending}
+          style={{
+            background: blocked ? "#f6f8fc" : ACCENT,
+            color: blocked ? LIGHT_MUTED : "#fff",
+            border: blocked ? "1px solid #e4e9f1" : "none",
+            borderRadius: 8,
+            padding: "10px 18px",
+            fontSize: 13.5,
+            fontWeight: 600,
+            cursor: blocked || pending ? "not-allowed" : "pointer",
+            fontFamily: "inherit",
+          }}
+        >
           {pending ? "Sending…" : "Send invite"}
-        </Button>
+        </button>
       </div>
 
       {blocked && (
-        <div className="rounded-md bg-[#FBF1DE] px-3 py-2 font-sans text-[12.5px] font-medium text-[#A06D12]">
+        <div
+          style={{
+            background: "#FBF1DE",
+            color: "#A06D12",
+            padding: "8px 12px",
+            borderRadius: 6,
+            fontSize: 12.5,
+            fontWeight: 500,
+          }}
+        >
           You&apos;ve hit your seat limit on this plan. Upgrade in Billing to invite more teammates.
         </div>
       )}
-      {error && <div className="text-[12.5px] text-[#A06D12]">{error}</div>}
+      {error && <div style={{ fontSize: 12.5, color: "#A06D12" }}>{error}</div>}
       {sentTo && (
-        <div className="text-[12.5px] text-[#1E7A47]">
+        <div style={{ fontSize: 12.5, color: "#1E7A47" }}>
           Invite sent to <strong>{sentTo}</strong>.
         </div>
       )}

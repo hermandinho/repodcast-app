@@ -29,22 +29,65 @@ stripe listen --forward-to localhost:3000/api/webhooks/stripe
 
 ---
 
-## 2. Happy path: trial starts
+## 2. Happy path: Solo trial starts
+
+Trial is **Solo-only**. Studio and Network don't grant a trial — Checkout charges the full plan on day 0. This section exercises the Solo path.
 
 1. Sign up as a brand-new Clerk user.
 2. Complete `/onboarding/workspace` → land on `/onboarding/plan`.
-3. Confirm the picker CTA reads **"Start 7-day trial · $1 today"** and STUDIO is pre-selected.
-4. Click through to Stripe Checkout with test card `4242 4242 4242 4242`.
+3. Confirm the **Solo card** shows `Start 7-day trial` as its CTA and sub-copy reads `$1 today, then $29/mo after 7 days`.
+4. Confirm the **Studio and Network cards** show `Get started` (no trial framing) with `Billed monthly` sub-copy.
+5. Click **Start 7-day trial** on Solo. Stripe Checkout opens with test card slot — enter `4242 4242 4242 4242`.
+
+Confirm Stripe's UI first (this was the load-bearing bug the earlier
+implementation missed): on the hosted Checkout page you MUST see **"$1
+due today"** or equivalent as the summary total — not "$0 due today".
+If it says $0, you're on the old flow; make sure `checkoutFromOnboardingAction`
+routes trial-eligible Solo picks through `createSoloTrialCheckout`
+(mode:'payment'), not `createDirectSubscriptionCheckout`.
 
 Verify:
 
-- [ ] Stripe CLI prints `customer.subscription.created` with `"status": "trialing"` and a `trial_end` unix ~7 days out.
-- [ ] Stripe CLI prints `invoice.paid` for a **$1 activation** invoice on day 0 (this is the critical new step — if the invoice doesn't fire immediately, the `line_items` ordering in `checkoutFromOnboardingAction` needs revisiting).
-- [ ] `Agency` row: `plan=STUDIO`, `trialStatus=ACTIVE`, `trialEndsAt` matches Stripe's `trial_end`, `stripeSubscriptionId` set.
-- [ ] Dashboard shell renders the neutral (non-urgent) **TrialBanner** with `7 days left`.
+- [ ] Hosted Checkout summary reads "$1 due today" (or currency equivalent) with the product name "Solo trial activation" and the description mentioning the day-8 plan charge.
+- [ ] After submit, Stripe CLI prints `checkout.session.completed` first, then `payment_intent.succeeded` for the $1 charge (this is a proper PaymentIntent — no invoice).
+- [ ] The webhook handler then calls `stripe.subscriptions.create`. Stripe CLI prints `customer.subscription.created` with `"status": "trialing"` and a `trial_end` unix ~7 days out.
+- [ ] `Agency` row: `plan=SOLO`, `trialStatus=ACTIVE`, `trialEndsAt` matches Stripe's `trial_end`, `stripeSubscriptionId` set, `stripeCustomerId` set.
+- [ ] Stripe Dashboard → Customers → your customer: default payment method is set (not just "attached"), and a $1 succeeded payment shows in the Payments tab.
+- [ ] Dashboard shell renders the neutral (non-urgent) **TrialBanner** with `7 days left`. **If the banner is missing**, the most likely cause is the webhook isn't reaching localhost — verify `stripe listen` is running and `STRIPE_WEBHOOK_SECRET` in `.env.local` matches the `whsec_` printed by that command.
 - [ ] `/settings/billing` renders the **TrialStatusCard** with the "Ends today" pill correctly counted down.
 - [ ] Email inbox: **TrialWelcomeEmail** ("Your … trial is live") arrived at the OWNER address.
-- [ ] PostHog: `trial_started` event with `agencyId`, `plan=STUDIO`, `cadence`.
+- [ ] PostHog: `trial_started` event with `agencyId`, `plan=SOLO`, `cadence`.
+
+**Common failure modes:**
+
+- If the sub isn't created after checkout completes: check dev-server logs for `[stripe-webhook] Solo trial subscription creation failed`. Likely causes: `STRIPE_WEBHOOK_SECRET` mismatch (nothing reaches the handler), missing `NEXT_PUBLIC_STRIPE_SOLO_MONTHLY_PRICE_ID` env var, or `stripe listen` not running.
+- If the $1 charged but no sub: agencies row won't have `stripeSubscriptionId` — the operator can retry manually via `stripe.subscriptions.create` in the Stripe dashboard using the customer + saved payment method + Solo plan Price. But usually the fix is to sort the webhook config and let it re-fire.
+
+### 2b. Direct Studio subscription (no trial)
+
+1. Sign up as a fresh Clerk user.
+2. Complete `/onboarding/workspace` → land on `/onboarding/plan`.
+3. Click **Get started** on the Studio card.
+4. Complete Checkout with test card `4242 4242 4242 4242`.
+
+Verify:
+
+- [ ] Stripe CLI prints `customer.subscription.created` with `"status": "active"` (NOT `trialing`) — no trial window.
+- [ ] Stripe CLI prints `invoice.paid` for **$89** on day 0 — the full Studio plan price, no activation fee.
+- [ ] `Agency` row: `plan=STUDIO`, `trialStatus=NONE`, `trialEndsAt=null`, `stripeSubscriptionId` set.
+- [ ] Dashboard shell renders NO TrialBanner (not on trial).
+- [ ] PostHog: `trial_started` did NOT fire; a paid-signup analytics event fires instead.
+
+Repeat the same steps with the Network card to confirm the $299 direct charge path.
+
+### 2c. Solo trial abuse guard
+
+To confirm the second-trial ban: after step 2 completes, sign out and sign back in as the same user. Land on `/onboarding/plan`.
+
+Verify:
+
+- [ ] Solo card CTA reads `Get started` (not `Start 7-day trial`) because `trialEligible` is now false (stripeCustomerId is set).
+- [ ] Clicking Solo triggers a full $29 charge on day 0 with no `trial_period_days` and no activation-fee line item.
 
 ---
 
@@ -97,7 +140,7 @@ The 4242 test card succeeds → sub transitions `trialing → active`.
 Verify:
 
 - [ ] Webhook fires `customer.subscription.updated` and `invoice.paid`.
-- [ ] `Agency.trialStatus = CONVERTED`. `plan` stays STUDIO.
+- [ ] `Agency.trialStatus = CONVERTED`. `plan` stays SOLO.
 - [ ] `TrialBanner` disappears from the dashboard.
 - [ ] `/settings/billing` **TrialStatusCard** flips to the green "Converted" variant.
 - [ ] Email inbox: **TrialConvertedEmail** ("your trial converted") arrived to every OWNER + ADMIN.

@@ -1,16 +1,18 @@
 /**
- * Shared step header for `/onboarding/workspace` and `/onboarding/plan`.
+ * Shared step header for `/onboarding/workspace` and `/onboarding/plan` in
+ * the revamp visual system (see `ref/UI/Revamp/`).
  *
  * Renders:
- *   1. A responsive numbered stepper: `● 1 — Workspace ——— 2 Plan`.
- *      - Complete steps render with a checkmark on filled ink.
- *      - The active step uses filled ink with the number in white.
- *      - Upcoming steps render outlined with muted number/label.
- *   2. Eyebrow "Step X of Y" (mono, uppercase).
- *   3. Title + subtitle, centered, with type that scales down on mobile.
+ *   1. Compact horizontal stepper with 24×24 pill badges and a 72px
+ *      connector between steps. Complete steps use the bright blue accent
+ *      (`#3A5BA0`) with a checkmark; the active step uses ink
+ *      (`#0a1e3c`) with the numeric label; upcoming steps use a light
+ *      outlined circle.
+ *   2. Blue mono eyebrow "STEP X OF Y" (Spline Sans Mono, wide tracking).
+ *   3. Big heading (40px / 800 weight) + tight subtitle.
  *
- * Server-only; no interactivity. Stateless — the parent supplies which step
- * is active so the layout doesn't need to introspect the URL.
+ * Layout is center-aligned; the stepper doesn't stretch across the column
+ * (matching the ref). Server-only; no interactivity.
  */
 
 const STEPS = [
@@ -19,6 +21,11 @@ const STEPS = [
 ] as const;
 
 type StepKey = (typeof STEPS)[number]["key"];
+
+const INK = "#0a1e3c";
+const ACCENT = "#3A5BA0";
+const MUTED = "#41506b";
+const OUTLINE = "#d4dbe7";
 
 export function OnboardingStepHeader({
   step,
@@ -30,38 +37,38 @@ export function OnboardingStepHeader({
   subtitle: string;
 }) {
   const activeIndex = STEPS.findIndex((s) => s.key === step);
-  const eyebrow = `Step ${activeIndex + 1} of ${STEPS.length}`;
+  const eyebrow = `STEP ${activeIndex + 1} OF ${STEPS.length}`;
 
   return (
-    <div className="flex flex-col gap-6 sm:gap-8">
-      {/* Numbered stepper. Uses a fluid flex row so on mobile the connector
-          line naturally shrinks. `aria-current` lands on the active step so
-          assistive tech reads it correctly. */}
-      <ol
-        aria-label="Onboarding progress"
-        className="mx-auto flex w-full max-w-md items-center gap-2 sm:gap-3"
-      >
+    <div className="flex flex-col items-center">
+      {/* Stepper — center-aligned, fluid but not full-width. */}
+      <ol aria-label="Onboarding progress" className="flex items-center" style={{ gap: 14 }}>
         {STEPS.map((s, i) => {
           const state: "complete" | "active" | "upcoming" =
             i < activeIndex ? "complete" : i === activeIndex ? "active" : "upcoming";
           return (
-            <li key={s.key} className="flex flex-1 items-center gap-2 sm:gap-3">
+            <li key={s.key} className="flex items-center" style={{ gap: 9 }}>
               <StepBadge index={i + 1} state={state} />
               <span
-                className={
-                  "flex-1 truncate text-[12px] font-medium tracking-wide sm:text-[13px] " +
-                  (state === "upcoming" ? "text-[#8B95A6]" : "text-[#1A2A4A]")
-                }
                 aria-current={state === "active" ? "step" : undefined}
+                style={{
+                  fontSize: 13.5,
+                  fontWeight: state === "active" ? 700 : state === "complete" ? 600 : 500,
+                  color: state === "upcoming" ? "#8a97ad" : state === "active" ? INK : MUTED,
+                }}
               >
                 {s.label}
               </span>
               {i < STEPS.length - 1 ? (
                 <span
                   aria-hidden
-                  className={
-                    "h-px flex-1 " + (state === "complete" ? "bg-[#1A2A4A]" : "bg-[#1A2A4A]/15")
-                  }
+                  style={{
+                    width: 72,
+                    height: 2,
+                    marginLeft: 5,
+                    borderRadius: 2,
+                    background: state === "complete" ? ACCENT : "#e4e9f1",
+                  }}
                 />
               ) : null}
             </li>
@@ -69,22 +76,45 @@ export function OnboardingStepHeader({
         })}
       </ol>
 
-      {/* Title block — type scales up at sm; subtitle line-length capped
-          for readability on wide viewports. */}
-      <div className="text-center">
+      {/* Title block */}
+      <div className="text-center" style={{ marginTop: 36 }}>
         <p
-          className="text-[10.5px] font-medium tracking-[0.14em] text-[#5B6A85] uppercase"
-          style={{ fontFamily: "var(--font-mono)" }}
+          style={{
+            fontFamily: "var(--font-revamp-mono)",
+            fontSize: 11,
+            letterSpacing: "0.16em",
+            color: ACCENT,
+            fontWeight: 600,
+            margin: 0,
+          }}
         >
           {eyebrow}
         </p>
         <h1
-          className="font-display mt-2 text-[26px] font-semibold tracking-tight sm:text-[32px]"
-          style={{ letterSpacing: "-0.02em" }}
+          style={{
+            fontFamily: "var(--font-revamp-sans)",
+            fontSize: 40,
+            fontWeight: 800,
+            letterSpacing: "-0.03em",
+            marginTop: 12,
+            marginBottom: 0,
+            color: INK,
+            lineHeight: 1.1,
+          }}
         >
           {title}
         </h1>
-        <p className="mx-auto mt-3 max-w-[540px] text-[13.5px] leading-relaxed text-[#5B6A85] sm:text-[14.5px]">
+        <p
+          style={{
+            fontSize: 15,
+            color: MUTED,
+            marginTop: 10,
+            maxWidth: 560,
+            marginLeft: "auto",
+            marginRight: "auto",
+            lineHeight: 1.55,
+          }}
+        >
           {subtitle}
         </p>
       </div>
@@ -93,20 +123,19 @@ export function OnboardingStepHeader({
 }
 
 function StepBadge({ index, state }: { index: number; state: "complete" | "active" | "upcoming" }) {
+  const base = {
+    width: 24,
+    height: 24,
+    borderRadius: 99,
+    display: "grid" as const,
+    placeItems: "center" as const,
+    fontSize: 12,
+    color: "#fff",
+  };
   if (state === "complete") {
     return (
-      <span
-        aria-hidden
-        className="flex h-6 w-6 items-center justify-center rounded-full bg-[#1A2A4A] text-white sm:h-7 sm:w-7"
-      >
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 12 12"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          aria-hidden
-        >
+      <span aria-hidden style={{ ...base, background: ACCENT }}>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
           <path
             d="M2.5 6.2l2.4 2.4L9.5 4"
             stroke="currentColor"
@@ -120,10 +149,7 @@ function StepBadge({ index, state }: { index: number; state: "complete" | "activ
   }
   if (state === "active") {
     return (
-      <span
-        aria-hidden
-        className="flex h-6 w-6 items-center justify-center rounded-full bg-[#1A2A4A] text-[11px] font-semibold text-white sm:h-7 sm:w-7 sm:text-[12px]"
-      >
+      <span aria-hidden style={{ ...base, background: INK, fontWeight: 700 }}>
         {index}
       </span>
     );
@@ -131,7 +157,13 @@ function StepBadge({ index, state }: { index: number; state: "complete" | "activ
   return (
     <span
       aria-hidden
-      className="flex h-6 w-6 items-center justify-center rounded-full border border-[#1A2A4A]/20 text-[11px] font-semibold text-[#8B95A6] sm:h-7 sm:w-7 sm:text-[12px]"
+      style={{
+        ...base,
+        background: "#fff",
+        color: "#8a97ad",
+        border: `1px solid ${OUTLINE}`,
+        fontWeight: 600,
+      }}
     >
       {index}
     </span>

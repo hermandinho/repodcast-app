@@ -35,21 +35,31 @@ export function NavLink({ item, badgeCount = 0 }: { item: NavItem; badgeCount?: 
   return (
     <Link
       href={item.href}
-      className={[
-        "relative flex items-center gap-[11px] rounded-[9px] px-[11px] py-[9px] text-[13.5px] transition-colors",
-        active
-          ? "bg-white/10 font-medium text-white"
-          : "text-sidebar-text hover:bg-white/5 hover:text-white",
-      ].join(" ")}
+      className="relative flex items-center no-underline transition-colors"
+      style={{
+        gap: 12,
+        padding: "9px 12px",
+        paddingLeft: active ? 10 : 12, // Compensate for the 2px left border.
+        borderRadius: 8,
+        fontSize: 14,
+        fontWeight: active ? 600 : 400,
+        color: active ? "#ffffff" : "var(--color-sidebar-text)",
+        background: active ? "rgba(58,91,160,0.22)" : "transparent",
+        borderLeft: active ? "2px solid var(--color-accent)" : "2px solid transparent",
+      }}
     >
-      {active && (
-        <span className="bg-accent absolute top-2 bottom-2 -left-[14px] w-[3px] rounded-[3px]" />
-      )}
       {item.icon}
       <span>{item.label}</span>
       {badgeCount > 0 && (
         <span
-          className="bg-accent ml-auto inline-flex items-center justify-center rounded-full px-[7px] py-[1px] text-[10.5px] font-semibold text-white tabular-nums"
+          className="ml-auto inline-flex items-center justify-center rounded-full tabular-nums"
+          style={{
+            background: "var(--color-accent)",
+            color: "#ffffff",
+            fontSize: 10.5,
+            fontWeight: 600,
+            padding: "1px 7px",
+          }}
           aria-label={`${badgeCount} unread`}
         >
           {formatBadge(badgeCount)}

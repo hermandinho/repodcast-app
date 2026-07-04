@@ -32,17 +32,6 @@ const ENV_KEY: Record<Plan, Record<BillingCadence, string>> = {
   },
 };
 
-/**
- * Env var holding the Stripe Price ID for the one-time $1 activation fee
- * charged on day 0 of every trial. See MarketingStrategy.md §1 for the
- * rationale + Stripe implementation shape.
- */
-export const TRIAL_ACTIVATION_PRICE_ENV = "NEXT_PUBLIC_STRIPE_TRIAL_ACTIVATION_PRICE_ID";
-
-export function trialActivationPriceId(): string | null {
-  return process.env[TRIAL_ACTIVATION_PRICE_ENV] || null;
-}
-
 export function priceIdFor(plan: Plan, cadence: BillingCadence = "MONTHLY"): string | null {
   return process.env[ENV_KEY[plan][cadence]] || null;
 }

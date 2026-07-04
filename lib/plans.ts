@@ -120,13 +120,14 @@ export const PLAN_DISPLAY: Record<Plan, PlanDisplay> = {
     name: "Network",
     prices: PLAN_PRICES_BY_CURRENCY.NETWORK,
     tagline: "Agencies with clients",
+    // Kept intentionally to four bullets so all three plan cards align to
+    // roughly the same height in the picker grid; per-line commas below
+    // pack the six real feature deltas into four rows.
     highlights: [
-      "25 shows",
-      "Unlimited seats",
+      "25 shows · unlimited seats",
       "250 episodes / month",
       "Client portals + white-label",
-      "Batch processing",
-      "Priority queue",
+      "Batch processing · priority queue",
     ],
   },
 };
