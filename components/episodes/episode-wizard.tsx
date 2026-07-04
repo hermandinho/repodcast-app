@@ -17,6 +17,16 @@ import { createEpisodeAction } from "@/app/(dashboard)/episodes/new/actions";
 
 type Method = "paste" | "upload" | "rss" | "youtube";
 
+/**
+ * Kill switch for the yt-dlp-backed YouTube import tile. Off in prod
+ * because YouTube's anti-bot check blocks yt-dlp from Vercel egress IPs.
+ * Users see the upload tile's YouTube-Studio hint instead. Server-side
+ * guards in `createEpisodeAction` and `importYoutubeEpisode` enforce the
+ * same flag in case a stale client tab makes it through. `NEXT_PUBLIC_*`
+ * is inlined at build time so this reads cleanly in a client component.
+ */
+const YOUTUBE_IMPORT_ENABLED = process.env.NEXT_PUBLIC_ENABLE_YOUTUBE_IMPORT === "true";
+
 type MethodMeta = {
   key: Method;
   name: string;
@@ -86,7 +96,7 @@ const methods: MethodMeta[] = [
   {
     key: "upload",
     name: "Upload audio",
-    desc: "MP3, WAV or M4A — we transcribe it for you.",
+    desc: "MP3, WAV or M4A — coming from YouTube? Export from Studio → Content → Download.",
     accent: "#1E7A47",
     iconBg: "#2E9E5B",
     tint: "#E7F4EC",
@@ -111,6 +121,16 @@ const methods: MethodMeta[] = [
     icon: methodIcon("youtube"),
   },
 ];
+
+/**
+ * Tiles surfaced in the source picker. Kept separate from `methods` so
+ * `StepGenerate` can still resolve a "youtube" meta if a stale client
+ * state somehow reaches step 4 with that method selected — the server
+ * action is the authoritative reject.
+ */
+const visibleMethods: MethodMeta[] = methods.filter(
+  (m) => m.key !== "youtube" || YOUTUBE_IMPORT_ENABLED,
+);
 
 /**
  * Demo transcript surfaced behind the "Use a sample transcript" button on
@@ -810,7 +830,7 @@ function StepSource({
       </p>
 
       <div className="mb-[22px] grid grid-cols-1 gap-[13px] sm:grid-cols-2">
-        {methods.map((m) => {
+        {visibleMethods.map((m) => {
           const selected = m.key === method;
           return (
             <button
@@ -882,11 +902,8 @@ function StepSource({
         <>
           <AudioUpload showId={showId} value={audio} onChange={onAudio} />
           <p className="text-muted-2 mt-[10px] text-[12px]">
-            We&apos;ll transcribe with Deepgram once you generate. Files are stored privately under{" "}
-            <code className="font-mono">
-              audio/{"{agency}"}/{"{show}"}/{"{episode}"}
-            </code>{" "}
-            — only signed links are minted on demand.
+            We&apos;ll transcribe the audio for you once you generate — usually under a minute. Your
+            file stays private to your workspace.
           </p>
         </>
       )}
@@ -906,7 +923,7 @@ function StepSource({
         />
       )}
 
-      {method === "youtube" && (
+      {YOUTUBE_IMPORT_ENABLED && method === "youtube" && (
         <>
           <label className="text-ink mb-[9px] block font-sans text-[13px] font-semibold">
             YouTube URL

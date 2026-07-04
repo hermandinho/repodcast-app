@@ -119,6 +119,21 @@ export async function createEpisodeAction(raw: unknown): Promise<CreateEpisodeRe
   const input = parsed.data;
   const platforms = input.platforms as Platform[];
 
+  // Defense-in-depth guard for the YouTube kill switch. The wizard hides
+  // the tile when the flag is off, so this only trips on a stale tab or
+  // a tampered client payload. Return a distinct error so the wizard can
+  // render a specific hint rather than a generic ValidationError.
+  if (
+    input.source === TranscriptSource.YOUTUBE &&
+    process.env.NEXT_PUBLIC_ENABLE_YOUTUBE_IMPORT !== "true"
+  ) {
+    return {
+      ok: false,
+      error:
+        "YouTube import is currently disabled. Download the audio from YouTube Studio → Content → Download and use the Upload option instead.",
+    };
+  }
+
   // Sample-data short-circuit — the wizard still works end-to-end on a
   // fresh clone with no Neon. The showId in this mode is a sample key.
   if (!isLiveDb()) {

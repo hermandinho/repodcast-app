@@ -83,6 +83,16 @@ export const importYoutubeEpisode = inngest.createFunction(
       agencyId: agencyIdFromEvent,
     } = event.data as Events["episode/youtube.import.requested"]["data"];
 
+    // Kill-switch guard for in-flight events during a rollout / retry
+    // window after the wizard tile was disabled. Non-retriable so the
+    // onFailure handler flips the episode to FAILED with the friendly
+    // message and Inngest doesn't burn the retry budget.
+    if (process.env.NEXT_PUBLIC_ENABLE_YOUTUBE_IMPORT !== "true") {
+      throw new NonRetriableError(
+        "YouTube import is currently disabled. Download the audio from YouTube Studio → Content → Download and use the Upload option instead.",
+      );
+    }
+
     // ---- 1. Load + validate ----
     const episode = await prisma.episode.findUnique({
       where: { id: episodeId },
