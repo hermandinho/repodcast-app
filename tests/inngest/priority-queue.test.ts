@@ -45,7 +45,7 @@ describe("generateEpisode — Phase 3.5 priority queue", () => {
     //   Google CEL, not JS, so the "coalesce" is `has() ? x : fallback`
     //   rather than the JS-style `??`.
     expect(opts.concurrency).toEqual([
-      { limit: 10 },
+      { limit: 5 },
       {
         scope: "fn",
         key: "has(event.data.agencyId) ? event.data.agencyId : event.id",
@@ -69,7 +69,7 @@ describe("regenerateOutput — Phase 3.5 priority queue", () => {
 
   it("mirrors generateEpisode's concurrency layers", () => {
     expect(opts.concurrency).toEqual([
-      { limit: 10 },
+      { limit: 5 },
       {
         scope: "fn",
         key: "has(event.data.agencyId) ? event.data.agencyId : event.id",
