@@ -12,6 +12,11 @@ import {
   type GenerationCompleteEmailProps,
 } from "./templates/generation-complete";
 import {
+  PortalLinkShareEmail,
+  type PortalLinkShareEmailProps,
+} from "./templates/portal-link-share";
+import { PostPublishedEmail, type PostPublishedEmailProps } from "./templates/post-published";
+import {
   OnboardingFinishSetupEmail,
   type OnboardingFinishSetupEmailProps,
 } from "./templates/onboarding-finish-setup";
@@ -114,6 +119,78 @@ export async function sendGenerationCompleteEmail(
       ? `${props.outputCount} outputs ready · ${props.episodeTitle}`
       : `${props.outputCount} ready, ${props.failedPlatforms.length} need attention · ${props.episodeTitle}`;
   return send({ to, subject, html });
+}
+
+// ============================================================
+// Client-facing "your post is live" notification
+// ============================================================
+
+/**
+ * Sent to the client's contactEmail after a GeneratedOutput lands in
+ * PUBLISHED — regardless of whether the transition came from a user
+ * click ("Mark published"), Buffer's sync confirmation, or the MANUAL
+ * auto-publish path in the sync cron. Skipped upstream when the client
+ * has no contactEmail; this sender assumes the caller already vetted
+ * that.
+ */
+export async function sendPostPublishedEmail(
+  to: string,
+  props: PostPublishedEmailProps,
+): Promise<SendResult> {
+  const html = await render(PostPublishedEmail(props));
+  return send({
+    to,
+    subject: `Your ${platformLabel(props.platform)} post is live · ${props.episodeTitle}`,
+    html,
+  });
+}
+
+// Kept in sync with `PLATFORM_LABEL` in `post-published.tsx` — used for
+// the email subject line where JSX rendering isn't available.
+function platformLabel(p: string): string {
+  switch (p) {
+    case "TWITTER":
+      return "X / Twitter";
+    case "LINKEDIN":
+      return "LinkedIn";
+    case "INSTAGRAM":
+      return "Instagram";
+    case "TIKTOK":
+      return "TikTok";
+    case "SHOW_NOTES":
+      return "show-notes";
+    case "BLOG":
+      return "blog";
+    case "NEWSLETTER":
+      return "newsletter";
+    default:
+      return p;
+  }
+}
+
+// ============================================================
+// Client portal — link share (with optional password)
+// ============================================================
+
+/**
+ * Delivers the freshly-minted portal URL — and, when the link carries
+ * one, the plaintext password — to the client's primary contact. Called
+ * fire-and-forget from `mintPortalLinkAction` so a Resend hiccup never
+ * blocks the mint itself; the URL is still visible to the operator on
+ * the client billing tab for out-of-band delivery.
+ */
+export async function sendPortalLinkShareEmail(
+  to: string,
+  props: PortalLinkShareEmailProps,
+): Promise<SendResult> {
+  const html = await render(PortalLinkShareEmail(props));
+  return send({
+    to,
+    subject: props.password
+      ? `${props.agencyName} shared a private link with you`
+      : `${props.agencyName} shared your portal link`,
+    html,
+  });
 }
 
 // ============================================================

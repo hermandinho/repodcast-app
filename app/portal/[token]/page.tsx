@@ -1,11 +1,13 @@
 import { notFound } from "next/navigation";
 import { createHash } from "node:crypto";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { OutputStatus, Platform } from "@prisma/client";
 import {
   getPortalLinkByToken,
   listPortalDeliverables,
+  listPortalPendingApprovals,
   logPortalAccess,
+  verifyPortalPassword,
   type PortalDeliverableRow,
 } from "@/server/db/client-portal";
 import {
@@ -14,6 +16,8 @@ import {
 } from "@/server/db/client-statements";
 import { platforms, type PlatformKey } from "@/lib/sample-data/platforms";
 import { PortalOutputCard } from "@/components/portal/output-card";
+import { PortalPasswordForm } from "@/components/portal/password-form";
+import { PortalPendingApprovalCard } from "@/components/portal/pending-approval-card";
 
 /**
  * Phase 3.8 — public client portal.
@@ -73,6 +77,27 @@ export default async function PortalPage({ params }: { params: Promise<{ token: 
     notFound();
   }
 
+  // Password gate — when the link carries a shared secret, check the
+  // per-link cookie set by `submitPortalPasswordAction`. Wrong / missing
+  // cookie → render the form instead of the deliverables. Cookie is
+  // path-scoped to this specific portal URL, so a cookie from a sibling
+  // link on the same agency can't accidentally unlock this one.
+  if (link.password) {
+    const cookieStore = await cookies();
+    const submitted = cookieStore.get(`portal_pwd_${token}`)?.value ?? "";
+    if (!verifyPortalPassword(link.password, submitted)) {
+      const agency = link.client.agency;
+      return (
+        <PortalPasswordForm
+          token={token}
+          agencyName={agency.name}
+          accentColor={agency.brandAccentColor ?? DEFAULT_ACCENT}
+          brandLogoUrl={agency.brandLogoUrl}
+        />
+      );
+    }
+  }
+
   // Header-derived access metadata. `headers()` is a server-side request
   // accessor in Next 16 — works inside a server component.
   const h = await headers();
@@ -82,11 +107,17 @@ export default async function PortalPage({ params }: { params: Promise<{ token: 
   // Fire-and-forget so a logging blip never breaks the read.
   void logPortalAccess(link.id, { ipHash, userAgent });
 
-  const [deliverables, statements] = await Promise.all([
+  const [deliverables, pendingApprovals, statements] = await Promise.all([
     listPortalDeliverables(link.clientId),
+    listPortalPendingApprovals(link.clientId),
     listSharedStatementsForClient(link.clientId),
   ]);
-  const grouped = groupByShowAndEpisode(deliverables);
+  // The pending list is a superset filter of the deliverables list —
+  // AWAITING_CLIENT_APPROVAL rows come back from both. Render them once
+  // in the pending section, and exclude from the deliveries below.
+  const pendingIds = new Set(pendingApprovals.map((r) => r.id));
+  const deliveredOnly = deliverables.filter((r) => !pendingIds.has(r.id));
+  const grouped = groupByShowAndEpisode(deliveredOnly);
 
   const agency = link.client.agency;
   const accent = agency.brandAccentColor ?? DEFAULT_ACCENT;
@@ -172,9 +203,44 @@ export default async function PortalPage({ params }: { params: Promise<{ token: 
         />
       </section>
 
-      {grouped.length === 0 ? (
+      {pendingApprovals.length > 0 && (
+        <section className="mb-8">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 className="font-display text-ink text-[17px] font-semibold tracking-[-0.005em]">
+              Pending your approval
+            </h2>
+            <span className="text-muted-2 font-mono text-[10.5px] tracking-[0.05em] uppercase">
+              {pendingApprovals.length} item{pendingApprovals.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          <article className="border-border bg-surface shadow-card overflow-hidden rounded-2xl border">
+            <div className="flex flex-col">
+              {pendingApprovals.map((o) => {
+                const meta = platformByKey.get(PLATFORM_TO_UI_KEY[o.platform]);
+                return (
+                  <PortalPendingApprovalCard
+                    key={o.id}
+                    outputId={o.id}
+                    token={token}
+                    platformName={`${meta?.fullName ?? o.platform} · ${o.episode.title}`}
+                    platformBadge={meta?.badge ?? "?"}
+                    platformBadgeBg={meta?.badgeBg ?? "#EEF1F6"}
+                    platformBadgeColor={meta?.badgeColor ?? "#1A2A4A"}
+                    platformBadgeBorder={meta?.badgeBorder ?? "#E4E8F0"}
+                    sentToClientAtIso={o.sentToClientAt?.toISOString() ?? null}
+                    content={o.content}
+                    accentColor={accent}
+                  />
+                );
+              })}
+            </div>
+          </article>
+        </section>
+      )}
+
+      {grouped.length === 0 && pendingApprovals.length === 0 ? (
         <EmptyState />
-      ) : (
+      ) : grouped.length === 0 ? null : (
         <div className="flex flex-col gap-8">
           {grouped.map((show) => (
             <section key={show.showId}>

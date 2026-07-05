@@ -4,6 +4,7 @@ import {
   ExternalScheduler,
   MemberRole,
   OutputStatus,
+  ValidationMode,
   type GeneratedOutput,
   type Platform,
 } from "@prisma/client";
@@ -12,7 +13,13 @@ import { NotFoundError, ValidationError } from "@/server/auth/errors";
 import { requireReadRole, requireRole, type TenantContext } from "@/server/auth/tenant";
 import { levenshtein } from "@/lib/edit-distance";
 import { prisma } from "./client";
-import { createSampleFromOutput } from "./voice-samples";
+import { createSampleFromOutput, createSampleFromOutputRaw } from "./voice-samples";
+import {
+  notifyClientApproved,
+  notifyClientPostPublished,
+  notifyClientRevisionRequested,
+  notifyReviewRequested,
+} from "./notifications";
 
 // ============================================================
 // Input schemas
@@ -41,15 +48,60 @@ const READ_ROLES = [
   MemberRole.REVIEWER,
 ] as const;
 
+/** Roles allowed to modify a *draft* output (READY / IN_REVIEW). */
 const EDIT_ROLES = [MemberRole.OWNER, MemberRole.ADMIN, MemberRole.EDITOR] as const;
 
 const APPROVE_ROLES = [MemberRole.OWNER, MemberRole.ADMIN, MemberRole.REVIEWER] as const;
 
-/** Anyone with edit rights can flag an output for review. */
-const REQUEST_REVIEW_ROLES = [MemberRole.OWNER, MemberRole.ADMIN, MemberRole.EDITOR] as const;
+/**
+ * Requesting a review is an editor-only action. OWNER/ADMIN/REVIEWER don't
+ * request reviews of themselves — they approve directly. Locking this to
+ * EDITOR keeps the review inbox meaningful (every notification is a real
+ * hand-off) and matches the UX contract: the "Request review" button is
+ * only ever rendered to editors.
+ */
+const REQUEST_REVIEW_ROLES = [MemberRole.EDITOR] as const;
 
 /** Same roles that can approve can also reject back to the editor. */
 const REJECT_ROLES = APPROVE_ROLES;
+
+/**
+ * Permission gate for content edits + regenerate. Encodes the post-approval
+ * rules independently from `EDIT_ROLES` so the UI can query the same helper
+ * before rendering an "Edit" affordance and the server can enforce it as
+ * the authority. Rules:
+ *
+ * - `clientApprovedAt != null` → frozen for everyone, forever.
+ * - Client-side validation mode + status `AWAITING_CLIENT_APPROVAL`
+ *   → frozen (the ball is in the client's court).
+ * - Status `APPROVED`, INTERNAL mode → OWNER only. Owner edits stay in
+ *   `APPROVED` per the workflow spec; the audit trail (OutputTransition +
+ *   `editDistance`) tells the "who changed it after approval" story.
+ * - Status `APPROVED`, CLIENT mode → frozen (row is between agency and
+ *   the client — the client can either approve or ask for revision).
+ * - Terminal states (`SCHEDULED`, `PUBLISHED`, `GENERATING`, `FAILED`)
+ *   → not directly editable via this path.
+ * - Draft states (`READY`, `IN_REVIEW`) → the standard `EDIT_ROLES` set.
+ */
+export function canEditOutput(
+  output: {
+    status: OutputStatus;
+    clientApprovedAt: Date | null;
+  },
+  client: { validationMode: ValidationMode },
+  memberRole: MemberRole,
+): boolean {
+  if (output.clientApprovedAt != null) return false;
+  if (output.status === OutputStatus.AWAITING_CLIENT_APPROVAL) return false;
+  if (output.status === OutputStatus.APPROVED) {
+    if (client.validationMode === ValidationMode.CLIENT) return false;
+    return memberRole === MemberRole.OWNER;
+  }
+  if (output.status === OutputStatus.READY || output.status === OutputStatus.IN_REVIEW) {
+    return (EDIT_ROLES as readonly MemberRole[]).includes(memberRole);
+  }
+  return false;
+}
 
 // ============================================================
 // Reads
@@ -138,9 +190,17 @@ export async function updateOutputContent(
       id: outputId,
       episode: { show: { client: { agencyId: ctx.agencyId } } },
     },
-    select: { content: true },
+    select: {
+      content: true,
+      status: true,
+      clientApprovedAt: true,
+      episode: { select: { show: { select: { client: { select: { validationMode: true } } } } } },
+    },
   });
   if (!prev) throw new NotFoundError(`Output ${outputId} not found`);
+  if (!canEditOutput(prev, prev.episode.show.client, ctx.role)) {
+    throw new ValidationError(`Output ${outputId} is not editable in its current state.`);
+  }
   const delta = levenshtein(prev.content, content);
   const output = await prisma.generatedOutput.update({
     where: { id: outputId },
@@ -150,9 +210,18 @@ export async function updateOutputContent(
 }
 
 /**
- * Approve an output: flip status → APPROVED, stamp approvedBy/At, persist a
- * new VoiceSample, and log the transition. Runs inside a transaction so the
- * three writes can't diverge.
+ * Approve an output. Behavior branches on the parent client's
+ * `validationMode`:
+ *
+ * - INTERNAL — the agency team's approval is final. Flip status → APPROVED,
+ *   stamp approvedBy/At, persist a new VoiceSample, and log the transition.
+ * - CLIENT — the agency has finished internal review; hand the output off to
+ *   the end client via the portal. Flip status → AWAITING_CLIENT_APPROVAL,
+ *   stamp `sentToClientAt`, log the transition. No VoiceSample yet — that
+ *   fires only when the client confirms via `clientApproveOutput`.
+ *
+ * All writes run inside a transaction so state, audit row, and (in the
+ * INTERNAL case) the voice sample can't diverge.
  */
 export async function approveOutput(
   ctx: TenantContext,
@@ -161,22 +230,52 @@ export async function approveOutput(
 ): Promise<GeneratedOutput> {
   requireRole(ctx, APPROVE_ROLES);
 
-  // Tenancy check + fetch in one go.
+  // Tenancy check + fetch (including the client's validation mode) in one go.
   const output = await prisma.generatedOutput.findFirst({
     where: {
       id: outputId,
       episode: { show: { client: { agencyId: ctx.agencyId } } },
     },
-    select: { id: true, status: true },
+    select: {
+      id: true,
+      status: true,
+      episode: { select: { show: { select: { client: { select: { validationMode: true } } } } } },
+    },
   });
   if (!output) throw new NotFoundError(`Output ${outputId} not found`);
+
+  const validationMode = output.episode.show.client.validationMode;
+  const now = new Date();
+
+  if (validationMode === ValidationMode.CLIENT) {
+    const [updated] = await prisma.$transaction([
+      prisma.generatedOutput.update({
+        where: { id: outputId },
+        data: {
+          status: OutputStatus.AWAITING_CLIENT_APPROVAL,
+          sentToClientAt: now,
+        },
+      }),
+      prisma.outputTransition.create({
+        data: {
+          agencyId: ctx.agencyId,
+          outputId,
+          fromStatus: output.status,
+          toStatus: OutputStatus.AWAITING_CLIENT_APPROVAL,
+          byMemberId: approvingMemberId,
+          note: "Sent to client for approval",
+        },
+      }),
+    ]);
+    return updated;
+  }
 
   const [updated] = await prisma.$transaction([
     prisma.generatedOutput.update({
       where: { id: outputId },
       data: {
         status: OutputStatus.APPROVED,
-        approvedAt: new Date(),
+        approvedAt: now,
         approvedByMemberId: approvingMemberId,
       },
     }),
@@ -199,6 +298,187 @@ export async function approveOutput(
 }
 
 /**
+ * Portal-side "client approves this output". No `TenantContext` — the
+ * portal is unauthenticated (the URL token is the credential) and the caller
+ * has already validated the token in `getPortalContextByToken`. This helper
+ * is scoped by the resolved `agencyId` and `outputId` pair to prevent a
+ * malicious token holder from approving an unrelated output.
+ *
+ * Transitions AWAITING_CLIENT_APPROVAL → APPROVED, stamps `clientApprovedAt`
+ * + `clientApprovalEmail`, creates the VoiceSample the internal approval
+ * path skipped, and logs the transition with `byMemberId = null` (the actor
+ * is the end client, not a Member).
+ */
+export async function clientApproveOutputFromPortal(input: {
+  agencyId: string;
+  outputId: string;
+  approvalEmail: string | null;
+}): Promise<GeneratedOutput> {
+  const output = await prisma.generatedOutput.findFirst({
+    where: {
+      id: input.outputId,
+      episode: { show: { client: { agencyId: input.agencyId } } },
+    },
+    select: {
+      id: true,
+      status: true,
+      platform: true,
+      episodeId: true,
+      episode: {
+        select: {
+          title: true,
+          show: { select: { clientId: true } },
+        },
+      },
+    },
+  });
+  if (!output) throw new NotFoundError(`Output ${input.outputId} not found`);
+  if (output.status !== OutputStatus.AWAITING_CLIENT_APPROVAL) {
+    throw new ValidationError(
+      `Output ${input.outputId} is not awaiting client approval (status: ${output.status}).`,
+    );
+  }
+
+  const now = new Date();
+  const [updated] = await prisma.$transaction([
+    prisma.generatedOutput.update({
+      where: { id: input.outputId },
+      data: {
+        status: OutputStatus.APPROVED,
+        approvedAt: now,
+        clientApprovedAt: now,
+        clientApprovalEmail: input.approvalEmail,
+      },
+    }),
+    prisma.outputTransition.create({
+      data: {
+        agencyId: input.agencyId,
+        outputId: input.outputId,
+        fromStatus: OutputStatus.AWAITING_CLIENT_APPROVAL,
+        toStatus: OutputStatus.APPROVED,
+        byMemberId: null,
+        note: input.approvalEmail
+          ? `Approved by client (${input.approvalEmail})`
+          : "Approved by client via portal",
+      },
+    }),
+  ]);
+
+  // Voice sample creation is best-effort; portal-side approvals shouldn't
+  // fail if the sample write hiccups. `createSampleFromOutputRaw` skips the
+  // tenant assert (we've already scoped by agencyId above).
+  try {
+    await createSampleFromOutputRaw(input.outputId, input.agencyId);
+  } catch (err) {
+    console.error("[approvals] voice sample write failed after client approval", err);
+  }
+
+  try {
+    await notifyClientApproved({
+      agencyId: input.agencyId,
+      clientId: output.episode.show.clientId,
+      outputId: input.outputId,
+      episodeId: output.episodeId,
+      episodeTitle: output.episode.title,
+      platform: output.platform,
+      actorMemberId: null,
+      actorName: null,
+    });
+  } catch (err) {
+    console.error("[approvals] client-approved notification fanout failed", err);
+  }
+
+  return updated;
+}
+
+/**
+ * Portal-side "client asks for changes". Transitions AWAITING_CLIENT_APPROVAL
+ * → READY so the agency's editors can rework the piece. Clears
+ * `sentToClientAt` so the badge doesn't stick around. The optional note is
+ * recorded on the OutputTransition; callers may also drop a
+ * `ClientPortalFeedback` row for the /clients/[key]/billing inbox.
+ */
+export async function clientRequestRevisionFromPortal(input: {
+  agencyId: string;
+  outputId: string;
+  requesterEmail: string | null;
+  note?: string;
+}): Promise<GeneratedOutput> {
+  const output = await prisma.generatedOutput.findFirst({
+    where: {
+      id: input.outputId,
+      episode: { show: { client: { agencyId: input.agencyId } } },
+    },
+    select: {
+      id: true,
+      status: true,
+      platform: true,
+      episodeId: true,
+      episode: {
+        select: {
+          title: true,
+          show: { select: { clientId: true } },
+        },
+      },
+    },
+  });
+  if (!output) throw new NotFoundError(`Output ${input.outputId} not found`);
+  if (output.status !== OutputStatus.AWAITING_CLIENT_APPROVAL) {
+    throw new ValidationError(
+      `Output ${input.outputId} is not awaiting client approval (status: ${output.status}).`,
+    );
+  }
+
+  const noteBody = input.note?.trim();
+  const transitionNote = [
+    input.requesterEmail
+      ? `Revision requested by ${input.requesterEmail}`
+      : "Revision requested by client",
+    noteBody ? `— ${noteBody}` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const [updated] = await prisma.$transaction([
+    prisma.generatedOutput.update({
+      where: { id: input.outputId },
+      data: {
+        status: OutputStatus.READY,
+        sentToClientAt: null,
+      },
+    }),
+    prisma.outputTransition.create({
+      data: {
+        agencyId: input.agencyId,
+        outputId: input.outputId,
+        fromStatus: OutputStatus.AWAITING_CLIENT_APPROVAL,
+        toStatus: OutputStatus.READY,
+        byMemberId: null,
+        note: transitionNote,
+      },
+    }),
+  ]);
+
+  try {
+    await notifyClientRevisionRequested({
+      agencyId: input.agencyId,
+      clientId: output.episode.show.clientId,
+      outputId: input.outputId,
+      episodeId: output.episodeId,
+      episodeTitle: output.episode.title,
+      platform: output.platform,
+      actorMemberId: null,
+      actorName: null,
+      note: noteBody ?? null,
+    });
+  } catch (err) {
+    console.error("[approvals] revision-requested notification fanout failed", err);
+  }
+
+  return updated;
+}
+
+/**
  * READY → IN_REVIEW. Used by editors to flag content for an approver.
  * Optional note (e.g. "second pass on hook?") becomes the transition note.
  */
@@ -215,7 +495,18 @@ export async function requestReviewOutput(
       id: outputId,
       episode: { show: { client: { agencyId: ctx.agencyId } } },
     },
-    select: { id: true, status: true },
+    select: {
+      id: true,
+      status: true,
+      platform: true,
+      episodeId: true,
+      episode: {
+        select: {
+          title: true,
+          show: { select: { clientId: true } },
+        },
+      },
+    },
   });
   if (!output) throw new NotFoundError(`Output ${outputId} not found`);
   if (output.status !== OutputStatus.READY) {
@@ -238,6 +529,28 @@ export async function requestReviewOutput(
       },
     }),
   ]);
+
+  // Notification fan-out is best-effort — a failure here shouldn't undo
+  // the state transition the editor just made.
+  const actor = await prisma.member.findUnique({
+    where: { id: byMemberId },
+    select: { name: true, email: true },
+  });
+  try {
+    await notifyReviewRequested({
+      agencyId: ctx.agencyId,
+      clientId: output.episode.show.clientId,
+      outputId,
+      episodeId: output.episodeId,
+      episodeTitle: output.episode.title,
+      platform: output.platform,
+      actorMemberId: byMemberId,
+      actorName: actor?.name ?? actor?.email.split("@")[0] ?? null,
+      note: note ?? null,
+    });
+  } catch (err) {
+    console.error("[requestReviewOutput] notification fanout failed", err);
+  }
   return updated;
 }
 
@@ -308,7 +621,10 @@ export async function bulkApproveOutputsForEpisodes(
 
   // Tenant filter is on the parent `episode.show.client.agencyId` join so
   // a cross-tenant id in the input array silently drops out (no leak; the
-  // count we report will just be 0 for that id).
+  // count we report will just be 0 for that id). We also pull the client's
+  // validation mode so the batch can branch per row — INTERNAL rows go
+  // straight to APPROVED + VoiceSample, CLIENT rows go to
+  // AWAITING_CLIENT_APPROVAL (no VoiceSample yet).
   const candidates = await prisma.generatedOutput.findMany({
     where: {
       episodeId: { in: episodeIds },
@@ -322,41 +638,70 @@ export async function bulkApproveOutputsForEpisodes(
       platform: true,
       content: true,
       episodeId: true,
-      episode: { select: { showId: true } },
+      episode: {
+        select: {
+          showId: true,
+          show: { select: { client: { select: { validationMode: true } } } },
+        },
+      },
     },
   });
   if (candidates.length === 0) return { totalApproved: 0, byEpisode: {} };
 
   const now = new Date();
   await prisma.$transaction(
-    candidates.flatMap((o) => [
-      prisma.generatedOutput.update({
-        where: { id: o.id },
-        data: {
-          status: OutputStatus.APPROVED,
-          approvedAt: now,
-          approvedByMemberId: approvingMemberId,
-        },
-      }),
-      prisma.outputTransition.create({
-        data: {
-          agencyId: ctx.agencyId,
-          outputId: o.id,
-          fromStatus: o.status,
-          toStatus: OutputStatus.APPROVED,
-          byMemberId: approvingMemberId,
-        },
-      }),
-      prisma.voiceSample.create({
-        data: {
-          showId: o.episode.showId,
-          platform: o.platform,
-          content: o.content,
-          generatedOutputId: o.id,
-          episodeId: o.episodeId,
-        },
-      }),
-    ]),
+    candidates.flatMap((o) => {
+      const validationMode = o.episode.show.client.validationMode;
+      if (validationMode === ValidationMode.CLIENT) {
+        return [
+          prisma.generatedOutput.update({
+            where: { id: o.id },
+            data: {
+              status: OutputStatus.AWAITING_CLIENT_APPROVAL,
+              sentToClientAt: now,
+            },
+          }),
+          prisma.outputTransition.create({
+            data: {
+              agencyId: ctx.agencyId,
+              outputId: o.id,
+              fromStatus: o.status,
+              toStatus: OutputStatus.AWAITING_CLIENT_APPROVAL,
+              byMemberId: approvingMemberId,
+              note: "Sent to client for approval",
+            },
+          }),
+        ];
+      }
+      return [
+        prisma.generatedOutput.update({
+          where: { id: o.id },
+          data: {
+            status: OutputStatus.APPROVED,
+            approvedAt: now,
+            approvedByMemberId: approvingMemberId,
+          },
+        }),
+        prisma.outputTransition.create({
+          data: {
+            agencyId: ctx.agencyId,
+            outputId: o.id,
+            fromStatus: o.status,
+            toStatus: OutputStatus.APPROVED,
+            byMemberId: approvingMemberId,
+          },
+        }),
+        prisma.voiceSample.create({
+          data: {
+            showId: o.episode.showId,
+            platform: o.platform,
+            content: o.content,
+            generatedOutputId: o.id,
+            episodeId: o.episodeId,
+          },
+        }),
+      ];
+    }),
   );
 
   const byEpisode: Record<string, number> = {};
@@ -393,7 +738,10 @@ export async function markOutputRegenerating(
       platform: true,
       content: true,
       version: true,
+      status: true,
+      clientApprovedAt: true,
       supersededAt: true,
+      episode: { select: { show: { select: { client: { select: { validationMode: true } } } } } },
     },
   });
   if (!previous) throw new NotFoundError(`Output ${outputId} not found`);
@@ -401,6 +749,9 @@ export async function markOutputRegenerating(
     throw new NotFoundError(
       `Output ${outputId} is not the current version — regenerate the latest version instead`,
     );
+  }
+  if (!canEditOutput(previous, previous.episode.show.client, ctx.role)) {
+    throw new ValidationError(`Output ${outputId} is not editable in its current state.`);
   }
 
   const now = new Date();
@@ -639,6 +990,12 @@ export async function markOutputPublished(
       },
     }),
   ]);
+
+  // Best-effort client notification — the helper is a no-op when the
+  // client has no contactEmail and self-swallows any error, so we can
+  // await it inline without risking rollback of the publish.
+  await notifyClientPostPublished(outputId);
+
   return updated;
 }
 

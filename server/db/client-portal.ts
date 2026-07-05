@@ -1,5 +1,6 @@
 import "server-only";
 
+import { timingSafeEqual } from "node:crypto";
 import {
   MemberRole,
   OutputStatus,
@@ -63,6 +64,20 @@ export const createPortalLinkInput = z.object({
   clientId: z.string().min(1),
   /** Number of days the link is valid for. UI offers 7 / 30 / 90. */
   expiresInDays: z.number().int().min(1).max(365).default(30),
+  /** Optional shared password. When set (non-empty after trim), the portal
+   *  gate renders a password form before showing deliverables. Stored
+   *  plaintext by design — see the Client model doc for the rationale.
+   *  `.transform().optional()` (not the reverse) so the output type keeps
+   *  the key truly optional — callers can omit it, not just pass
+   *  `undefined`. */
+  password: z
+    .string()
+    .max(200)
+    .transform((v) => {
+      const trimmed = v.trim();
+      return trimmed.length > 0 ? trimmed : undefined;
+    })
+    .optional(),
 });
 export type CreatePortalLinkInput = z.infer<typeof createPortalLinkInput>;
 
@@ -98,9 +113,34 @@ export async function createPortalLink(
       clientId: input.clientId,
       expiresAt,
       createdByMemberId,
+      // Optional shared secret. Undefined → column stays null and the
+      // portal page skips the gate; a trimmed string → gate is on.
+      password: input.password ?? null,
       // token defaults to cuid() at the schema layer.
     },
   });
+}
+
+/**
+ * Portal gate verification. Called by the password form on
+ * `/portal/[token]` before the deliverables render. No `TenantContext`
+ * — the caller is unauthenticated (this IS the auth step). Constant-time
+ * comparison keeps the check safe against timing-based guessing even
+ * though the password is short-lived and low-stakes.
+ *
+ * Returns:
+ *   - `{ ok: true }` when the link exists, isn't revoked/expired, and
+ *     the submitted password matches;
+ *   - `{ ok: false }` for every other case (missing / revoked / expired /
+ *     wrong password / link doesn't require one). Discrete error copy
+ *     lives on the form; the helper just gates access.
+ */
+export function verifyPortalPassword(stored: string | null, submitted: string): boolean {
+  if (!stored) return false;
+  const a = Buffer.from(stored, "utf8");
+  const b = Buffer.from(submitted, "utf8");
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
 }
 
 /**
@@ -279,13 +319,20 @@ export async function listPortalDeliverables(
   const rows = await prisma.generatedOutput.findMany({
     where: {
       supersededAt: null,
-      status: { in: [OutputStatus.APPROVED, OutputStatus.SCHEDULED, OutputStatus.PUBLISHED] },
+      status: {
+        in: [
+          OutputStatus.AWAITING_CLIENT_APPROVAL,
+          OutputStatus.APPROVED,
+          OutputStatus.SCHEDULED,
+          OutputStatus.PUBLISHED,
+        ],
+      },
       episode: { show: { clientId } },
     },
-    // approvedAt is the safest DB-side sort key: every row in the filter has
-    // one, and it matches "most recently signed off" ordering well enough
-    // for the take-cap. The in-memory sort below refines by lifecycle date.
-    orderBy: { approvedAt: "desc" },
+    // Sort by createdAt so AWAITING_CLIENT_APPROVAL rows (which don't yet
+    // have `approvedAt`) still land in the take-cap. In-memory sort below
+    // refines by lifecycle date.
+    orderBy: { createdAt: "desc" },
     take,
     include: {
       episode: {
@@ -301,9 +348,37 @@ export async function listPortalDeliverables(
   return rows.sort((a, b) => lifecycleTs(b) - lifecycleTs(a));
 }
 
+/**
+ * Client-portal "outputs awaiting your approval" — the actionable queue at
+ * the top of the portal page. Uses the same tenancy scoping as
+ * `listPortalDeliverables`; caller has already validated the token.
+ */
+export async function listPortalPendingApprovals(
+  clientId: string,
+): Promise<PortalDeliverableRow[]> {
+  return prisma.generatedOutput.findMany({
+    where: {
+      supersededAt: null,
+      status: OutputStatus.AWAITING_CLIENT_APPROVAL,
+      episode: { show: { clientId } },
+    },
+    orderBy: { sentToClientAt: "desc" },
+    include: {
+      episode: {
+        select: {
+          id: true,
+          title: true,
+          recordedAt: true,
+          show: { select: { id: true, name: true, host: true } },
+        },
+      },
+    },
+  });
+}
+
 /** Timestamp of the most recent lifecycle event on a portal-visible row. */
 function lifecycleTs(o: PortalDeliverableRow): number {
-  const t = o.publishedAt ?? o.scheduledFor ?? o.approvedAt;
+  const t = o.publishedAt ?? o.scheduledFor ?? o.approvedAt ?? o.sentToClientAt;
   return t ? t.getTime() : 0;
 }
 
@@ -366,6 +441,119 @@ export async function submitPortalFeedback(
     select: { id: true },
   });
   return { ok: true, feedbackId: row.id };
+}
+
+// ============================================================
+// Portal approval + revision-request (Phase 3.9)
+// ============================================================
+// Wrappers around `clientApproveOutputFromPortal` and
+// `clientRequestRevisionFromPortal` in `server/db/outputs.ts`. This file
+// owns the token → agencyId resolution + rate-limiting layer so the raw
+// helpers stay agnostic and easily testable. Rate limits reuse the
+// feedback window since both flows are portal-user writes.
+
+export const portalApprovalInput = z.object({
+  token: z.string().min(1),
+  outputId: z.string().min(1),
+  fromEmail: z.string().email().max(200).optional(),
+});
+export type PortalApprovalInput = z.infer<typeof portalApprovalInput>;
+
+export const portalRevisionRequestInput = z.object({
+  token: z.string().min(1),
+  outputId: z.string().min(1),
+  fromEmail: z.string().email().max(200).optional(),
+  note: z.string().min(1).max(PORTAL_FEEDBACK_BODY_MAX).optional(),
+});
+export type PortalRevisionRequestInput = z.infer<typeof portalRevisionRequestInput>;
+
+export type PortalApprovalResult =
+  { ok: true } | { ok: false; reason: "invalid_token" | "throttled" | "not_pending" | "not_found" };
+
+export async function submitPortalApproval(
+  input: PortalApprovalInput,
+): Promise<PortalApprovalResult> {
+  const link = await getPortalLinkByToken(input.token);
+  if (!link) return { ok: false, reason: "invalid_token" };
+  if (await isPortalWriteThrottled(link.id)) return { ok: false, reason: "throttled" };
+
+  const { clientApproveOutputFromPortal } = await import("./outputs");
+  try {
+    // Assert the output belongs to this portal's client — the outputs helper
+    // scopes by agencyId, but the token is bound to one specific client, so
+    // we tighten to that.
+    await assertOutputBelongsToClient(input.outputId, link.clientId);
+    await clientApproveOutputFromPortal({
+      agencyId: link.client.agency.id,
+      outputId: input.outputId,
+      approvalEmail: input.fromEmail ?? null,
+    });
+    return { ok: true };
+  } catch (err) {
+    return mapPortalWriteError(err);
+  }
+}
+
+export async function submitPortalRevisionRequest(
+  input: PortalRevisionRequestInput,
+): Promise<PortalApprovalResult> {
+  const link = await getPortalLinkByToken(input.token);
+  if (!link) return { ok: false, reason: "invalid_token" };
+  if (await isPortalWriteThrottled(link.id)) return { ok: false, reason: "throttled" };
+
+  const { clientRequestRevisionFromPortal } = await import("./outputs");
+  try {
+    await assertOutputBelongsToClient(input.outputId, link.clientId);
+    await clientRequestRevisionFromPortal({
+      agencyId: link.client.agency.id,
+      outputId: input.outputId,
+      requesterEmail: input.fromEmail ?? null,
+      note: input.note?.trim(),
+    });
+    // Also drop a ClientPortalFeedback row so the agency's inbox surfaces
+    // the revision note alongside general feedback. Optional note becomes
+    // the body; when the client only clicked "Request revision" without a
+    // note, we still record an audit-facing feedback entry.
+    await prisma.clientPortalFeedback.create({
+      data: {
+        portalLinkId: link.id,
+        outputId: input.outputId,
+        fromEmail: input.fromEmail ?? null,
+        body: input.note?.trim() || "Revision requested (no note)",
+      },
+    });
+    return { ok: true };
+  } catch (err) {
+    return mapPortalWriteError(err);
+  }
+}
+
+async function isPortalWriteThrottled(linkId: string): Promise<boolean> {
+  const windowStart = new Date(Date.now() - PORTAL_FEEDBACK_WINDOW_MS);
+  const recentCount = await prisma.clientPortalFeedback.count({
+    where: { portalLinkId: linkId, createdAt: { gte: windowStart } },
+  });
+  return recentCount >= PORTAL_FEEDBACK_MAX_PER_WINDOW;
+}
+
+async function assertOutputBelongsToClient(outputId: string, clientId: string): Promise<void> {
+  const row = await prisma.generatedOutput.findFirst({
+    where: { id: outputId, episode: { show: { clientId } } },
+    select: { id: true },
+  });
+  if (!row) throw new NotFoundError(`Output ${outputId} not found`);
+}
+
+function mapPortalWriteError(err: unknown): PortalApprovalResult {
+  if (err instanceof NotFoundError) return { ok: false, reason: "not_found" };
+  // ValidationError from the outputs helper = state mismatch (already
+  // approved, or not in AWAITING_CLIENT_APPROVAL).
+  const message = err instanceof Error ? err.message : String(err);
+  if (/not awaiting client approval|not editable/i.test(message)) {
+    return { ok: false, reason: "not_pending" };
+  }
+  console.error("[portal] approval write failed", err);
+  throw err;
 }
 
 // ============================================================
@@ -574,6 +762,41 @@ export async function markPortalFeedbackRead(
       throw new NotFoundError(`Feedback ${feedbackId} not found`);
     }
   }
+}
+
+/**
+ * Bulk mark-read scoped to a single output. Called from every editor
+ * action that implies "the agency saw and acted on the client's request":
+ * opening the output drawer, editing the content, kicking off a
+ * regenerate. Marks every unread `ClientPortalFeedback` row that
+ * targets this outputId as read, stamping the acting member.
+ *
+ * Tenancy is enforced through the `portalLink.client.agencyId` chain in
+ * the where clause, atomically — a cross-tenant outputId collapses to
+ * `count: 0` (silent no-op) rather than throwing, because callers fire
+ * this best-effort alongside another primary write and shouldn't have
+ * to catch NotFound just to keep going. Returns the number of rows
+ * flipped so caller telemetry can log a meaningful count when it
+ * matters (all current callers ignore it).
+ */
+export async function markPortalFeedbackReadForOutput(
+  ctx: TenantContext,
+  outputId: string,
+  memberId: string,
+): Promise<number> {
+  requireReadRole(ctx, READ_ROLES);
+  const { count } = await prisma.clientPortalFeedback.updateMany({
+    where: {
+      outputId,
+      readAt: null,
+      portalLink: { client: { agencyId: ctx.agencyId } },
+    },
+    data: {
+      readAt: new Date(),
+      readByMemberId: memberId,
+    },
+  });
+  return count;
 }
 
 /**

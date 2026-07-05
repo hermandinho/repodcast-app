@@ -7,6 +7,8 @@ import { GenerationCompleteEmail } from "@/server/email/templates/generation-com
 import { OnboardingFinishSetupEmail } from "@/server/email/templates/onboarding-finish-setup";
 import { OnboardingFirstClientEmail } from "@/server/email/templates/onboarding-first-client";
 import { PasswordResetEmail } from "@/server/email/templates/password-reset";
+import { PortalLinkShareEmail } from "@/server/email/templates/portal-link-share";
+import { PostPublishedEmail } from "@/server/email/templates/post-published";
 import { TrialConvertedEmail } from "@/server/email/templates/trial-converted";
 import { TrialDay2Email } from "@/server/email/templates/trial-day-2";
 import { TrialEndingSoonEmail } from "@/server/email/templates/trial-ending-soon";
@@ -325,6 +327,69 @@ export const EMAILS: readonly EmailEntry[] = [
       outputCount: 7,
       failedPlatforms: [],
       episodeUrl: `${PREVIEW_ORIGIN}/episodes/ep_2Kq9L`,
+    }),
+  },
+  {
+    slug: "post-published",
+    name: "Client post published",
+    journey: "product",
+    subject: `Your LinkedIn post is live · How to price a podcast partnership`,
+    purpose:
+      "Notifies the client's contact that a post drafted for them has gone live — either after Buffer confirms delivery or after the agency marks it published manually.",
+    rationale:
+      "The only email in the app that lands in the *client's* inbox rather than an agency member's. Fires from every path that flips a GeneratedOutput to PUBLISHED: `markOutputPublished` (user click), Buffer sync confirm, and MANUAL auto-publish after `scheduledFor` passes. White-labeled with the agency's brand logo + accent color so the client experiences it as coming from their agency, not from Repodcast.",
+    trigger: {
+      type: "webhook",
+      label: "Direct call from every publish path",
+      source: "server/db/notifications.ts:notifyClientPostPublished",
+    },
+    recipient: {
+      label: "Client's primary contact",
+      lookup: "Client.contactEmail (email-only; no-op when unset).",
+    },
+    cadence: "Up to once per output — one email per platform per publish event.",
+    senderFn: "sendPostPublishedEmail",
+    element: PostPublishedEmail({
+      contactName: "Alex",
+      agencyName: DEMO_AGENCY,
+      brandLogoUrl: null,
+      brandAccentColor: null,
+      episodeTitle: "How to price a podcast partnership",
+      showName: DEMO_CLIENT,
+      platform: "LINKEDIN",
+      externalPostUrl:
+        "https://www.linkedin.com/posts/blue-ocean-studios_partnership-pricing-activity-1234567890",
+      publishedAt: new Date("2026-07-05T14:30:00Z"),
+    }),
+  },
+  {
+    slug: "portal-link-share",
+    name: "Client portal link share",
+    journey: "product",
+    subject: `${DEMO_AGENCY} shared a private link with you`,
+    purpose:
+      "Delivers a freshly-minted portal URL — plus the shared password when the operator set one — to the client's primary contact.",
+    rationale:
+      "Fires from the mint action on the client billing tab. Client-inbox delivery so the operator doesn't have to hand-craft an email; auto-skip when the client has no contactEmail, since the URL is still visible to the operator on the billing tab for out-of-band sharing. Password (when set) is surfaced plaintext — this email is the only sanctioned surface for it outside the mint dialog.",
+    trigger: {
+      type: "manual",
+      label: "Client billing tab · Mint new link",
+      source: "app/(dashboard)/clients/[key]/billing/portal-actions.ts:mintPortalLinkAction",
+    },
+    recipient: {
+      label: "Client's primary contact",
+      lookup: "Client.contactEmail (email-only; no-op when unset).",
+    },
+    cadence: "One per successful mint.",
+    senderFn: "sendPortalLinkShareEmail",
+    element: PortalLinkShareEmail({
+      contactName: "Alex",
+      agencyName: DEMO_AGENCY,
+      brandLogoUrl: null,
+      brandAccentColor: null,
+      portalUrl: `${PREVIEW_ORIGIN}/portal/prtl_2Kq9L3mNpXr8`,
+      password: "starlight-27",
+      expiresAt: new Date("2026-08-04T09:00:00Z"),
     }),
   },
   {

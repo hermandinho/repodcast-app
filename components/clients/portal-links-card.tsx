@@ -66,6 +66,8 @@ export function PortalLinksCard({
   const planUnlocksMint = plan === null || plan === "NETWORK";
   const [links, setLinks] = useState<PortalLinkRow[]>(initialLinks);
   const [expiresInDays, setExpiresInDays] = useState<number>(30);
+  const [passwordEnabled, setPasswordEnabled] = useState(false);
+  const [password, setPassword] = useState("");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -77,10 +79,18 @@ export function PortalLinksCard({
 
   const onMint = () => {
     if (!canManage) return;
+    if (passwordEnabled && password.trim().length === 0) {
+      setError("Enter a password or turn off password protection.");
+      return;
+    }
     setError(null);
     startTransition(async () => {
       try {
-        const result = await mintPortalLinkAction({ clientId, expiresInDays });
+        const result = await mintPortalLinkAction({
+          clientId,
+          expiresInDays,
+          password: passwordEnabled ? password.trim() : undefined,
+        });
         if (!result.ok) {
           setError(result.error);
           return;
@@ -99,6 +109,10 @@ export function PortalLinksCard({
           },
           ...prev,
         ]);
+        // Reset the password inputs so a second mint doesn't reuse the
+        // last shared secret unless the operator opts in again.
+        setPassword("");
+        setPasswordEnabled(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't mint link.");
       }
@@ -150,25 +164,63 @@ export function PortalLinksCard({
       </div>
 
       {canManage && planUnlocksMint && (
-        <div className="border-border bg-canvas mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-dashed p-3">
-          <label className="text-muted-2 font-sans text-[12px] font-semibold">Expires in</label>
-          <select
-            value={expiresInDays}
-            onChange={(e) => setExpiresInDays(Number(e.target.value))}
-            disabled={pending}
-            className="rounded-md px-3 py-[7px] font-sans text-[12.5px] text-[#2A3550] outline-none"
-            style={{ border: "1px solid #C9D4E8", background: "#fff" }}
-          >
-            {EXPIRY_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-          <Button onClick={onMint} disabled={pending} size="sm">
-            {pending ? "Minting…" : "Mint new link"}
-          </Button>
-          {error && <span className="text-[12px] text-[#A06D12]">{error}</span>}
+        <div className="border-border bg-canvas mb-4 flex flex-col gap-3 rounded-2xl border border-dashed p-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="text-muted-2 font-sans text-[12px] font-semibold">Expires in</label>
+            <select
+              value={expiresInDays}
+              onChange={(e) => setExpiresInDays(Number(e.target.value))}
+              disabled={pending}
+              className="rounded-md px-3 py-[7px] font-sans text-[12.5px] text-[#2A3550] outline-none"
+              style={{ border: "1px solid #C9D4E8", background: "#fff" }}
+            >
+              {EXPIRY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <label className="text-muted-2 inline-flex cursor-pointer items-center gap-[6px] font-sans text-[12px] font-semibold select-none">
+              <input
+                type="checkbox"
+                checked={passwordEnabled}
+                onChange={(e) => {
+                  setPasswordEnabled(e.target.checked);
+                  if (!e.target.checked) setPassword("");
+                  if (error) setError(null);
+                }}
+                disabled={pending}
+                className="h-[14px] w-[14px] rounded accent-[var(--color-accent)]"
+              />
+              Protect with password
+            </label>
+            <Button onClick={onMint} disabled={pending} size="sm">
+              {pending ? "Minting…" : "Mint new link"}
+            </Button>
+            {error && <span className="text-[12px] text-[#A06D12]">{error}</span>}
+          </div>
+          {passwordEnabled && (
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (error) setError(null);
+                }}
+                disabled={pending}
+                maxLength={200}
+                autoComplete="off"
+                placeholder="Shared password for this link"
+                className="min-w-[240px] flex-1 rounded-md px-3 py-[7px] font-sans text-[12.5px] text-[#2A3550] outline-none focus:border-[#3A5BA0]"
+                style={{ border: "1px solid #C9D4E8", background: "#fff" }}
+              />
+              <span className="text-muted-2 text-[11px] leading-[1.4]">
+                Emailed to the client along with the URL. Stored plaintext — think of it as a shared
+                secret, not a login.
+              </span>
+            </div>
+          )}
         </div>
       )}
 

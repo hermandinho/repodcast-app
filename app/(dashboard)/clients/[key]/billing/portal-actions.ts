@@ -11,6 +11,7 @@ import {
   createPortalLinkInput,
   revokePortalLink,
 } from "@/server/db/client-portal";
+import { notifyClientPortalLinkShared } from "@/server/db/notifications";
 
 /**
  * Phase 2.5 — mint / revoke client portal links from the agency UI.
@@ -54,6 +55,13 @@ export async function mintPortalLinkAction(raw: unknown): Promise<MintPortalLink
   try {
     const auth = await requireAuthContext();
     const link = await createPortalLink(toTenantContext(auth), parsed.data, auth.member.id);
+
+    // Fire-and-forget email to the client's contactEmail with the URL
+    // and (when set) the shared password. `notifyClientPortalLinkShared`
+    // no-ops cleanly when contactEmail is unset, so we don't gate on it
+    // here. A Resend failure never blocks the mint — the operator still
+    // has the URL on the billing tab.
+    void notifyClientPortalLinkShared(link.id);
 
     revalidatePath(`/clients/${parsed.data.clientId}/billing`);
 

@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => ({
     client: {
       findMany: vi.fn(),
       findFirst: vi.fn(),
+      findUnique: vi.fn(),
       findUniqueOrThrow: vi.fn(),
       count: vi.fn(),
       create: vi.fn(),
@@ -74,6 +75,12 @@ const mocks = vi.hoisted(() => ({
     member: {
       count: vi.fn(),
       findFirst: vi.fn(),
+      findUnique: vi.fn(),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+    notification: {
+      create: vi.fn(),
+      createMany: vi.fn(),
     },
     outputTransition: {
       create: vi.fn(),
@@ -551,6 +558,9 @@ describe("outputs repo — double-nested tenant filter", () => {
     // First read fetches the prior content under the tenant filter.
     mocks.prisma.generatedOutput.findFirst.mockResolvedValueOnce({
       content: "old content",
+      status: OutputStatus.READY,
+      clientApprovedAt: null,
+      episode: { show: { client: { validationMode: "INTERNAL" } } },
     });
     mocks.prisma.generatedOutput.update.mockResolvedValue({ id: "o1" });
 
@@ -588,7 +598,11 @@ describe("outputs repo — double-nested tenant filter", () => {
 
   it("approveOutput writes APPROVED + sample inside the agency", async () => {
     mocks.prisma.generatedOutput.findFirst
-      .mockResolvedValueOnce({ id: "o1", status: OutputStatus.READY }) // initial tenancy check
+      .mockResolvedValueOnce({
+        id: "o1",
+        status: OutputStatus.READY,
+        episode: { show: { client: { validationMode: "INTERNAL" } } },
+      }) // initial tenancy check
       .mockResolvedValueOnce({
         // inside createSampleFromOutput
         id: "o1",
@@ -630,7 +644,7 @@ describe("outputs repo — double-nested tenant filter", () => {
         platform: Platform.LINKEDIN,
         content: "a",
         episodeId: "ep1",
-        episode: { showId: "s1" },
+        episode: { showId: "s1", show: { client: { validationMode: "INTERNAL" } } },
       },
       {
         id: "o2",
@@ -638,7 +652,7 @@ describe("outputs repo — double-nested tenant filter", () => {
         platform: Platform.TWITTER,
         content: "b",
         episodeId: "ep1",
-        episode: { showId: "s1" },
+        episode: { showId: "s1", show: { client: { validationMode: "INTERNAL" } } },
       },
       {
         id: "o3",
@@ -646,7 +660,7 @@ describe("outputs repo — double-nested tenant filter", () => {
         platform: Platform.BLOG,
         content: "c",
         episodeId: "ep2",
-        episode: { showId: "s2" },
+        episode: { showId: "s2", show: { client: { validationMode: "INTERNAL" } } },
       },
     ]);
     mocks.prisma.generatedOutput.update.mockResolvedValue({ id: "x" });
@@ -697,7 +711,12 @@ describe("outputs repo — double-nested tenant filter", () => {
   });
 
   it("editors can update but only OWNER/ADMIN/REVIEWER can approve", async () => {
-    mocks.prisma.generatedOutput.findFirst.mockResolvedValueOnce({ content: "y" });
+    mocks.prisma.generatedOutput.findFirst.mockResolvedValueOnce({
+      content: "y",
+      status: OutputStatus.READY,
+      clientApprovedAt: null,
+      episode: { show: { client: { validationMode: "INTERNAL" } } },
+    });
     mocks.prisma.generatedOutput.update.mockResolvedValue({ id: "o1" });
     await expect(outputsRepo.updateOutputContent(editor(A1), "o1", "x")).resolves.toBeDefined();
 
@@ -713,7 +732,10 @@ describe("outputs repo — double-nested tenant filter", () => {
       platform: Platform.TWITTER,
       content: "old content",
       version: 2,
+      status: OutputStatus.READY,
+      clientApprovedAt: null,
       supersededAt: null,
+      episode: { show: { client: { validationMode: "INTERNAL" } } },
     });
     mocks.prisma.generatedOutput.update.mockResolvedValue({ id: "o1" });
     mocks.prisma.generatedOutput.create.mockResolvedValue({
@@ -792,7 +814,11 @@ describe("outputs repo — double-nested tenant filter", () => {
 
   it("approveOutput writes an OutputTransition with the prior status", async () => {
     mocks.prisma.generatedOutput.findFirst
-      .mockResolvedValueOnce({ id: "o1", status: OutputStatus.IN_REVIEW })
+      .mockResolvedValueOnce({
+        id: "o1",
+        status: OutputStatus.IN_REVIEW,
+        episode: { show: { client: { validationMode: "INTERNAL" } } },
+      })
       .mockResolvedValueOnce({
         id: "o1",
         platform: Platform.TWITTER,
@@ -827,12 +853,21 @@ describe("outputs repo — status flow + role gating", () => {
     mocks.prisma.generatedOutput.findFirst.mockResolvedValueOnce({
       id: "o1",
       status: OutputStatus.READY,
+      platform: Platform.TWITTER,
+      episodeId: "ep1",
+      episode: { title: "Sample", show: { clientId: "c1" } },
     });
     mocks.prisma.generatedOutput.update.mockResolvedValue({
       id: "o1",
       status: OutputStatus.IN_REVIEW,
     });
     mocks.prisma.outputTransition.create.mockResolvedValue({ id: "t1" });
+    // Notification fan-out: actor lookup + recipients query + client
+    // notificationEmails lookup are best-effort and swallowed on error,
+    // but we mock them to keep the happy path quiet.
+    mocks.prisma.member.findUnique.mockResolvedValue({ name: "Ed", email: "ed@example.com" });
+    mocks.prisma.member.findMany.mockResolvedValue([]);
+    mocks.prisma.client.findUnique.mockResolvedValue({ notificationEmails: [] });
 
     await outputsRepo.requestReviewOutput(editor(A1), "o1", "m1", "second pass");
 
@@ -1771,6 +1806,83 @@ describe("client-portal repo — agency writes are tenant-scoped + token-lookup 
     // 7 days ± a few seconds of clock slop.
     expect(deltaMs).toBeGreaterThanOrEqual(7 * 24 * 60 * 60 * 1000 - 2000);
     expect(deltaMs).toBeLessThanOrEqual(7 * 24 * 60 * 60 * 1000 + 2000);
+  });
+
+  it("createPortalLink persists the password verbatim when provided (pre-parsed input contract)", async () => {
+    mocks.prisma.client.findFirst.mockResolvedValue({ id: "c1" });
+    mocks.prisma.clientPortalLink.create.mockResolvedValue({ id: "l1", token: "t1" });
+
+    await clientPortalRepo.createPortalLink(
+      owner(A1),
+      { clientId: "c1", expiresInDays: 30, password: "hunter2" },
+      "m_owner",
+    );
+
+    const args = mocks.prisma.clientPortalLink.create.mock.calls[0]![0]!;
+    expect(args.data.password).toBe("hunter2");
+  });
+
+  it("createPortalLink writes password:null when the operator leaves it blank", async () => {
+    mocks.prisma.client.findFirst.mockResolvedValue({ id: "c1" });
+    mocks.prisma.clientPortalLink.create.mockResolvedValue({ id: "l1", token: "t1" });
+
+    await clientPortalRepo.createPortalLink(
+      owner(A1),
+      { clientId: "c1", expiresInDays: 30 },
+      "m_owner",
+    );
+
+    const args = mocks.prisma.clientPortalLink.create.mock.calls[0]![0]!;
+    expect(args.data.password).toBeNull();
+  });
+
+  it("createPortalLinkInput trims + drops whitespace-only passwords before they reach the write", () => {
+    // Contract lives in the schema, not the repo function — mint-action
+    // callers run this parse before invoking `createPortalLink`. Cover it
+    // here so the trim / whitespace collapse can't silently regress.
+    const trimmed = clientPortalRepo.createPortalLinkInput.parse({
+      clientId: "c1",
+      expiresInDays: 30,
+      password: "  hunter2  ",
+    });
+    expect(trimmed.password).toBe("hunter2");
+
+    const whitespaceOnly = clientPortalRepo.createPortalLinkInput.parse({
+      clientId: "c1",
+      expiresInDays: 30,
+      password: "   ",
+    });
+    expect(whitespaceOnly.password).toBeUndefined();
+
+    const empty = clientPortalRepo.createPortalLinkInput.parse({
+      clientId: "c1",
+      expiresInDays: 30,
+      password: "",
+    });
+    expect(empty.password).toBeUndefined();
+  });
+
+  it("verifyPortalPassword returns false when the link has no stored password", () => {
+    expect(clientPortalRepo.verifyPortalPassword(null, "anything")).toBe(false);
+  });
+
+  it("verifyPortalPassword returns false on length mismatch (bails before timingSafeEqual)", () => {
+    // timingSafeEqual throws on length mismatch — the helper's length
+    // pre-check keeps it from crashing on a shorter/longer guess.
+    expect(clientPortalRepo.verifyPortalPassword("hunter2", "hunter")).toBe(false);
+    expect(clientPortalRepo.verifyPortalPassword("hunter2", "hunter22")).toBe(false);
+  });
+
+  it("verifyPortalPassword returns false on same-length mismatch", () => {
+    expect(clientPortalRepo.verifyPortalPassword("hunter2", "hunter3")).toBe(false);
+  });
+
+  it("verifyPortalPassword returns true on an exact match", () => {
+    expect(clientPortalRepo.verifyPortalPassword("hunter2", "hunter2")).toBe(true);
+  });
+
+  it("verifyPortalPassword rejects an empty submission against a stored password", () => {
+    expect(clientPortalRepo.verifyPortalPassword("hunter2", "")).toBe(false);
   });
 
   it("revokePortalLink scopes the updateMany by client.agencyId + revokedAt:null", async () => {
