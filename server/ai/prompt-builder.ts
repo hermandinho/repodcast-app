@@ -218,7 +218,7 @@ export function buildMessages(opts: {
     `Constraints: ${cfg.format}`,
     `Target length: ${cfg.idealLength}.`,
     platformRule
-      ? `Non-negotiable rule for ${opts.platform} (overrides voice-matching and sample style): ${platformRule}`
+      ? `Non-negotiable rule for ${opts.platform} — overrides voice-matching, sample style, AND the platform guidance above (including any emoji, hashtag, formatting, or structural bans). Follow this rule even when it contradicts an earlier bullet: ${platformRule}`
       : "",
     opts.extraInstruction ? `One-time regenerate instruction: ${opts.extraInstruction}` : "",
   ]

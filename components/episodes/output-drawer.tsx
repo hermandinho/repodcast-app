@@ -8,6 +8,7 @@ import { statusMeta, type EpisodeStatus } from "@/lib/sample-data/episode-status
 import type { PlatformKey, PlatformMeta } from "@/lib/sample-data/platforms";
 import {
   listOutputVersionsAction,
+  markOutputFeedbackReadAction,
   type OutputVersionSummary,
 } from "@/app/(dashboard)/episodes/[id]/actions";
 import {
@@ -30,6 +31,9 @@ import type { OutputCardActions, OutputState } from "./output-card";
 const APPROVE_ROLES: MemberRole[] = [MemberRole.OWNER, MemberRole.ADMIN, MemberRole.REVIEWER];
 const EDIT_ROLES: MemberRole[] = [MemberRole.OWNER, MemberRole.ADMIN, MemberRole.EDITOR];
 const SCHEDULE_ROLES: MemberRole[] = [MemberRole.OWNER, MemberRole.ADMIN, MemberRole.EDITOR];
+/** Mirrors `REQUEST_REVIEW_ROLES` in `output-card.tsx` + `server/db/outputs.ts`
+ *  — editor-only surface. */
+const REQUEST_REVIEW_ROLES: MemberRole[] = [MemberRole.EDITOR];
 
 const PLATFORM_KEY_TO_ENUM: Record<PlatformKey, Platform> = {
   x: Platform.TWITTER,
@@ -47,6 +51,7 @@ export function OutputDrawer({
   state,
   episodeId,
   viewerRole,
+  clientValidationMode = "INTERNAL",
   readOnly = false,
   bufferConnected = false,
   bufferConnectedPlatforms = [],
@@ -58,6 +63,7 @@ export function OutputDrawer({
   state: OutputState;
   episodeId: string;
   viewerRole: MemberRole;
+  clientValidationMode?: "INTERNAL" | "CLIENT";
   readOnly?: boolean;
   bufferConnected?: boolean;
   bufferConnectedPlatforms?: Platform[];
@@ -70,13 +76,28 @@ export function OutputDrawer({
   const isFailed = state.status === "failed";
   const isReady = state.status === "ready";
   const inReview = state.status === "review";
+  const awaitingClient = state.status === "awaiting-client";
   const approved = state.status === "approved";
   const isScheduled = state.status === "scheduled";
   const isPublished = state.status === "published";
   const isLocked = isScheduled || isPublished;
+  const clientApproved = Boolean(state.clientApprovedAtIso);
 
-  const roleCanEdit = !readOnly && EDIT_ROLES.includes(viewerRole) && !isLocked;
-  const roleCanApprove = !readOnly && APPROVE_ROLES.includes(viewerRole) && !isLocked;
+  // Post-approval edit rules — see `canEditOutput` in `server/db/outputs.ts`
+  // and the mirror in `output-card.tsx`.
+  const roleCanEdit = (() => {
+    if (readOnly || isLocked || clientApproved || awaitingClient) return false;
+    if (approved) {
+      if (clientValidationMode === "CLIENT") return false;
+      return viewerRole === MemberRole.OWNER;
+    }
+    if (isReady || inReview) return EDIT_ROLES.includes(viewerRole);
+    return false;
+  })();
+  const roleCanApprove =
+    !readOnly && APPROVE_ROLES.includes(viewerRole) && !isLocked && !awaitingClient;
+  const roleCanRequestReview =
+    !readOnly && REQUEST_REVIEW_ROLES.includes(viewerRole) && !isLocked && !awaitingClient;
   const roleCanSchedule = !readOnly && SCHEDULE_ROLES.includes(viewerRole);
 
   // Escape key + backdrop click close.
@@ -87,6 +108,21 @@ export function OutputDrawer({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  // Auto-mark portal feedback as read the moment the operator opens
+  // the drawer on a row the client bounced back. Fire-and-forget: the
+  // action self-swallows errors and no-ops server-side when there's
+  // nothing to mark, so we don't need to await or handle failures
+  // here. Gated on `clientRevisionRequestedAtIso` so we don't touch
+  // the DB for every drawer open — only the flagged rows.
+  useEffect(() => {
+    if (!state.clientRevisionRequestedAtIso) return;
+    void markOutputFeedbackReadAction({ outputId: state.id }).catch((err) => {
+      console.error("markOutputFeedbackReadAction failed", err);
+    });
+    // We only want this on drawer-open per output, not on every state
+    // change while it's open — the id-scoped dep captures that.
+  }, [state.id, state.clientRevisionRequestedAtIso]);
 
   // Version history — same effect + switcher pattern as the older card.
   const [viewing, setViewing] = useState<OutputVersionSummary | null>(null);
@@ -183,11 +219,38 @@ export function OutputDrawer({
       }
     });
   };
+  // Optional post URL captured on the MANUAL "Mark published" branch —
+  // the operator pastes the link they just published to (Twitter,
+  // LinkedIn, etc.), which populates `externalPostUrl` on the row so the
+  // "View post ↗" primary appears afterwards. Cleared on drawer close by
+  // unmount; no need to reset on submit since the drawer re-renders in
+  // the PUBLISHED state right after.
+  const [markPublishedUrl, setMarkPublishedUrl] = useState("");
+  const [markPublishedUrlError, setMarkPublishedUrlError] = useState<string | null>(null);
   const submitMarkPublished = () => {
     setError(null);
+    setMarkPublishedUrlError(null);
+    const trimmedUrl = markPublishedUrl.trim();
+    if (trimmedUrl.length > 0) {
+      // The server action's zod schema requires a valid http(s) URL. Guard
+      // client-side so the user gets an inline hint instead of the
+      // generic ValidationError bubbling up.
+      try {
+        const parsed = new URL(trimmedUrl);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          throw new Error("must be http or https");
+        }
+      } catch {
+        setMarkPublishedUrlError("Enter a full URL starting with https:// (or leave blank).");
+        return;
+      }
+    }
     startTransition(async () => {
       try {
-        const res = await markOutputPublishedAction({ outputId: state.id });
+        const res = await markOutputPublishedAction({
+          outputId: state.id,
+          externalPostUrl: trimmedUrl.length > 0 ? trimmedUrl : undefined,
+        });
         if (!res.ok) {
           setError(res.error);
           return;
@@ -213,14 +276,19 @@ export function OutputDrawer({
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label={`${platform.fullName} output`}
-        className="absolute top-0 right-0 flex h-full w-full max-w-[480px] flex-col bg-white shadow-2xl"
+        className="absolute top-0 right-0 flex h-full w-full max-w-[500px] flex-col bg-white shadow-[-8px_0_32px_-8px_rgba(20,30,60,0.18)]"
         style={{ animation: "drawer-slide .18s ease-out" }}
       >
-        {/* Header */}
-        <div className="flex items-center gap-3 border-b border-zinc-100 px-5 py-4">
+        {/* Header — badge tile + platform / meta stack + status + close.
+            Slightly taller than the card header so the pill has room to
+            breathe next to the close button. */}
+        <div className="flex items-center gap-[12px] border-b border-zinc-100 px-6 py-[18px]">
           <div
-            className="font-display flex h-[34px] w-[34px] flex-shrink-0 items-center justify-center rounded-[9px] text-[13px] font-bold"
+            className="font-display flex items-center justify-center rounded-[10px] text-[14px] font-bold"
             style={{
+              width: 40,
+              height: 40,
+              flexShrink: 0,
               background: platform.badgeBg,
               color: platform.badgeColor,
               border: `1px solid ${platform.badgeBorder}`,
@@ -229,17 +297,23 @@ export function OutputDrawer({
             {platform.badge}
           </div>
           <div className="min-w-0 flex-1">
-            <div className="font-display text-ink truncate text-[15px] leading-tight font-semibold">
+            <div className="font-display text-ink truncate text-[15.5px] leading-tight font-semibold tracking-[-0.01em]">
               {platform.fullName}
             </div>
-            <div className="text-muted-2 mt-0.5 text-[11px]">{state.meta}</div>
+            <div className="text-muted-2 mt-[3px] truncate font-mono text-[10.5px] tracking-[0.05em] uppercase">
+              {state.meta}
+            </div>
           </div>
-          <StatusPillLarge sm={sm} />
+          {isReady && state.clientRevisionRequestedAtIso ? (
+            <RevisionRequestedPillLarge />
+          ) : (
+            <StatusPillLarge sm={sm} />
+          )}
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="text-muted hover:text-ink hover:bg-canvas flex h-[30px] w-[30px] items-center justify-center rounded-md transition-colors"
+            className="text-muted hover:text-ink hover:bg-canvas ml-1 flex h-[32px] w-[32px] flex-shrink-0 items-center justify-center rounded-md transition-colors"
           >
             <svg
               width="14"
@@ -255,80 +329,44 @@ export function OutputDrawer({
           </button>
         </div>
 
+        {/* Client revision-request panel — the specific reason this row
+            is flagged. Rendered above the signal strip so a reviewer
+            landing from the Clients-nav badge sees the ask first, then
+            the quality context, then the content. Only shown while the
+            row is actionable (READY) — the flag clears the moment the
+            agency approves / requests review / regens. */}
+        {isReady && state.clientRevisionRequestedAtIso ? (
+          <ClientRevisionPanel
+            requestedAtIso={state.clientRevisionRequestedAtIso}
+            note={state.clientRevisionNote ?? null}
+          />
+        ) : null}
+
         {/* Signal strip — Quality score + Voice match, two boxes per ref.
             Hidden while generating so the skeleton reads cleanly. */}
         {!isGen && (
-          <div className="flex gap-[10px] border-b border-zinc-100 bg-[#FAFBFD] px-5 py-4">
-            <div className="flex-1 rounded-[11px] border border-[#E8EBF1] bg-white px-[15px] py-[13px]">
-              <div className="mb-[7px] font-mono text-[10px] tracking-[0.06em] text-[#9AA3B2] uppercase">
-                Quality score
-              </div>
-              <div className="flex items-center gap-[9px]">
-                <span
-                  className="font-display flex h-[34px] w-[34px] items-center justify-center rounded-full text-[12px] font-bold tabular-nums"
-                  style={{
-                    border: `2.5px solid ${qualityColorFor(state.quality)}`,
-                    color: qualityColorFor(state.quality),
-                  }}
-                >
-                  {state.quality || "—"}
-                </span>
-                <span className="text-[12.5px] leading-[1.35] font-medium text-[#5A6473]">
-                  {qualityNoteFor(state.quality)}
-                </span>
-              </div>
-            </div>
-            <div className="flex-1 rounded-[11px] border border-[#E8EBF1] bg-white px-[15px] py-[13px]">
-              <div className="mb-[7px] font-mono text-[10px] tracking-[0.06em] text-[#9AA3B2] uppercase">
-                Voice match
-              </div>
-              <div className="flex items-center gap-[9px]">
-                <span className="flex items-end gap-[2.5px]" aria-hidden>
-                  <span
-                    className="w-[4px] rounded-[1px]"
-                    style={{
-                      height: 9,
-                      background:
-                        voiceStrengthFor(state.quality) >= 1
-                          ? voiceColorFor(state.quality)
-                          : "#D8DEE8",
-                    }}
-                  />
-                  <span
-                    className="w-[4px] rounded-[1px]"
-                    style={{
-                      height: 13,
-                      background:
-                        voiceStrengthFor(state.quality) >= 2
-                          ? voiceColorFor(state.quality)
-                          : "#D8DEE8",
-                    }}
-                  />
-                  <span
-                    className="w-[4px] rounded-[1px]"
-                    style={{
-                      height: 17,
-                      background:
-                        voiceStrengthFor(state.quality) >= 3
-                          ? voiceColorFor(state.quality)
-                          : "#D8DEE8",
-                    }}
-                  />
-                </span>
-                <span
-                  className="text-[13px] font-semibold"
-                  style={{ color: voiceColorFor(state.quality) }}
-                >
-                  {voiceLabelFor(state.quality)}
-                </span>
-              </div>
-            </div>
+          <div className="grid grid-cols-2 gap-[12px] border-b border-zinc-100 bg-[#FAFBFD] px-6 py-[18px]">
+            <SignalCard label="Quality score">
+              <QualityCircle score={state.quality} />
+              <span className="text-[12.5px] leading-[1.4] font-medium text-[#5A6473]">
+                {qualityNoteFor(state.quality)}
+              </span>
+            </SignalCard>
+            <SignalCard label="Voice match">
+              <VoiceBarsLarge quality={state.quality} />
+              <span
+                className="text-[13px] font-semibold"
+                style={{ color: voiceColorFor(state.quality) }}
+              >
+                {voiceLabelFor(state.quality)}
+              </span>
+            </SignalCard>
           </div>
         )}
 
         {/* Metadata strip — lifecycle chips (scheduled/published/via) */}
         {(isScheduled || isPublished) && (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-zinc-100 px-5 py-2.5 text-[11px] text-zinc-500">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-b border-zinc-100 px-6 py-[10px] text-[11px] text-zinc-500">
             {isPublished && publishedDate ? (
               <MetaBadge tone="ok" label={`Published ${formatShortDateTime(publishedDate)}`} />
             ) : isScheduled && scheduledDate ? (
@@ -345,7 +383,7 @@ export function OutputDrawer({
 
         {/* Version history */}
         {hasHistory && !state.editing && (
-          <div className="flex items-center justify-between gap-2 border-b border-zinc-100 bg-[#FBFCFE] px-5 py-2 text-[11.5px]">
+          <div className="flex items-center justify-between gap-2 border-b border-zinc-100 bg-[#FBFCFE] px-6 py-[8px] text-[11.5px]">
             <button
               type="button"
               disabled={displayedVersion <= 1}
@@ -386,7 +424,7 @@ export function OutputDrawer({
         )}
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        <div className="flex-1 overflow-y-auto px-6 py-5">
           {isGen ? (
             <GeneratingBody progress={state.progress} />
           ) : isFailed ? (
@@ -396,7 +434,7 @@ export function OutputDrawer({
           ) : state.showRegen ? (
             <RegenBody state={state} actions={actions} />
           ) : (
-            <div className="text-ink text-[13.5px] leading-[1.65] whitespace-pre-wrap">
+            <div className="text-ink text-[13.5px] leading-[1.7] whitespace-pre-wrap">
               {displayedContent}
             </div>
           )}
@@ -446,7 +484,7 @@ export function OutputDrawer({
 
         {/* Sticky footer — state-driven actions */}
         <div
-          className="border-t border-zinc-100 bg-white px-5 py-3.5"
+          className="border-t border-zinc-100 bg-white px-6 py-4"
           style={{ boxShadow: "0 -1px 0 rgba(20,30,60,.02)" }}
         >
           {error ? <div className="mb-2 text-[11.5px] text-red-700">{error}</div> : null}
@@ -508,24 +546,57 @@ export function OutputDrawer({
               }}
             />
           ) : isScheduled ? (
-            <FooterRow
-              onCancel={onClose}
-              secondaryActions={
-                roleCanSchedule
-                  ? [{ label: "Unschedule", onClick: submitUnschedule, disabled: pending }]
-                  : []
-              }
-              primary={
-                state.externalScheduler !== "BUFFER" && roleCanSchedule
-                  ? {
-                      label: pending ? "Marking…" : "Mark published",
-                      tone: "brand",
-                      onClick: submitMarkPublished,
-                      disabled: pending,
-                    }
-                  : undefined
-              }
-            />
+            <>
+              {state.externalScheduler !== "BUFFER" && roleCanSchedule ? (
+                <div className="mb-3">
+                  <label
+                    htmlFor="mark-published-url"
+                    className="text-muted-2 mb-1 block font-mono text-[10.5px] tracking-[0.05em] uppercase"
+                  >
+                    Post URL (optional)
+                  </label>
+                  <input
+                    id="mark-published-url"
+                    type="url"
+                    inputMode="url"
+                    autoComplete="off"
+                    placeholder="https://x.com/…"
+                    value={markPublishedUrl}
+                    onChange={(e) => {
+                      setMarkPublishedUrl(e.target.value);
+                      if (markPublishedUrlError) setMarkPublishedUrlError(null);
+                    }}
+                    disabled={pending}
+                    className="w-full rounded-md border border-zinc-200 bg-white px-3 py-[7px] font-sans text-[12.5px] text-[#1A2A4A] outline-none focus:border-[#3A5BA0] disabled:opacity-60"
+                  />
+                  {markPublishedUrlError ? (
+                    <div className="mt-1 text-[11px] text-red-700">{markPublishedUrlError}</div>
+                  ) : (
+                    <div className="text-muted-2 mt-1 text-[11px]">
+                      Paste the link if you have it — powers the “View post ↗” shortcut afterwards.
+                    </div>
+                  )}
+                </div>
+              ) : null}
+              <FooterRow
+                onCancel={onClose}
+                secondaryActions={
+                  roleCanSchedule
+                    ? [{ label: "Unschedule", onClick: submitUnschedule, disabled: pending }]
+                    : []
+                }
+                primary={
+                  state.externalScheduler !== "BUFFER" && roleCanSchedule
+                    ? {
+                        label: pending ? "Marking…" : "Mark published",
+                        tone: "brand",
+                        onClick: submitMarkPublished,
+                        disabled: pending,
+                      }
+                    : undefined
+                }
+              />
+            </>
           ) : isPublished ? (
             <FooterRow
               onCancel={onClose}
@@ -538,6 +609,16 @@ export function OutputDrawer({
                     }
                   : undefined
               }
+            />
+          ) : awaitingClient ? (
+            <FooterRow
+              onCancel={onClose}
+              secondaryActions={[
+                {
+                  label: "Copy",
+                  onClick: actions.onCopy,
+                },
+              ]}
             />
           ) : (
             /* ready or review */
@@ -558,17 +639,25 @@ export function OutputDrawer({
                   label: "Copy",
                   onClick: actions.onCopy,
                 },
-                inReview
-                  ? {
-                      label: "Reject",
-                      onClick: actions.onReject,
-                      disabled: !roleCanApprove,
-                    }
-                  : {
-                      label: "Request review",
-                      onClick: actions.onRequestReview,
-                      disabled: !roleCanEdit,
-                    },
+                // "Request review" is EDITOR-only; hide it entirely for
+                // OWNER/ADMIN/REVIEWER instead of just disabling.
+                ...(inReview
+                  ? [
+                      {
+                        label: "Reject",
+                        onClick: actions.onReject,
+                        disabled: !roleCanApprove,
+                      },
+                    ]
+                  : roleCanRequestReview
+                    ? [
+                        {
+                          label: "Request review",
+                          onClick: actions.onRequestReview,
+                          disabled: !roleCanEdit,
+                        },
+                      ]
+                    : []),
               ]}
               primary={{
                 label: "Approve",
@@ -605,6 +694,156 @@ function StatusPillLarge({ sm }: { sm: ReturnType<typeof statusMeta> }) {
     >
       <span className="block h-[6px] w-[6px] rounded-full" style={{ background: sm.color }} />
       {sm.label}
+    </span>
+  );
+}
+
+/** Attention-toned counterpart to StatusPillLarge — swapped in for the
+ *  header pill when the client has bounced this READY output back from
+ *  the portal. Same shape as the standard pill so header alignment
+ *  doesn't shift. */
+function RevisionRequestedPillLarge() {
+  return (
+    <span
+      className="rounded-pill inline-flex flex-shrink-0 items-center gap-[6px] px-[10px] py-[3.5px] font-sans text-[11.5px] font-semibold"
+      style={{ background: "#FBEDEC", color: "#A03425" }}
+    >
+      <span className="block h-[6px] w-[6px] rounded-full" style={{ background: "#A03425" }} />
+      Changes requested
+    </span>
+  );
+}
+
+/** Client revision-request context panel — headline + timestamp + the
+ *  client's note in a quote-styled block. Rendered above the signal
+ *  strip so a reviewer landing from the Clients-nav badge sees the ask
+ *  before the quality readout. */
+function ClientRevisionPanel({
+  requestedAtIso,
+  note,
+}: {
+  requestedAtIso: string;
+  note: string | null;
+}) {
+  const askedAgo = timeAgoFromIso(requestedAtIso);
+  return (
+    <div className="border-b border-zinc-100 px-6 py-[16px]" style={{ background: "#FEF7F5" }}>
+      <div className="flex items-start gap-[10px]">
+        <div
+          className="flex items-center justify-center rounded-full"
+          style={{
+            width: 28,
+            height: 28,
+            flexShrink: 0,
+            background: "#F6D8D2",
+            color: "#A03425",
+          }}
+          aria-hidden
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M2 3h10v6H5l-3 3V3z" />
+          </svg>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline justify-between gap-2">
+            <div className="text-[13px] font-semibold text-[#7A2A1F]">Client asked for changes</div>
+            <div className="font-mono text-[10.5px] tracking-[0.03em] text-[#A0645A] uppercase">
+              {askedAgo}
+            </div>
+          </div>
+          {note ? (
+            <blockquote
+              className="mt-[8px] rounded-[8px] px-[12px] py-[10px] text-[12.5px] leading-[1.55] text-[#5A2E26]"
+              style={{ background: "#FDEFEC", border: "1px solid #F0CFC2" }}
+            >
+              <span className="mr-[2px] text-[#B85847]">“</span>
+              {note}
+              <span className="ml-[1px] text-[#B85847]">”</span>
+            </blockquote>
+          ) : (
+            <div className="mt-[6px] text-[12px] leading-[1.5] text-[#7A5148]">
+              The client didn&apos;t leave a note — check the feedback ledger on the client&apos;s
+              billing page for context, or edit / regenerate this draft directly.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Bordered white "card" used inside the signal strip. Keeps the two
+ *  metric groupings visually parallel and centered so the pattern reads
+ *  as a pair rather than two loose rows. */
+function SignalCard({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div
+      className="rounded-[12px] bg-white px-[15px] py-[14px]"
+      style={{
+        border: "1px solid #E8EBF1",
+        boxShadow: "0 1px 2px rgba(20,30,60,0.03)",
+      }}
+    >
+      <div className="mb-[9px] font-mono text-[10px] tracking-[0.06em] text-[#9AA3B2] uppercase">
+        {label}
+      </div>
+      <div className="flex items-center gap-[10px]">{children}</div>
+    </div>
+  );
+}
+
+/** Perfect circle around the quality number. Explicit width/height via
+ *  inline style + flex-shrink so the flex parent can't squash the badge
+ *  into an oval when the neighbour text is long. */
+function QualityCircle({ score }: { score: number }) {
+  const color = qualityColorFor(score);
+  return (
+    <span
+      className="font-display flex items-center justify-center rounded-full text-[12.5px] font-bold tabular-nums"
+      style={{
+        width: 38,
+        height: 38,
+        flexShrink: 0,
+        border: `2.5px solid ${color}`,
+        color,
+      }}
+      aria-label={score ? `Quality score ${score}` : "Quality score pending"}
+    >
+      {score || "—"}
+    </span>
+  );
+}
+
+/** Three ascending voice-match bars in the drawer's signal strip. Slightly
+ *  larger than the ones on the card so the drawer surface reads as an
+ *  "amplified" version of the same signal. */
+function VoiceBarsLarge({ quality }: { quality: number }) {
+  const strength = voiceStrengthFor(quality);
+  const active = voiceColorFor(quality);
+  const muted = "#D8DEE8";
+  return (
+    <span className="flex items-end gap-[3px]" aria-hidden style={{ flexShrink: 0 }}>
+      <span
+        className="w-[4px] rounded-[1.5px]"
+        style={{ height: 10, background: strength >= 1 ? active : muted }}
+      />
+      <span
+        className="w-[4px] rounded-[1.5px]"
+        style={{ height: 14, background: strength >= 2 ? active : muted }}
+      />
+      <span
+        className="w-[4px] rounded-[1.5px]"
+        style={{ height: 18, background: strength >= 3 ? active : muted }}
+      />
     </span>
   );
 }
@@ -873,6 +1112,24 @@ function countWords(s: string): number {
   const trimmed = s.trim();
   if (trimmed.length === 0) return 0;
   return trimmed.split(/\s+/).length;
+}
+
+/** Coarse "X ago" for the revision panel — accurate enough for a
+ *  contextual "when did the client ask for this" hint without pulling
+ *  in a date library. */
+function timeAgoFromIso(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return "just now";
+  const diffMs = Date.now() - then;
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  return `${months}mo ago`;
 }
 
 // ============================================================

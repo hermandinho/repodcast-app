@@ -175,6 +175,41 @@ describe("buildMessages", () => {
     expect(linkedinText).not.toContain("Lead tweet hooks");
   });
 
+  it("per-platform rule claims precedence over the platform guidance above it", () => {
+    // Regression guard for the emoji bug: the Twitter platform prompt bans
+    // emoji ("No emoji except a single 🧵…"). A custom per-platform rule
+    // like "Add a thank you emoji at the start" was being ignored because
+    // the override wording only claimed to beat voice-matching + sample
+    // style — leaving the model to defer to the platform ban. The wording
+    // must explicitly state precedence over the platform guidance above.
+    const withEmojiRule: VoiceContext = {
+      ...voice,
+      perPlatformInstructions: {
+        TWITTER: "Add a thank you emoji at the start of each message.",
+      },
+    };
+    const prompt = buildMessages({
+      platform: Platform.TWITTER,
+      voice: withEmojiRule,
+      transcript: TRANSCRIPT,
+      model: MODEL,
+    });
+    const blocks = prompt.system as Array<{ text: string }>;
+    // The rule + the platform guidance land in the SAME (last) system block
+    // by construction — the wording is only meaningful when the model can
+    // see both together.
+    const platformBlock = blocks[blocks.length - 1].text;
+    expect(platformBlock).toContain("No emoji"); // platform prompt still present
+    expect(platformBlock).toMatch(
+      /overrides voice-matching, sample style, AND the platform guidance above/,
+    );
+    // Precedence is meaningful only when the custom rule lands AFTER the
+    // platform guidance the model is being told to disregard.
+    const platformGuidanceIdx = platformBlock.indexOf("No emoji");
+    const customRuleIdx = platformBlock.indexOf("Add a thank you emoji");
+    expect(customRuleIdx).toBeGreaterThan(platformGuidanceIdx);
+  });
+
   it("user message contains the transcript", () => {
     const prompt = buildMessages({
       platform: Platform.BLOG,

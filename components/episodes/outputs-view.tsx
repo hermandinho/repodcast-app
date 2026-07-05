@@ -59,6 +59,8 @@ type StreamOutputPayload = {
   version: number;
   versionCount: number;
   failureReason: string | null;
+  sentToClientAtIso: string | null;
+  clientApprovedAtIso: string | null;
 };
 
 /**
@@ -79,6 +81,8 @@ function mergeOutput(prev: LiveOutput, payload: StreamOutputPayload): LiveOutput
     version: payload.version,
     versionCount: payload.versionCount,
     failureReason: payload.failureReason,
+    sentToClientAtIso: payload.sentToClientAtIso,
+    clientApprovedAtIso: payload.clientApprovedAtIso,
     progress: stillGenerating ? prev.progress : 100,
     // Clear the optimistic ticker's target once the server has spoken.
     _startAt: stillGenerating ? prev._startAt : undefined,
@@ -114,6 +118,10 @@ function mergeOutputFromProp(
     publishedAtIso: incoming.publishedAtIso ?? null,
     externalScheduler: incoming.externalScheduler ?? null,
     externalPostUrl: incoming.externalPostUrl ?? null,
+    sentToClientAtIso: incoming.sentToClientAtIso ?? null,
+    clientApprovedAtIso: incoming.clientApprovedAtIso ?? null,
+    clientRevisionRequestedAtIso: incoming.clientRevisionRequestedAtIso ?? null,
+    clientRevisionNote: incoming.clientRevisionNote ?? null,
     progress: stillGenerating ? prev.progress : 100,
     _startAt: stillGenerating ? prev._startAt : undefined,
     _target: stillGenerating ? prev._target : undefined,
@@ -143,6 +151,10 @@ function buildNewRowFromProp(incoming: SampleEpisode["outputs"][number]): LiveOu
     publishedAtIso: incoming.publishedAtIso ?? null,
     externalScheduler: incoming.externalScheduler ?? null,
     externalPostUrl: incoming.externalPostUrl ?? null,
+    sentToClientAtIso: incoming.sentToClientAtIso ?? null,
+    clientApprovedAtIso: incoming.clientApprovedAtIso ?? null,
+    clientRevisionRequestedAtIso: incoming.clientRevisionRequestedAtIso ?? null,
+    clientRevisionNote: incoming.clientRevisionNote ?? null,
   };
 }
 
@@ -165,6 +177,8 @@ function buildNewRowFromPayload(payload: StreamOutputPayload): LiveOutput {
     justCopied: false,
     justApproved: false,
     failureReason: payload.failureReason,
+    sentToClientAtIso: payload.sentToClientAtIso,
+    clientApprovedAtIso: payload.clientApprovedAtIso,
   };
 }
 
@@ -172,6 +186,7 @@ export function OutputsView({
   client,
   episode,
   viewerRole = MemberRole.OWNER,
+  clientValidationMode = "INTERNAL",
   streamUrl = null,
   readOnly = false,
   bufferConnected = false,
@@ -181,6 +196,10 @@ export function OutputsView({
   episode: SampleEpisode;
   /** Defaults to OWNER for sample-data mode so every control stays demoable. */
   viewerRole?: MemberRole;
+  /** Parent client's validation flow — controls post-approval edit gating
+   *  on both the card and drawer. Defaults to INTERNAL for demo/sample
+   *  contexts where no live client row is around. */
+  clientValidationMode?: "INTERNAL" | "CLIENT";
   /**
    * Live-mode SSE endpoint. When null (sample-data mode), no connection is
    * opened — the optimistic ticker is the only driver of progress.
@@ -235,6 +254,10 @@ export function OutputsView({
       publishedAtIso: o.publishedAtIso ?? null,
       externalScheduler: o.externalScheduler ?? null,
       externalPostUrl: o.externalPostUrl ?? null,
+      sentToClientAtIso: o.sentToClientAtIso ?? null,
+      clientApprovedAtIso: o.clientApprovedAtIso ?? null,
+      clientRevisionRequestedAtIso: o.clientRevisionRequestedAtIso ?? null,
+      clientRevisionNote: o.clientRevisionNote ?? null,
     })),
   );
 
@@ -735,7 +758,15 @@ export function OutputsView({
     setGenerateAllRequested(true);
   };
 
-  const approvedCount = outputs.filter((o) => o.status === "approved").length;
+  // "Approved" on the KPI strip means "fully signed off" — the row is
+  // past every approval gate that still owes a decision. `approved` is
+  // the momentary state after the last sign-off; `scheduled` and
+  // `published` are further along the pipeline but the row can only
+  // reach them by being approved first, so they still count. NOT
+  // counted: `awaiting-client` — the internal team has passed it on,
+  // but the client hasn't approved yet, so it's not truly approved.
+  const APPROVAL_COMPLETE_STATUSES = new Set<EpisodeStatus>(["approved", "scheduled", "published"]);
+  const approvedCount = outputs.filter((o) => APPROVAL_COMPLETE_STATUSES.has(o.status)).length;
   const totalCount = outputs.length;
   // Guard against `0 / 0 → NaN`: when no outputs exist yet (RSS / upload
   // mid-import) the page should show neutral placeholders, not "NaN%".
@@ -968,6 +999,7 @@ export function OutputsView({
                 state={o}
                 episodeId={episode.id}
                 viewerRole={viewerRole}
+                clientValidationMode={clientValidationMode}
                 readOnly={readOnly}
                 bufferConnected={bufferConnected}
                 bufferConnectedPlatforms={bufferConnectedPlatforms}
@@ -1008,6 +1040,7 @@ export function OutputsView({
               state={o}
               episodeId={episode.id}
               viewerRole={viewerRole}
+              clientValidationMode={clientValidationMode}
               readOnly={readOnly}
               bufferConnected={bufferConnected}
               bufferConnectedPlatforms={bufferConnectedPlatforms}
