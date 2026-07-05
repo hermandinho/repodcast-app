@@ -29,6 +29,12 @@ vi.mock("@/server/data/source", () => ({
 }));
 vi.mock("@/server/auth/context", () => ({
   requireAuthContext: mocks.requireAuthContext,
+  // No-op — `createEpisodeAction` calls this to reject cancelled-sub
+  // agencies. Every test here uses a live-plan agency, so gating it
+  // through a stub keeps the mock aligned with the source without
+  // needing to thread a `stripeSubscriptionId` fixture through every
+  // `requireAuthContext.mockResolvedValue(...)`.
+  assertActiveSubscription: vi.fn(),
 }));
 vi.mock("@/server/db/episodes", () => ({
   createEpisode: mocks.createEpisode,

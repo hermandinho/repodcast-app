@@ -265,23 +265,34 @@ describe("getRootOverview — charts", () => {
   });
 
   it("multiple agencies' snapshot rows merge into the same week bucket per plan", async () => {
-    const now = new Date();
-    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-    mocks.prisma.agencyUsageSnapshot.findMany.mockResolvedValue([
-      { date: fourteenDaysAgo, plan: "STUDIO", outputs: 3 },
-      { date: fourteenDaysAgo, plan: "NETWORK", outputs: 11 },
-      {
-        date: new Date(fourteenDaysAgo.getTime() + 24 * 60 * 60 * 1000),
-        plan: "STUDIO",
-        outputs: 2,
-      },
-    ]);
-    const result = await getRootOverview(ctx);
-    const nonZero = result.charts.outputsByPlanLast12Weeks.filter((b) => b.total > 0);
-    expect(nonZero).toHaveLength(1);
-    expect(nonZero[0].counts.STUDIO).toBe(5); // 3 + 2 in the same week
-    expect(nonZero[0].counts.NETWORK).toBe(11);
-    expect(nonZero[0].total).toBe(16);
+    // Freeze "now" to a mid-week UTC Wednesday so the fixture's
+    // 14-days-ago + 13-days-ago pair always land in the same Mon-Sun
+    // bucket. Without this, the test flakes when the wall-clock day is
+    // near a week boundary (e.g. running on a Sunday puts 14d ago on
+    // Sunday and 13d ago on Monday — different Mon-anchored weeks).
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-08T12:00:00Z"));
+    try {
+      const now = new Date();
+      const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+      mocks.prisma.agencyUsageSnapshot.findMany.mockResolvedValue([
+        { date: fourteenDaysAgo, plan: "STUDIO", outputs: 3 },
+        { date: fourteenDaysAgo, plan: "NETWORK", outputs: 11 },
+        {
+          date: new Date(fourteenDaysAgo.getTime() + 24 * 60 * 60 * 1000),
+          plan: "STUDIO",
+          outputs: 2,
+        },
+      ]);
+      const result = await getRootOverview(ctx);
+      const nonZero = result.charts.outputsByPlanLast12Weeks.filter((b) => b.total > 0);
+      expect(nonZero).toHaveLength(1);
+      expect(nonZero[0].counts.STUDIO).toBe(5); // 3 + 2 in the same week
+      expect(nonZero[0].counts.NETWORK).toBe(11);
+      expect(nonZero[0].total).toBe(16);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
