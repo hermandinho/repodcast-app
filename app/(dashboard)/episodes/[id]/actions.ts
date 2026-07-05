@@ -15,6 +15,7 @@ import {
   updateEpisodeTranscript,
   updateEpisodeTranscriptInput,
 } from "@/server/db/episodes";
+import { markPortalFeedbackReadForOutput } from "@/server/db/client-portal";
 import {
   approveOutput,
   listVersionsForOutput,
@@ -57,12 +58,23 @@ export async function updateOutputContentAction(
   }
 
   const auth = await requireAuthContext();
-  const { output, delta } = await updateOutputContent(
-    toTenantContext(auth),
-    outputId,
-    parsed.data.content,
-  );
+  const tenant = toTenantContext(auth);
+  const { output, delta } = await updateOutputContent(tenant, outputId, parsed.data.content);
+  // Editing an output implies the agency saw the client's request and is
+  // addressing it — clear the unread badge for any feedback that targets
+  // this row. Best-effort: a no-op when there's nothing unread, and
+  // never rethrown (the edit already succeeded and shouldn't roll back).
+  let markedFeedback = 0;
+  try {
+    markedFeedback = await markPortalFeedbackReadForOutput(tenant, outputId, auth.member.id);
+  } catch (err) {
+    console.error("markPortalFeedbackReadForOutput failed (edit)", err);
+  }
   revalidatePath(`/episodes/${auth.agency.id}`);
+  // Sidebar's `countUnreadPortalFeedbackForAgency` lives in the root
+  // layout — invalidate it so the badge count reflects reality on the
+  // next render. Skip when nothing changed to avoid needless churn.
+  if (markedFeedback > 0) revalidatePath("/", "layout");
   return noopOk({
     outputId,
     delta,
@@ -92,8 +104,11 @@ export async function approveOutputAction(
 
   // We need the showId to (a) count samples before approval so we can
   // detect a voice-refresh threshold crossing, and (b) include it in the
-  // refresh event. Pull editDistance too so the client can fire a precise
-  // analytics event after approval without a second round-trip.
+  // refresh event. Pull the parent client's validationMode too — in CLIENT
+  // mode `approveOutput` sends the output to the portal (no VoiceSample
+  // written yet), so the refresh event must NOT fire; it only fires when
+  // INTERNAL mode's approve actually wrote a sample. Pull editDistance so
+  // the client can fire a precise analytics event without a second RTT.
   const output = await prisma.generatedOutput.findFirst({
     where: {
       id: outputId,
@@ -101,19 +116,31 @@ export async function approveOutputAction(
     },
     select: {
       editDistance: true,
-      episode: { select: { showId: true } },
+      episode: {
+        select: {
+          showId: true,
+          show: { select: { client: { select: { validationMode: true } } } },
+        },
+      },
     },
   });
   const showId = output?.episode.showId ?? null;
+  const validationMode = output?.episode.show.client.validationMode ?? "INTERNAL";
   const editDistance = output?.editDistance ?? 0;
   const previousSampleCount = showId ? await prisma.voiceSample.count({ where: { showId } }) : 0;
 
   await approveOutput(tenant, outputId, auth.member.id);
 
-  // Voice-description refresh: approve always adds exactly one VoiceSample,
-  // so previous + 1 is the post-approve count. Fire-and-forget; failure to
-  // enqueue must not roll back the approve.
-  if (showId) {
+  // Voice-description refresh: only INTERNAL-mode approvals write a sample
+  // synchronously — CLIENT mode hands off to the portal, and the sample
+  // lands later via `clientApproveOutputFromPortal`. Firing the refresh
+  // for the CLIENT branch would query an empty VoiceSample table and
+  // trip `refresh-voice-description`'s "No approved samples" guard on
+  // the first approval, burning an Inngest run every time. The portal
+  // approve path should dispatch its own refresh once the client
+  // confirms — tracked separately.
+  // Fire-and-forget: an inngest.send failure must not roll back approve.
+  if (showId && validationMode === "INTERNAL") {
     const newSampleCount = previousSampleCount + 1;
     if (crossedVoiceRefreshThreshold(previousSampleCount, newSampleCount)) {
       try {
@@ -155,14 +182,19 @@ export async function regenerateOutputAction(
   }
 
   const auth = await requireAuthContext();
+  const tenant = toTenantContext(auth);
   // Versioning: this creates a NEW GeneratedOutput row (version+1) and stamps
   // the prior row as superseded. The Inngest function must target the new id.
-  const newOutput = await markOutputRegenerating(
-    toTenantContext(auth),
-    outputId,
-    instruction,
-    auth.member.id,
-  );
+  const newOutput = await markOutputRegenerating(tenant, outputId, instruction, auth.member.id);
+  // The client's feedback is attached to the pre-supersede row (`outputId`,
+  // not `newOutput.id`), so clear it here — the agency is regenerating in
+  // direct response to the request. Best-effort; never rethrown.
+  let markedFeedback = 0;
+  try {
+    markedFeedback = await markPortalFeedbackReadForOutput(tenant, outputId, auth.member.id);
+  } catch (err) {
+    console.error("markPortalFeedbackReadForOutput failed (regen)", err);
+  }
 
   // Phase 3.5 — tag with plan + agencyId so `regenerate-output`'s
   // priority.run bumps NETWORK ahead and the per-agency concurrency key
@@ -180,7 +212,55 @@ export async function regenerateOutputAction(
   });
 
   revalidatePath(`/episodes/${auth.agency.id}`);
+  // Sidebar badge revalidation — same rationale as the edit action's
+  // gated invalidation above.
+  if (markedFeedback > 0) revalidatePath("/", "layout");
   return noopOk({ outputId: newOutput.id });
+}
+
+// ============================================================
+// Auto-mark portal feedback read on drawer open
+// ============================================================
+
+/**
+ * Fired from the OutputDrawer on mount. Marks every unread
+ * `ClientPortalFeedback` row targeting this output as read so the
+ * sidebar badge decrements the moment the operator has actually seen
+ * the drafts the client asked to revise. The edit and regenerate
+ * actions carry the same auto-mark; this action covers the "opened
+ * the drawer but didn't change anything yet" path.
+ *
+ * Best-effort, no revalidation of the current page — the drawer is
+ * already open with the correct output data, and re-rendering it mid-
+ * mount would flicker. We do revalidate the root layout so the sidebar
+ * badge count refreshes on the next server round-trip.
+ */
+export async function markOutputFeedbackReadAction(
+  raw: unknown,
+): Promise<ActionResult<{ outputId: string; marked: number }>> {
+  const parsed = idInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid mark-feedback-read input", parsed.error.issues);
+  }
+  const { outputId } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ outputId, marked: 0 });
+
+  const auth = await requireAuthContext();
+  let marked = 0;
+  try {
+    marked = await markPortalFeedbackReadForOutput(toTenantContext(auth), outputId, auth.member.id);
+  } catch (err) {
+    console.error("markPortalFeedbackReadForOutput failed (drawer open)", err);
+    return noopOk({ outputId, marked: 0 });
+  }
+  // Sidebar badge lives in the shared dashboard layout — invalidate the
+  // root so its `countUnreadPortalFeedbackForAgency` re-runs on the next
+  // render. Skip when nothing was actually marked so we don't churn.
+  if (marked > 0) {
+    revalidatePath("/", "layout");
+  }
+  return noopOk({ outputId, marked });
 }
 
 // ============================================================
@@ -233,15 +313,12 @@ export async function rejectOutputAction(
 // Version history (used by the in-card switcher)
 // ============================================================
 
-export type OutputVersionSummary = {
-  id: string;
-  version: number;
-  status: string;
-  content: string;
-  lastInstruction: string | null;
-  createdAt: string;
-  isCurrent: boolean;
-};
+// Canonical definition lives in `./types` so client components can
+// import it without dragging this `"use server"` module through their
+// bundle's type-resolution graph. Re-exported here for existing server
+// callers that already reach for the actions module.
+export type { OutputVersionSummary } from "./types";
+import type { OutputVersionSummary } from "./types";
 
 export async function listOutputVersionsAction(
   raw: unknown,

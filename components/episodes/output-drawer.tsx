@@ -9,8 +9,12 @@ import type { PlatformKey, PlatformMeta } from "@/lib/sample-data/platforms";
 import {
   listOutputVersionsAction,
   markOutputFeedbackReadAction,
-  type OutputVersionSummary,
 } from "@/app/(dashboard)/episodes/[id]/actions";
+// Type-only import kept in a separate `import type` statement pointing at
+// the plain types module (not the `"use server"` actions file). Prevents
+// production Turbopack builds from walking `actions.ts` → `server/db/*`
+// while resolving the type in the client component's bundle.
+import type { OutputVersionSummary } from "@/app/(dashboard)/episodes/[id]/types";
 import {
   markOutputPublishedAction,
   scheduleOutputAction,
