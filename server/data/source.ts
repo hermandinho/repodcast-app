@@ -75,6 +75,7 @@ const STATUS_TO_KEY: Record<string, UiEpisodeStatus> = {
   GENERATING: "generating",
   READY: "ready",
   IN_REVIEW: "review",
+  AWAITING_CLIENT_APPROVAL: "awaiting-client",
   APPROVED: "approved",
   SCHEDULED: "scheduled",
   PUBLISHED: "published",
@@ -410,12 +411,16 @@ export async function listEpisodeFilterOptionsForUI(
 export async function getEpisodeForUI(
   ctx: TenantContext,
   idOrKey: string,
-): Promise<{ show: SampleShow; episode: SampleEpisode } | null> {
+): Promise<{
+  show: SampleShow;
+  episode: SampleEpisode;
+  clientValidationMode: "INTERNAL" | "CLIENT";
+} | null> {
   if (!isLiveDb()) {
     const show = sampleShows.find((s) => s.key === idOrKey);
     const episode = sampleEpisodes[idOrKey];
     if (!show || !episode) return null;
-    return { show, episode };
+    return { show, episode, clientValidationMode: "INTERNAL" };
   }
 
   let episodeRow: Episode | null = null;
@@ -425,7 +430,7 @@ export async function getEpisodeForUI(
     return null;
   }
 
-  const [show, outputs, quality, versionCounts] = await Promise.all([
+  const [show, outputs, quality, versionCounts, clientValidation] = await Promise.all([
     dbGetShow(ctx, episodeRow.showId),
     dbListOutputsForEpisode(ctx, episodeRow.id),
     dbQualityByPlatformForEpisode(ctx, episodeRow.id),
@@ -438,6 +443,12 @@ export async function getEpisodeForUI(
         episode: { show: { client: { agencyId: ctx.agencyId } } },
       },
       _count: { _all: true },
+    }),
+    // Resolve the parent client's validation mode via the episode → show
+    // → client chain. Cheap: one row, indexed lookup.
+    prisma.episode.findFirst({
+      where: { id: episodeRow.id, show: { client: { agencyId: ctx.agencyId } } },
+      select: { show: { select: { client: { select: { validationMode: true } } } } },
     }),
   ]);
 
@@ -461,6 +472,47 @@ export async function getEpisodeForUI(
     for (const row of failureRows) {
       if (!reasonByOutputId.has(row.outputId) && row.note) {
         reasonByOutputId.set(row.outputId, row.note);
+      }
+    }
+  }
+
+  // Derive "client asked for changes" signal: an output is in that state
+  // when its current status is READY AND its most recent OutputTransition
+  // is AWAITING_CLIENT_APPROVAL → READY (the audit trail left by
+  // `clientRequestRevisionFromPortal`). Any subsequent transition
+  // (approve, request review, regen, etc.) supersedes the signal because
+  // the *latest* transition per output row is no longer that pair. Fetch
+  // every transition for the READY outputs in one round-trip and pick
+  // the newest per row in memory — the dataset is tiny (7 platforms × a
+  // handful of transitions each), so a groupBy isn't worth the complexity.
+  const readyOutputIds = outputs.filter((o) => o.status === OutputStatus.READY).map((o) => o.id);
+  const revisionByOutputId = new Map<string, { at: string; note: string | null }>();
+  if (readyOutputIds.length > 0) {
+    const transitions = await prisma.outputTransition.findMany({
+      where: { outputId: { in: readyOutputIds } },
+      orderBy: { createdAt: "desc" },
+      select: {
+        outputId: true,
+        fromStatus: true,
+        toStatus: true,
+        note: true,
+        createdAt: true,
+      },
+    });
+    const latestByOutputId = new Map<string, (typeof transitions)[number]>();
+    for (const t of transitions) {
+      // desc order → first row per outputId is the latest.
+      if (!latestByOutputId.has(t.outputId)) latestByOutputId.set(t.outputId, t);
+    }
+    for (const [outputId, t] of latestByOutputId) {
+      if (
+        t.fromStatus === OutputStatus.AWAITING_CLIENT_APPROVAL &&
+        t.toStatus === OutputStatus.READY
+      ) {
+        revisionByOutputId.set(outputId, {
+          at: t.createdAt.toISOString(),
+          note: t.note,
+        });
       }
     }
   }
@@ -498,24 +550,32 @@ export async function getEpisodeForUI(
         "draft" | "processing" | "ready" | "archived" | "failed",
       failureReason: episodeRow.failureReason ?? null,
     },
-    outputs: outputs.map((o) => ({
-      key: PLATFORM_TO_KEY[o.platform],
-      id: o.id,
-      meta: outputMetaFor(o.platform),
-      status: STATUS_TO_KEY[o.status] ?? "ready",
-      quality: o.quality ?? Math.round(quality[o.platform]?.avg ?? 0),
-      content: o.content,
-      version: o.version,
-      versionCount: versionCountByPlatform.get(o.platform) ?? 1,
-      failureReason: reasonByOutputId.get(o.id) ?? null,
-      scheduledForIso: o.scheduledFor?.toISOString() ?? null,
-      publishedAtIso: o.publishedAt?.toISOString() ?? null,
-      externalScheduler: o.externalScheduler ?? null,
-      externalPostUrl: o.externalPostUrl ?? null,
-    })),
+    outputs: outputs.map((o) => {
+      const revision = revisionByOutputId.get(o.id);
+      return {
+        key: PLATFORM_TO_KEY[o.platform],
+        id: o.id,
+        meta: outputMetaFor(o.platform),
+        status: STATUS_TO_KEY[o.status] ?? "ready",
+        quality: o.quality ?? Math.round(quality[o.platform]?.avg ?? 0),
+        content: o.content,
+        version: o.version,
+        versionCount: versionCountByPlatform.get(o.platform) ?? 1,
+        failureReason: reasonByOutputId.get(o.id) ?? null,
+        scheduledForIso: o.scheduledFor?.toISOString() ?? null,
+        publishedAtIso: o.publishedAt?.toISOString() ?? null,
+        externalScheduler: o.externalScheduler ?? null,
+        externalPostUrl: o.externalPostUrl ?? null,
+        sentToClientAtIso: o.sentToClientAt?.toISOString() ?? null,
+        clientApprovedAtIso: o.clientApprovedAt?.toISOString() ?? null,
+        clientRevisionRequestedAtIso: revision?.at ?? null,
+        clientRevisionNote: revision?.note ?? null,
+      };
+    }),
   };
 
-  return { show: showUI, episode };
+  const clientValidationMode = clientValidation?.show.client.validationMode ?? "INTERNAL";
+  return { show: showUI, episode, clientValidationMode };
 }
 
 const OUTPUT_META_BY_PLATFORM: Record<Platform, string> = {
@@ -624,6 +684,12 @@ export type DashboardData = {
   recent: RecentEpisode[];
   chart: DashboardChartSeriesMap;
   activity: ActivityItem[];
+  /**
+   * Agency-wide count of outputs waiting on the operator's review (READY
+   * or IN_REVIEW). Drives the top "attention strip"; when 0 the strip
+   * collapses so a clean workspace doesn't get a false alert.
+   */
+  pendingReview: number;
 };
 
 type WeeklyPoint = { weekStart: string; generated: number; approved: number };
@@ -664,6 +730,9 @@ export async function getDashboardForUI(ctx: TenantContext): Promise<DashboardDa
         "12 weeks": chartSeries["12 weeks"],
       },
       activity: activityItems,
+      // Sum from the sample-data episode list so the demo shows the
+      // attention strip when the sample workspace has drafts pending.
+      pendingReview: sampleRecentEpisodes.reduce((n, e) => n + e.pendingReviewCount, 0),
     };
   }
 
@@ -710,6 +779,8 @@ export async function getDashboardForUI(ctx: TenantContext): Promise<DashboardDa
     avatarBg: colorForRecent(e.show.name),
     status: STATUS_TO_KEY[e.status] ?? "ready",
     outputs: `${e._count.outputs} outputs`,
+    outputCount: e._count.outputs,
+    pendingReviewCount: e.pendingReviewCount,
   }));
 
   const chart: DashboardChartSeriesMap = {
@@ -723,7 +794,7 @@ export async function getDashboardForUI(ctx: TenantContext): Promise<DashboardDa
   // names in a real workspace's feed).
   const activity = transitions.map(transitionToActivityItem);
 
-  return { kpis, recent, chart, activity };
+  return { kpis, recent, chart, activity, pendingReview: summary.pendingReview };
 }
 
 // ============================================================
@@ -744,6 +815,7 @@ const STATUS_PALETTE: Record<OutputStatus, { color: string; ring: string }> = {
   GENERATING: { color: "#8B95A6", ring: "#EEF1F6" },
   READY: { color: "#3A5BA0", ring: "#EEF2FB" },
   IN_REVIEW: { color: "#A06D12", ring: "#FBF1DE" },
+  AWAITING_CLIENT_APPROVAL: { color: "#3A4A80", ring: "#EEF1FB" },
   APPROVED: { color: "#2E9E5B", ring: "#E7F4EC" },
   SCHEDULED: { color: "#3A5BA0", ring: "#EEF2FB" },
   PUBLISHED: { color: "#2E9E5B", ring: "#E7F4EC" },
@@ -753,11 +825,15 @@ const STATUS_PALETTE: Record<OutputStatus, { color: string; ring: string }> = {
 function transitionVerb(t: OutputStatus, prior: OutputStatus | null): string {
   switch (t) {
     case OutputStatus.APPROVED:
-      return "approved";
+      return prior === OutputStatus.AWAITING_CLIENT_APPROVAL ? "approved by client" : "approved";
     case OutputStatus.IN_REVIEW:
       return prior === OutputStatus.READY ? "sent for review" : "flagged for review";
+    case OutputStatus.AWAITING_CLIENT_APPROVAL:
+      return "sent to client";
     case OutputStatus.READY:
-      return prior === OutputStatus.IN_REVIEW ? "rejected" : "generated";
+      if (prior === OutputStatus.IN_REVIEW) return "rejected";
+      if (prior === OutputStatus.AWAITING_CLIENT_APPROVAL) return "revision requested by client";
+      return "generated";
     case OutputStatus.GENERATING:
       return "started regenerating";
     case OutputStatus.SCHEDULED:

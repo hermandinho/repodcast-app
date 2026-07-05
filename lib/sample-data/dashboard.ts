@@ -35,6 +35,12 @@ export type RecentEpisode = {
   avatarBg: string;
   status: EpisodeStatus;
   outputs: string;
+  /** Total number of current-version outputs. `0` when generation hasn't run
+   *  yet — drives the "No outputs" pill + Generate CTA on the dashboard. */
+  outputCount: number;
+  /** Current-version outputs still waiting on internal review. `> 0` swaps
+   *  the row's pill to "N to review" and its CTA to Review. */
+  pendingReviewCount: number;
 };
 
 export const recentEpisodes: RecentEpisode[] = [
@@ -46,6 +52,8 @@ export const recentEpisodes: RecentEpisode[] = [
     avatarBg: "#3A5BA0",
     status: "review",
     outputs: "7 outputs",
+    outputCount: 7,
+    pendingReviewCount: 4,
   },
   {
     key: "te",
@@ -55,6 +63,8 @@ export const recentEpisodes: RecentEpisode[] = [
     avatarBg: "#2E9E5B",
     status: "approved",
     outputs: "7 outputs",
+    outputCount: 7,
+    pendingReviewCount: 0,
   },
   {
     key: "mt",
@@ -64,6 +74,8 @@ export const recentEpisodes: RecentEpisode[] = [
     avatarBg: "#7A4FB0",
     status: "generating",
     outputs: "5 / 7",
+    outputCount: 5,
+    pendingReviewCount: 0,
   },
   {
     key: "ff",
@@ -73,6 +85,8 @@ export const recentEpisodes: RecentEpisode[] = [
     avatarBg: "#3A5BA0",
     status: "approved",
     outputs: "7 outputs",
+    outputCount: 7,
+    pendingReviewCount: 0,
   },
   {
     key: "te",
@@ -82,6 +96,8 @@ export const recentEpisodes: RecentEpisode[] = [
     avatarBg: "#2E9E5B",
     status: "scheduled",
     outputs: "7 outputs",
+    outputCount: 7,
+    pendingReviewCount: 0,
   },
 ];
 

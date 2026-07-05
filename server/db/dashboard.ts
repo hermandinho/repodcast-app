@@ -232,8 +232,19 @@ export async function weeklyOutputVolume(
 // Recent episodes for the dashboard list
 // ============================================================
 
-export async function recentEpisodes(ctx: TenantContext, limit = 5) {
-  requireReadRole(ctx, READ_ROLES);
+/**
+ * Recent episodes for the dashboard list. Includes an ad-hoc
+ * per-episode `pendingReviewCount` — the number of current-version
+ * outputs still in READY / IN_REVIEW that the operator owes a decision
+ * on. Prisma's `_count` with a where filter only accepts the relation
+ * name (no arbitrary alias), so we resolve the extra count via a
+ * separate `groupBy` and merge in memory rather than fetch full rows.
+ */
+export type RecentEpisodeRow = Awaited<ReturnType<typeof rawRecentEpisodes>>[number] & {
+  pendingReviewCount: number;
+};
+
+async function rawRecentEpisodes(ctx: TenantContext, limit: number) {
   return prisma.episode.findMany({
     where: { show: { client: { agencyId: ctx.agencyId } } },
     orderBy: { createdAt: "desc" },
@@ -243,6 +254,46 @@ export async function recentEpisodes(ctx: TenantContext, limit = 5) {
         select: { name: true, host: true, client: { select: { name: true } } },
       },
       _count: { select: { outputs: true } },
+    },
+  });
+}
+
+export async function recentEpisodes(ctx: TenantContext, limit = 5): Promise<RecentEpisodeRow[]> {
+  requireReadRole(ctx, READ_ROLES);
+  const rows = await rawRecentEpisodes(ctx, limit);
+  if (rows.length === 0) return [];
+
+  const pendingByEpisode = await prisma.generatedOutput.groupBy({
+    by: ["episodeId"],
+    where: {
+      episodeId: { in: rows.map((r) => r.id) },
+      supersededAt: null,
+      status: { in: [OutputStatus.READY, OutputStatus.IN_REVIEW] },
+    },
+    _count: { _all: true },
+  });
+  const pendingLookup = new Map<string, number>(
+    pendingByEpisode.map((r) => [r.episodeId, r._count._all]),
+  );
+
+  return rows.map((r) => ({
+    ...r,
+    pendingReviewCount: pendingLookup.get(r.id) ?? 0,
+  }));
+}
+
+/**
+ * Agency-wide count of outputs the operator still owes a decision on
+ * (current-version READY / IN_REVIEW rows). Powers the dashboard's
+ * top "N outputs waiting for review" strip.
+ */
+export async function pendingReviewCount(ctx: TenantContext): Promise<number> {
+  requireReadRole(ctx, READ_ROLES);
+  return prisma.generatedOutput.count({
+    where: {
+      supersededAt: null,
+      status: { in: [OutputStatus.READY, OutputStatus.IN_REVIEW] },
+      episode: { show: { client: { agencyId: ctx.agencyId } } },
     },
   });
 }
@@ -262,6 +313,7 @@ export async function dashboardSummary(ctx: TenantContext) {
     unedited,
     weekly12,
     recent,
+    pendingReview,
   ] = await Promise.all([
     episodesThisMonth(ctx),
     outputsGeneratedThisMonth(ctx),
@@ -273,6 +325,7 @@ export async function dashboardSummary(ctx: TenantContext) {
     // so the last 8 buckets of the 12-week series ARE the 8-week series.
     weeklyOutputVolume(ctx, 12),
     recentEpisodes(ctx, 5),
+    pendingReviewCount(ctx),
   ]);
   return {
     episodesMonth,
@@ -283,6 +336,7 @@ export async function dashboardSummary(ctx: TenantContext) {
     weekly12,
     recent,
     prior: { episodes: episodesPrior, outputs: outputsPrior },
+    pendingReview,
   };
 }
 
