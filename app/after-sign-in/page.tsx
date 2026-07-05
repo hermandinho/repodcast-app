@@ -17,8 +17,15 @@ import { getOnboardingStateForUser } from "@/server/db/agencies";
  *      (ROOT-only users have no tenant Member row, so the /dashboard gate
  *      would otherwise bounce them into /onboarding, which is nonsense.)
  *   3. Live tenant sub → /dashboard
- *   4. Membership without sub → /onboarding (router picks /plan)
- *   5. No membership at all → /onboarding (router picks /workspace)
+ *   4. Membership without sub, but previously subscribed (canceled /
+ *      expired trial) → /settings/billing. The `/settings/*` allowlist in
+ *      the dashboard layout lets them in without a sub, so they can
+ *      resubscribe or navigate to Agency → Delete workspace. Sending
+ *      them to /onboarding/plan traps them there (the "Continue" CTA on
+ *      the landing header does the same round-trip).
+ *   5. Membership without sub, never subscribed → /onboarding (router
+ *      picks /plan — first-time plan pick uses the onboarding chrome).
+ *   6. No membership at all → /onboarding (router picks /workspace)
  *
  * Wired as `fallbackRedirectUrl` on `<SignIn>` and `<SignUp>`, and used as
  * the "Open dashboard" href on the landing so signed-in users always land
@@ -67,7 +74,13 @@ async function ResolveDestination(): Promise<null> {
     ]);
     if (admin) destination = "/root";
     else if (state.kind === "paying") destination = "/dashboard";
-    // Non-paying / no-membership fall through to /onboarding.
+    else if (state.kind === "no-subscription" && state.hadPriorSubscription) {
+      // Returning canceled subscriber — drop them into Billing so they
+      // can resubscribe or reach the Agency danger zone. The dashboard
+      // layout allowlists `/settings/*` for the no-sub state.
+      destination = "/settings/billing";
+    }
+    // Fresh no-subscription / no-membership fall through to /onboarding.
   } catch {
     // Timeout or DB blip: /onboarding is the safe fallback. Its layout
     // re-runs the state check and forwards paying users to /dashboard on

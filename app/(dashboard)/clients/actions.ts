@@ -2,7 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { assertActiveSubscription, requireAuthContext } from "@/server/auth/context";
 import { ValidationError } from "@/server/auth/errors";
+import { toTenantContext } from "@/server/auth/tenant";
 import {
   createClient as repoCreateClient,
   createClientInput,
@@ -35,7 +37,12 @@ export async function createClientAction(
     return { ok: true, data: { clientId: "demo-new" } };
   }
 
-  const tenant = await resolveTenantContext();
+  // Refuse when the sub is canceled — the dashboard layout gate can't
+  // catch a form submitted after the tab was open when Stripe fired
+  // `subscription.deleted`, so the check has to live at the action.
+  const auth = await requireAuthContext();
+  assertActiveSubscription(auth);
+  const tenant = toTenantContext(auth);
 
   // Onboarding funnel: count BEFORE the create so we can fire
   // `first_client_added` exactly once per agency, not once per create.

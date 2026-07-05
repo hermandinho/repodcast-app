@@ -2,7 +2,7 @@
 
 import { TranscriptSource, type Platform } from "@prisma/client";
 import { z } from "zod";
-import { requireAuthContext } from "@/server/auth/context";
+import { assertActiveSubscription, requireAuthContext } from "@/server/auth/context";
 import { ValidationError } from "@/server/auth/errors";
 import { toTenantContext } from "@/server/auth/tenant";
 import { createEpisode } from "@/server/db/episodes";
@@ -141,6 +141,7 @@ export async function createEpisodeAction(raw: unknown): Promise<CreateEpisodeRe
   }
 
   const auth = await requireAuthContext();
+  assertActiveSubscription(auth);
   const tenant = toTenantContext(auth);
 
   // Phase 3.5 — carry plan + agencyId through the Inngest event so the

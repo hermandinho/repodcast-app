@@ -69,6 +69,16 @@ export default clerkMiddleware(async (auth, req) => {
   if (!isPublicRoute(req)) {
     await auth.protect();
   }
+
+  // Expose the request path to server components so layouts can make
+  // path-aware decisions without hoisting to a client component. The
+  // dashboard layout reads this to whitelist `/settings/*` when the
+  // agency has no active subscription (post-cancel resubscribe / delete
+  // flow) — without it, the paid-only gate bounces the user to
+  // /onboarding/plan the moment their sub is cleared.
+  const res = NextResponse.next();
+  res.headers.set("x-pathname", req.nextUrl.pathname);
+  return res;
 });
 
 export const config = {

@@ -1,18 +1,14 @@
 import Link from "next/link";
-import { MemberRole, Plan } from "@prisma/client";
+import { Plan } from "@prisma/client";
 import { PLAN_DISPLAY, PLAN_ORDER, planLimitsFor, priceFor } from "@/lib/plans";
 import { asSupportedCurrency, DEFAULT_CURRENCY, formatPlanPrice } from "@/lib/currencies";
 import { planCapacity } from "@/server/billing/limits";
-import {
-  costByClient,
-  getAgencyUsageTrend,
-  type ClientCostRollupRow,
-  type UsageTrendBucket,
-} from "@/server/db/client-cost";
 import { isLiveDb } from "@/server/data/source";
 import { resolveTenantContext } from "@/server/data/tenant";
 import { prisma } from "@/server/db/client";
 import { BillingActions } from "@/components/settings/billing-actions";
+import { PlanCTA } from "@/components/settings/plan-cta";
+import { SubscriptionStatusCard } from "@/components/settings/subscription-status-card";
 
 // Module-level helper — extracted so `Date.now()` isn't called inline
 // during render (react-hooks/purity).
@@ -45,7 +41,9 @@ export default async function BillingPage() {
           where: { id: tenant.agencyId },
           select: {
             plan: true,
+            stripeCustomerId: true,
             stripeSubscriptionId: true,
+            subscriptionCancelAt: true,
             preferredCurrency: true,
             trialStatus: true,
             trialEndsAt: true,
@@ -61,6 +59,20 @@ export default async function BillingPage() {
   const trialEndsAt = agency?.trialEndsAt ?? null;
   const isTrialing = trialStatus === "ACTIVE" && trialEndsAt !== null;
   const daysLeft = isTrialing && trialEndsAt ? daysUntil(trialEndsAt) : 0;
+  // Subscription status card modes:
+  //   scheduled — still has a live sub but Stripe will end it on
+  //   `subscriptionCancelAt`. Rendered with a Resume button.
+  //   canceled — sub already gone, but the agency was billed at some
+  //   point (`stripeCustomerId` set). Rendered with a resubscribe hint.
+  //   Neither state renders for brand-new agencies (no customer, no sub).
+  const subCancelAt = agency?.subscriptionCancelAt ?? null;
+  const cancelMode: "scheduled" | "canceled" | null = hasSubscription
+    ? subCancelAt
+      ? "scheduled"
+      : null
+    : agency?.stripeCustomerId
+      ? "canceled"
+      : null;
 
   const live = isLiveDb();
   const [shows, members, episodes, generations, invoices] = live
@@ -84,17 +96,7 @@ export default async function BillingPage() {
       ];
 
   const current = PLAN_DISPLAY[plan];
-  const limits = planLimitsFor(plan);
 
-  const isAdminOrOwner = tenant.role === MemberRole.OWNER || tenant.role === MemberRole.ADMIN;
-  const costRollup: ClientCostRollupRow[] =
-    live && isAdminOrOwner ? await costByClient(tenant) : [];
-  const usageTrend: UsageTrendBucket[] =
-    live && isAdminOrOwner ? await getAgencyUsageTrend(tenant, 30) : [];
-  const monthLabel = new Intl.DateTimeFormat("en-US", {
-    month: "long",
-    year: "numeric",
-  }).format(new Date());
   const chargeDateLabel = trialEndsAt
     ? new Intl.DateTimeFormat("en-US", {
         month: "short",
@@ -190,6 +192,7 @@ export default async function BillingPage() {
             <BillingActions
               currentPlan={plan}
               hasSubscription={hasSubscription}
+              hasScheduledCancel={subCancelAt !== null}
               currency={currency}
             />
           </div>
@@ -212,83 +215,41 @@ export default async function BillingPage() {
         </div>
       </div>
 
-      {/* Non-trial trial-status card (converted/expired/canceled) rendered
-          as a light card below the merged dark strip so users still see the
-          resolution status without the dark treatment. */}
-      {trialStatus !== "NONE" && !isTrialing ? (
+      {/* Subscription lifecycle status. Priority (first match wins):
+          1. Scheduled cancel on an active sub → SubscriptionStatusCard
+             with the effective end-date and a Resume button.
+          2. Fully canceled + (no trial history OR was CONVERTED) →
+             SubscriptionStatusCard with the generic canceled message.
+             This overrides TrialStatusCard for CONVERTED-then-canceled
+             agencies where "you're a paying customer" is stale.
+          3. Trial-specific resolution (CANCELED / EXPIRED) →
+             TrialStatusCard — its message references the $1 activation
+             and other trial details my card doesn't carry. */}
+      {cancelMode === "scheduled" ? (
+        <SubscriptionStatusCard mode="scheduled" cancelAt={subCancelAt} />
+      ) : cancelMode === "canceled" && (trialStatus === "NONE" || trialStatus === "CONVERTED") ? (
+        <SubscriptionStatusCard mode="canceled" cancelAt={null} />
+      ) : trialStatus !== "NONE" && !isTrialing ? (
         <TrialStatusCard status={trialStatus} trialEndsAt={trialEndsAt} plan={plan} />
       ) : null}
 
       {/* Plans grid — 3 cards; current tier gets our-accent border + soft shadow */}
       <div style={{ marginTop: 28 }}>
-        <div className="flex flex-wrap items-baseline justify-between" style={{ gap: 8 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: INK }}>Plans</div>
-          <div style={{ fontSize: 12.5, color: LIGHT_MUTED }}>
-            Monthly cost cap:{" "}
-            <span style={{ fontWeight: 600, color: MUTED }}>
-              ${(limits.monthlyCostCapCents / 100).toFixed(0)} of AI spend / month
-            </span>
-          </div>
-        </div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: INK }}>Plans</div>
 
         <div className="grid grid-cols-1 md:grid-cols-3" style={{ gap: 14, marginTop: 14 }}>
           {PLAN_ORDER.map((p) => (
             <PlanTile
               key={p}
               plan={p}
+              currentPlan={plan}
               currency={currency}
               isCurrent={p === plan}
-              trialEligible={p === Plan.SOLO && trialStatus === "NONE"}
+              hasSubscription={hasSubscription}
             />
           ))}
         </div>
       </div>
-
-      {/* 30-day usage trend — OWNER/ADMIN only */}
-      {isAdminOrOwner ? (
-        <LightCard style={{ marginTop: 28, padding: "24px 28px" }}>
-          <div className="flex flex-wrap items-baseline justify-between" style={{ gap: 12 }}>
-            <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: INK }}>Usage — last 30 days</div>
-              <div style={{ fontSize: 12.5, color: LIGHT_MUTED, marginTop: 3 }}>
-                Daily AI spend + generations across every client.
-              </div>
-            </div>
-            {usageTrend.length > 0 ? (
-              <span
-                style={{
-                  fontFamily: "var(--font-revamp-mono)",
-                  fontSize: 11,
-                  color: LIGHT_MUTED,
-                }}
-              >
-                {usageTrend[0]!.dateIso} → {usageTrend[usageTrend.length - 1]!.dateIso}
-              </span>
-            ) : null}
-          </div>
-          <UsageTrendGraph buckets={usageTrend} />
-        </LightCard>
-      ) : null}
-
-      {/* Cost-to-serve rollup — OWNER/ADMIN only */}
-      {isAdminOrOwner ? (
-        <LightCard style={{ marginTop: 16, padding: "24px 28px" }}>
-          <div className="flex flex-wrap items-baseline justify-between" style={{ gap: 12 }}>
-            <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: INK }}>
-                Cost-to-serve by client
-              </div>
-              <div style={{ fontSize: 12.5, color: LIGHT_MUTED, marginTop: 3 }}>
-                {monthLabel} — what each client cost vs. what they pay. Negative margins surface
-                under-priced clients early.
-              </div>
-            </div>
-          </div>
-          <div style={{ marginTop: 16 }}>
-            <ClientCostRollupTable rows={costRollup} />
-          </div>
-        </LightCard>
-      ) : null}
 
       {/* Invoices */}
       <LightCard style={{ marginTop: 16, padding: "24px 28px" }}>
@@ -449,33 +410,20 @@ function DarkMeter({ label, used, limit }: { label: string; used: number; limit:
 
 function PlanTile({
   plan,
+  currentPlan,
   currency,
   isCurrent,
-  trialEligible,
+  hasSubscription,
 }: {
   plan: Plan;
+  currentPlan: Plan;
   currency: ReturnType<typeof asSupportedCurrency>;
   isCurrent: boolean;
-  trialEligible: boolean;
+  hasSubscription: boolean;
 }) {
   const meta = PLAN_DISPLAY[plan];
-  const priceLabel = `${formatPlanPrice(priceFor(plan, currency ?? DEFAULT_CURRENCY), currency ?? DEFAULT_CURRENCY)}/mo`;
-
-  const ctaLabel = isCurrent
-    ? "Your plan"
-    : trialEligible
-      ? "Start trial"
-      : plan === Plan.SOLO
-        ? "Downgrade"
-        : "Upgrade";
-
-  const ctaBg = isCurrent ? ACCENT_SOFT : plan === Plan.NETWORK && !isCurrent ? INK : "transparent";
-  const ctaColor = isCurrent ? ACCENT : plan === Plan.NETWORK && !isCurrent ? "#fff" : MUTED;
-  const ctaBorder = isCurrent
-    ? "none"
-    : plan === Plan.NETWORK && !isCurrent
-      ? "none"
-      : `1px solid #d4dbe7`;
+  const resolvedCurrency = currency ?? DEFAULT_CURRENCY;
+  const priceLabel = `${formatPlanPrice(priceFor(plan, resolvedCurrency), resolvedCurrency)}/mo`;
 
   return (
     <div
@@ -537,26 +485,14 @@ function PlanTile({
           <span key={h}>{h}</span>
         ))}
       </div>
-      <div
-        className="text-center"
-        style={{
-          marginTop: "auto",
-          paddingTop: 18,
-        }}
-      >
-        <div
-          style={{
-            background: ctaBg,
-            color: ctaColor,
-            border: ctaBorder,
-            borderRadius: 8,
-            padding: "9px",
-            fontWeight: 600,
-            fontSize: 13,
-          }}
-        >
-          {ctaLabel}
-        </div>
+      <div style={{ marginTop: "auto", paddingTop: 18 }}>
+        <PlanCTA
+          plan={plan}
+          currentPlan={currentPlan}
+          isCurrent={isCurrent}
+          hasSubscription={hasSubscription}
+          currency={resolvedCurrency}
+        />
       </div>
     </div>
   );
@@ -642,344 +578,5 @@ function TrialStatusCard({
         </div>
       </div>
     </LightCard>
-  );
-}
-
-function ClientCostRollupTable({ rows }: { rows: ClientCostRollupRow[] }) {
-  if (rows.length === 0) {
-    return (
-      <div
-        style={{
-          padding: "32px 0",
-          textAlign: "center",
-          fontSize: 12.5,
-          color: LIGHT_MUTED,
-        }}
-      >
-        No clients yet — add a client to start seeing cost-to-serve.
-      </div>
-    );
-  }
-
-  const sorted = [...rows].sort((a, b) => {
-    const am = a.marginCents;
-    const bm = b.marginCents;
-    if (am == null && bm == null) return a.name.localeCompare(b.name);
-    if (am == null) return 1;
-    if (bm == null) return -1;
-    return am - bm;
-  });
-
-  return (
-    <div className="overflow-x-auto">
-      <div
-        className="grid"
-        style={{
-          gridTemplateColumns: "2fr 1fr 1fr 1fr 0.7fr",
-          gap: 12,
-          padding: "10px 14px",
-          fontFamily: "var(--font-revamp-mono)",
-          fontSize: 10.5,
-          letterSpacing: "0.1em",
-          color: LIGHT_MUTED,
-          borderBottom: `1px solid ${ROW_BORDER}`,
-        }}
-      >
-        <span>CLIENT</span>
-        <span style={{ textAlign: "right" }}>COST-TO-SERVE</span>
-        <span style={{ textAlign: "right" }}>REVENUE</span>
-        <span style={{ textAlign: "right" }}>MARGIN</span>
-        <span style={{ textAlign: "right" }}>EPISODES</span>
-      </div>
-      {sorted.map((r) => (
-        <ClientCostRow key={r.clientId} row={r} />
-      ))}
-    </div>
-  );
-}
-
-function ClientCostRow({ row }: { row: ClientCostRollupRow }) {
-  const negative = row.marginCents != null && row.marginCents < 0;
-  const noProfile = row.revenueCents == null;
-  const marginColor = noProfile ? LIGHT_MUTED : negative ? "#A06D12" : "#1E7A47";
-
-  return (
-    <div
-      className="grid items-center"
-      style={{
-        gridTemplateColumns: "2fr 1fr 1fr 1fr 0.7fr",
-        gap: 12,
-        padding: 14,
-        fontSize: 13.5,
-        borderBottom: "1px solid #f4f6fa",
-      }}
-    >
-      <div className="flex items-center" style={{ gap: 10 }}>
-        <div
-          className="grid flex-shrink-0 place-items-center"
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: 8,
-            background: ACCENT_SOFT,
-            fontSize: 11,
-            fontWeight: 700,
-            color: ACCENT,
-          }}
-        >
-          {row.name
-            .split(/\s+/)
-            .slice(0, 2)
-            .map((w) => w[0]?.toUpperCase() ?? "")
-            .join("")}
-        </div>
-        <Link
-          href={`/clients/${row.clientId}/billing`}
-          className="no-underline"
-          style={{ color: INK, fontWeight: 600 }}
-        >
-          {row.name}
-        </Link>
-      </div>
-      <span style={{ textAlign: "right", fontFamily: "var(--font-revamp-mono)", fontSize: 13 }}>
-        {formatUsd(row.costCents)}
-      </span>
-      <span style={{ textAlign: "right", color: noProfile ? LIGHT_MUTED : INK }}>
-        {row.revenueCents == null ? (
-          <>
-            —{" "}
-            <Link
-              href={`/clients/${row.clientId}/billing`}
-              className="no-underline"
-              style={{ fontSize: 11.5, color: ACCENT, fontWeight: 600 }}
-            >
-              add
-            </Link>
-          </>
-        ) : (
-          formatUsd(row.revenueCents)
-        )}
-      </span>
-      <span
-        style={{
-          textAlign: "right",
-          fontWeight: 600,
-          color: marginColor,
-          fontFamily: "var(--font-revamp-mono)",
-        }}
-      >
-        {row.marginCents == null
-          ? "—"
-          : (negative ? "−" : "") + formatUsd(Math.abs(row.marginCents))}
-      </span>
-      <span
-        style={{
-          textAlign: "right",
-          fontFamily: "var(--font-revamp-mono)",
-          fontSize: 13,
-          color: MUTED,
-        }}
-      >
-        {row.episodeCountInWindow}
-      </span>
-    </div>
-  );
-}
-
-function formatUsd(cents: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-  }).format(cents / 100);
-}
-
-function UsageTrendGraph({ buckets }: { buckets: UsageTrendBucket[] }) {
-  if (buckets.length === 0) {
-    return (
-      <div
-        style={{
-          border: `1px dashed ${CARD_BORDER}`,
-          background: "#fbfcfe",
-          borderRadius: 10,
-          padding: 32,
-          textAlign: "center",
-          fontSize: 12.5,
-          color: LIGHT_MUTED,
-          marginTop: 18,
-        }}
-      >
-        No AI spend yet — generate an episode to start populating this chart.
-      </div>
-    );
-  }
-
-  const totalCost = buckets.reduce((acc, b) => acc + b.costCents, 0);
-  const totalGens = buckets.reduce((acc, b) => acc + b.generations, 0);
-  const maxCost = Math.max(1, ...buckets.map((b) => b.costCents));
-  const maxGens = Math.max(1, ...buckets.map((b) => b.generations));
-
-  return (
-    <div style={{ marginTop: 18 }}>
-      <div className="grid grid-cols-2 md:grid-cols-4" style={{ gap: 14 }}>
-        <TrendStat label="COST, 30 DAYS" value={formatUsd(totalCost)} />
-        <TrendStat label="GENERATIONS" value={totalGens.toLocaleString()} />
-        <TrendStat
-          label="AVG COST / DAY"
-          value={formatUsd(Math.round(totalCost / buckets.length))}
-        />
-        <TrendStat
-          label="AVG COST / GEN"
-          value={totalGens > 0 ? formatUsd(Math.round(totalCost / totalGens)) : "—"}
-        />
-      </div>
-
-      <div style={{ marginTop: 22 }}>
-        <div className="flex" style={{ gap: 16, fontSize: 12, color: MUTED, marginBottom: 10 }}>
-          <span className="inline-flex items-center" style={{ gap: 6 }}>
-            <span
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: 2,
-                background: ACCENT,
-              }}
-            />
-            Cost / day
-          </span>
-          <span className="inline-flex items-center" style={{ gap: 6 }}>
-            <span
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: 2,
-                background: "#8fd0a8",
-              }}
-            />
-            Generations / day
-          </span>
-        </div>
-        <BarRow buckets={buckets} max={maxCost} valueFor={(b) => b.costCents} color={ACCENT} />
-        <BarRow
-          buckets={buckets}
-          max={maxGens}
-          valueFor={(b) => b.generations}
-          color="#2E9E5B"
-          topSpace
-        />
-        <div
-          className="flex justify-between"
-          style={{
-            fontFamily: "var(--font-revamp-mono)",
-            fontSize: 10,
-            color: LIGHT_MUTED,
-            marginTop: 8,
-          }}
-        >
-          <span>{buckets[0]!.dateIso}</span>
-          <span>{buckets[Math.floor(buckets.length / 3)]!.dateIso}</span>
-          <span>{buckets[Math.floor((buckets.length * 2) / 3)]!.dateIso}</span>
-          <span>{buckets[buckets.length - 1]!.dateIso}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TrendStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div
-      style={{
-        border: `1px solid ${ROW_BORDER}`,
-        borderRadius: 10,
-        padding: "14px 16px",
-      }}
-    >
-      <div
-        style={{
-          fontFamily: "var(--font-revamp-mono)",
-          fontSize: 10,
-          letterSpacing: "0.1em",
-          color: LIGHT_MUTED,
-          fontWeight: 600,
-        }}
-      >
-        {label}
-      </div>
-      <div
-        style={{
-          fontSize: 20,
-          fontWeight: 800,
-          color: INK,
-          marginTop: 6,
-          fontFamily: "var(--font-revamp-sans)",
-        }}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function BarRow({
-  buckets,
-  max,
-  valueFor,
-  color,
-  topSpace = false,
-}: {
-  buckets: UsageTrendBucket[];
-  max: number;
-  valueFor: (b: UsageTrendBucket) => number;
-  color: string;
-  topSpace?: boolean;
-}) {
-  const width = 720;
-  const height = 60;
-  const padX = 8;
-  const barAreaWidth = width - padX * 2;
-  const slotWidth = barAreaWidth / buckets.length;
-  const barWidth = Math.max(2, Math.min(slotWidth * 0.72, 18));
-
-  return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      className="w-full"
-      style={{
-        height: 60,
-        marginTop: topSpace ? 8 : 0,
-        borderBottom: topSpace ? `1px solid ${ROW_BORDER}` : "none",
-      }}
-      role="img"
-      aria-label={`Trend row`}
-    >
-      <line
-        x1={padX}
-        x2={width - padX}
-        y1={height - 2}
-        y2={height - 2}
-        stroke={ROW_BORDER}
-        strokeWidth={1}
-      />
-      {buckets.map((b, i) => {
-        const value = valueFor(b);
-        const h = value === 0 ? 2 : Math.round((value / max) * (height - 6));
-        const cx = padX + slotWidth * i + slotWidth / 2;
-        return (
-          <rect
-            key={b.dateIso}
-            x={cx - barWidth / 2}
-            y={height - 2 - h}
-            width={barWidth}
-            height={h}
-            rx={2}
-            fill={color}
-            opacity={value === 0 ? 0.18 : 0.9}
-          >
-            <title>{`${b.dateIso}: ${value}`}</title>
-          </rect>
-        );
-      })}
-    </svg>
   );
 }

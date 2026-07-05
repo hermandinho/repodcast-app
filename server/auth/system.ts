@@ -1,9 +1,20 @@
 import "server-only";
 
 import { auth, currentUser } from "@clerk/nextjs/server";
+import { isClerkAPIResponseError } from "@clerk/shared/error";
 import type { SystemAdminRole } from "@prisma/client";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/server/db/client";
+
+/** See `server/auth/context.ts:currentUserOrNullIfDeleted` for rationale. */
+async function currentUserOrNullIfDeleted() {
+  try {
+    return await currentUser();
+  } catch (err) {
+    if (isClerkAPIResponseError(err) && err.status === 404) return null;
+    throw err;
+  }
+}
 import { ForbiddenError } from "./errors";
 
 /**
@@ -48,7 +59,7 @@ export async function getSystemAdminContext(): Promise<SystemAdminContext | null
 
   // Clerk + DB lookups are independent — run them concurrently.
   const [user, admin] = await Promise.all([
-    currentUser(),
+    currentUserOrNullIfDeleted(),
     prisma.systemAdmin.findFirst({
       where: { clerkUserId: userId, deactivatedAt: null },
       select: { id: true, role: true, mfaEnforced: true },

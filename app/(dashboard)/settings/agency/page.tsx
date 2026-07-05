@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { MemberRole, Plan } from "@prisma/client";
 import { AgencyNameForm } from "@/components/settings/agency-name-form";
+import { DeleteWorkspaceForm } from "@/components/settings/delete-workspace-form";
 import { RenewalRemindersToggle } from "@/components/settings/renewal-reminders-toggle";
 import { PLAN_DISPLAY, priceFor } from "@/lib/plans";
 import { asSupportedCurrency, DEFAULT_CURRENCY, formatPlanPrice } from "@/lib/currencies";
@@ -49,6 +50,7 @@ export default async function AgencySettingsPage() {
             preferredCurrency: true,
             trialEndsAt: true,
             trialStatus: true,
+            stripeSubscriptionId: true,
           },
         })
         .catch(() => null)
@@ -68,6 +70,13 @@ export default async function AgencySettingsPage() {
   const priceLabel = `${formatPlanPrice(priceFor(plan, currency), currency)}/mo`;
   const trialEndsAt = agency?.trialEndsAt ?? null;
   const isTrialing = agency?.trialStatus === "ACTIVE" && trialEndsAt !== null;
+  // OWNER-only for destructive workspace delete — ADMIN can't nuke a
+  // workspace they were invited to. `hasActiveSubscription` covers both
+  // paid subs and trialing subs; the action refuses either, so we surface
+  // the "cancel first" nudge upfront rather than after a failed submit.
+  const canDeleteWorkspace = role === MemberRole.OWNER;
+  const hasActiveSubscription =
+    agency?.stripeSubscriptionId != null || agency?.trialStatus === "ACTIVE";
 
   return (
     <div style={{ maxWidth: 860, fontFamily: "var(--font-revamp-sans)" }}>
@@ -199,46 +208,10 @@ export default async function AgencySettingsPage() {
         </MetaCard>
       </div>
 
-      {/* Danger zone — UI only for now; delete-workspace action lands in a
-          follow-up (there's no server action yet). */}
-      {canEdit ? (
-        <div
-          className="flex flex-wrap items-center justify-between"
-          style={{
-            border: "1px dashed #e4c5c5",
-            background: "#fdf8f8",
-            borderRadius: 12,
-            padding: "18px 28px",
-            marginTop: 16,
-            gap: 16,
-          }}
-        >
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "#a13c3c" }}>Delete workspace</div>
-            <div style={{ fontSize: 12.5, color: "#b98a8a", marginTop: 2 }}>
-              Removes all clients, shows, and generated content. Irreversible.
-            </div>
-          </div>
-          <button
-            type="button"
-            disabled
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: "#a13c3c",
-              border: "1px solid #e4c5c5",
-              padding: "8px 16px",
-              borderRadius: 8,
-              background: "#fff",
-              cursor: "not-allowed",
-              opacity: 0.7,
-              fontFamily: "inherit",
-            }}
-            title="Delete workflow lands in a follow-up"
-          >
-            Delete…
-          </button>
-        </div>
+      {/* Danger zone — OWNER-only. Delete is gated behind a typed-name
+          confirmation + an active-subscription precheck in the action. */}
+      {canDeleteWorkspace ? (
+        <DeleteWorkspaceForm agencyName={name} hasActiveSubscription={hasActiveSubscription} />
       ) : null}
     </div>
   );

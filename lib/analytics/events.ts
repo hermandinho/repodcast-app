@@ -107,6 +107,21 @@ export type EventMap = {
     cadence: "MONTHLY" | "ANNUAL";
     stripeSubscriptionId: string;
   };
+  /**
+   * In-place plan change on an existing subscription (no fresh Checkout).
+   * Fires server-side from `changePlanAction` right after
+   * `stripe.subscriptions.update` succeeds — so it's a completion signal,
+   * unlike `upgrade_started` which precedes the redirect. `fromTrial: true`
+   * means the sub was `trialing` when the switch happened (early conversion).
+   */
+  plan_switched: {
+    agencyId: string;
+    fromPlan: Plan;
+    toPlan: Plan;
+    cadence: "MONTHLY" | "ANNUAL";
+    currency: string;
+    fromTrial: boolean;
+  };
 
   /**
    * Phase 3.9 — trial funnel (see MarketingStrategy.md §1). Fires server-
@@ -147,6 +162,18 @@ export type EventMap = {
   trial_canceled_early: {
     agencyId: string;
     stripeSubscriptionId: string;
+  };
+
+  /**
+   * Self-service workspace deletion. Fires from `deleteWorkspaceAction`
+   * immediately BEFORE the agency row is dropped — otherwise the event
+   * loses its agency group and dashboards can't attribute the churn.
+   * Gated to agencies with no active Stripe sub (the action refuses
+   * otherwise), so this is a clean churn signal, not a mid-billing tear-down.
+   */
+  workspace_deleted: {
+    agencyId: string;
+    plan: Plan;
   };
 };
 

@@ -12,9 +12,10 @@ import { getSystemConfigValue } from "@/server/db/system/config";
  * (logo images, testimonials) is a schema-migration conversation.
  *
  * When the key is missing OR the stored JSON fails schema validation OR
- * the DB read errors, the landing renders `DEFAULT_TRUSTED_BY` so the
- * hero never falls back to a broken/empty strip. Admins can set
- * `studios: []` explicitly to hide the strip entirely.
+ * the DB read errors, the landing falls back to `DEFAULT_TRUSTED_BY`,
+ * which has an empty studios list — the landing hides the strip entirely
+ * in that case. That's deliberate: showing placeholder studio names on a
+ * real marketing page would misrepresent the customer base.
  */
 
 export const LANDING_TRUSTED_BY_KEY = "LANDING_TRUSTED_BY";
@@ -33,13 +34,9 @@ export type LandingTrustedBy = z.infer<typeof landingTrustedBySchema>;
 
 export const DEFAULT_TRUSTED_BY: Required<Pick<LandingTrustedBy, "heading">> & LandingTrustedBy = {
   heading: "Trusted by growing studios",
-  studios: [
-    { name: "Northwind Audio" },
-    { name: "Tightrope" },
-    { name: "Frequency Lab" },
-    { name: "Open Mic Co." },
-    { name: "Halftone" },
-  ],
+  // Empty by design — see the file header. LandingPage's Hero conditionally
+  // hides the strip when `studios.length === 0`.
+  studios: [],
 };
 
 /**

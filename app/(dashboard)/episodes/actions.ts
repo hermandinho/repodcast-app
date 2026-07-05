@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { Platform } from "@prisma/client";
-import { requireAuthContext } from "@/server/auth/context";
+import { assertActiveSubscription, requireAuthContext } from "@/server/auth/context";
 import { ValidationError } from "@/server/auth/errors";
 import { toTenantContext } from "@/server/auth/tenant";
 import { bulkGenerateEpisodes } from "@/server/db/episodes";
@@ -124,6 +124,7 @@ export async function bulkGenerateEpisodesAction(raw: unknown): Promise<BulkGene
   }
 
   const auth = await requireAuthContext();
+  assertActiveSubscription(auth);
   const tenant = toTenantContext(auth);
   const { dispatches, skippedNotEligible } = await bulkGenerateEpisodes(tenant, parsed.data);
 

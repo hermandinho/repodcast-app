@@ -174,6 +174,19 @@ async function syncSubscription(
     trialUpdate.trialStatus = TrialStatus.CONVERTED;
   }
 
+  // "Cancel scheduled" state — surfaced on /settings/billing with the
+  // effective end-date + a Resume button that flips `cancel_at_period_end`
+  // back to false. Prefer `sub.cancel_at` (Stripe fills this on cancel-
+  // at-period-end); fall back to the item-level `current_period_end` if
+  // the flag is set but `cancel_at` is null (older API responses). Reset
+  // to null when the flag is false so a resumed sub clears the banner.
+  const cancelAt: Date | null =
+    sub.cancel_at !== null && sub.cancel_at !== undefined
+      ? new Date(sub.cancel_at * 1000)
+      : sub.cancel_at_period_end && sub.items.data[0]?.current_period_end
+        ? new Date(sub.items.data[0].current_period_end * 1000)
+        : null;
+
   await prisma.agency.update({
     where: { id: agencyId },
     data: {
@@ -181,6 +194,7 @@ async function syncSubscription(
       billingCadence,
       stripeCustomerId: customerId,
       stripeSubscriptionId: sub.id,
+      subscriptionCancelAt: cancelAt,
       ...trialUpdate,
     },
   });
@@ -345,14 +359,16 @@ async function handleSubscriptionDeleted(sub: Stripe.Subscription): Promise<void
     : undefined;
 
   // Drop to SOLO on cancellation so users keep the lowest-tier limits;
-  // null out the subscription id. Cadence resets to MONTHLY since there's
-  // no live sub to reference.
+  // null out the subscription id + any pending cancel-at marker (the sub
+  // is fully gone, no "scheduled cancel" left to communicate). Cadence
+  // resets to MONTHLY since there's no live sub to reference.
   await prisma.agency.update({
     where: { id: agencyId },
     data: {
       plan: "SOLO",
       billingCadence: "MONTHLY",
       stripeSubscriptionId: null,
+      subscriptionCancelAt: null,
       ...(trialTerminal ? { trialStatus: trialTerminal } : {}),
     },
   });

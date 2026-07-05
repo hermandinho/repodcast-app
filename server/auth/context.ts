@@ -1,11 +1,33 @@
 import "server-only";
 
 import { auth, currentUser } from "@clerk/nextjs/server";
+import { isClerkAPIResponseError } from "@clerk/shared/error";
 import type { MemberRole, Plan, SystemAdminRole, TrialStatus } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { prisma } from "@/server/db/client";
 import { ForbiddenError } from "./errors";
 import { readImpersonationPayload, type ImpersonationMode } from "./impersonation";
+
+/**
+ * `currentUser()` variant that tolerates a stale session — the JWT
+ * cookie can outlive the Clerk user (self-delete via UserProfile,
+ * `deleteWorkspaceAction` deletes the user at the end, admin removes
+ * user via ROOT). When that happens, `auth()` still returns the
+ * `userId` decoded from the cookie but the users API responds 404.
+ * Treat that as "not signed in" so the caller redirects to sign-in
+ * on the next navigation instead of crashing the render.
+ *
+ * We only swallow the 404 — a Clerk outage (5xx) or auth error
+ * should surface loudly.
+ */
+async function currentUserOrNullIfDeleted() {
+  try {
+    return await currentUser();
+  } catch (err) {
+    if (isClerkAPIResponseError(err) && err.status === 404) return null;
+    throw err;
+  }
+}
 
 export type AuthContext = {
   user: {
@@ -110,7 +132,7 @@ export async function getAuthContext(): Promise<AuthContext | null> {
   // stripeSubscriptionId gate in the layout). Both functions must
   // resolve to the SAME row.
   const [user, member] = await Promise.all([
-    currentUser(),
+    currentUserOrNullIfDeleted(),
     prisma.member.findFirst({
       where: { clerkUserId: userId },
       orderBy: [{ role: "asc" }, { updatedAt: "desc" }],
@@ -256,6 +278,29 @@ export function assertRole(ctx: AuthContext, allowed: readonly MemberRole[]): vo
   if (!allowed.includes(ctx.member.role)) {
     throw new ForbiddenError(
       `Role ${ctx.member.role} is not allowed (need one of: ${allowed.join(", ")})`,
+    );
+  }
+}
+
+/**
+ * Refuse write actions when the agency has no live Stripe subscription
+ * — canceled subs land here, since the webhook nulls
+ * `stripeSubscriptionId` on `customer.subscription.deleted`. Trialing
+ * subs still count as live (Stripe issues a subscription id at trial
+ * start), so this doesn't block the free-trial flow.
+ *
+ * Placed alongside `assertRole` so create/mutate server actions can
+ * gate in one call before touching the DB. The dashboard layout also
+ * bounces canceled users to `/settings/billing`, but layouts don't run
+ * for server-action POSTs — the form the user submitted might have
+ * been open when Stripe canceled the sub, and without this gate the
+ * write would still succeed and then bounce the user to Billing on
+ * the redirect.
+ */
+export function assertActiveSubscription(ctx: AuthContext): void {
+  if (!ctx.agency.stripeSubscriptionId) {
+    throw new ForbiddenError(
+      "Your subscription isn't active. Resume it (or pick a plan) in Settings → Billing before creating new content.",
     );
   }
 }

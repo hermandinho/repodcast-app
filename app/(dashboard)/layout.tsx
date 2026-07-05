@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { ImpersonationBanner } from "@/components/dashboard/impersonation-banner";
 import { TrialBanner } from "@/components/dashboard/trial-banner";
@@ -23,7 +24,11 @@ function formatShortDate(d: Date): string {
  *   1. Signed in and belongs to an agency? If not → /onboarding (the
  *      router decides between workspace vs plan substep).
  *   2. Agency carries a Stripe `stripeSubscriptionId`? If not → same,
- *      the router forwards to /onboarding/plan.
+ *      the router forwards to /onboarding/plan. `/settings/*` is
+ *      exempt so a user whose subscription was just canceled can still
+ *      reach Billing (to resubscribe) or the Agency danger zone (to
+ *      delete the workspace); otherwise the moment the Stripe webhook
+ *      nulls `stripeSubscriptionId` they'd be trapped in onboarding.
  *
  * Sample-data mode skips both — the demo tenant is always "set up".
  *
@@ -33,9 +38,11 @@ function formatShortDate(d: Date): string {
  */
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const auth = isLiveDb() ? await getAuthContext() : null;
+  const pathname = isLiveDb() ? ((await headers()).get("x-pathname") ?? "") : "";
+  const isSettingsPath = pathname.startsWith("/settings");
   if (isLiveDb()) {
     if (!auth) redirect("/onboarding");
-    if (!auth.agency.stripeSubscriptionId) redirect("/onboarding");
+    if (!auth.agency.stripeSubscriptionId && !isSettingsPath) redirect("/onboarding");
   }
 
   return (

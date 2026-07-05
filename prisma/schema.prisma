@@ -203,6 +203,14 @@ model Agency {
   /// Stripe customer, enforced in `checkoutFromOnboardingAction`.
   trialEndsAt             DateTime?
   trialStatus             TrialStatus    @default(NONE)
+  /// Populated by `syncSubscription` when Stripe reports
+  /// `cancel_at_period_end: true` — the timestamp equals
+  /// `subscription.cancel_at` (falling back to the item-level
+  /// `current_period_end`). Non-null means "subscription is scheduled
+  /// to cancel"; `/settings/billing` surfaces the date + a Resume
+  /// button that flips the Stripe flag back to false. Cleared on
+  /// resume and on final subscription deletion.
+  subscriptionCancelAt    DateTime?
   createdAt               DateTime       @default(now())
   updatedAt               DateTime       @updatedAt
 

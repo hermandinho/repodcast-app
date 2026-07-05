@@ -62,35 +62,35 @@ export async function Topbar() {
       </div>
 
       <div className="ml-auto flex flex-shrink-0 items-center" style={{ gap: 12 }}>
-        <Link
-          href="/episodes/new"
-          aria-label="New episode"
-          className="inline-flex items-center no-underline transition-[filter] hover:brightness-95"
-          style={{
-            background: "var(--color-accent)",
-            color: "#ffffff",
-            fontWeight: 600,
-            fontSize: 13.5,
-            padding: "9px 16px",
-            borderRadius: 8,
-            gap: 7,
-            fontFamily: "inherit",
-          }}
-        >
-          <svg
-            width="13"
-            height="13"
-            viewBox="0 0 13 13"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            aria-hidden
-          >
-            <path d="M6.5 2.5v8M2.5 6.5h8" />
-          </svg>
-          <span className="hidden sm:inline">New episode</span>
-        </Link>
+        {/*<Link*/}
+        {/*  href="/episodes/new"*/}
+        {/*  aria-label="New episode"*/}
+        {/*  className="inline-flex items-center no-underline transition-[filter] hover:brightness-95"*/}
+        {/*  style={{*/}
+        {/*    background: "var(--color-accent)",*/}
+        {/*    color: "#ffffff",*/}
+        {/*    fontWeight: 600,*/}
+        {/*    fontSize: 13.5,*/}
+        {/*    padding: "9px 16px",*/}
+        {/*    borderRadius: 8,*/}
+        {/*    gap: 7,*/}
+        {/*    fontFamily: "inherit",*/}
+        {/*  }}*/}
+        {/*>*/}
+        {/*  <svg*/}
+        {/*    width="13"*/}
+        {/*    height="13"*/}
+        {/*    viewBox="0 0 13 13"*/}
+        {/*    fill="none"*/}
+        {/*    stroke="currentColor"*/}
+        {/*    strokeWidth="2"*/}
+        {/*    strokeLinecap="round"*/}
+        {/*    aria-hidden*/}
+        {/*  >*/}
+        {/*    <path d="M6.5 2.5v8M2.5 6.5h8" />*/}
+        {/*  </svg>*/}
+        {/*  <span className="hidden sm:inline">New episode</span>*/}
+        {/*</Link>*/}
         <UserButton
           appearance={{
             elements: {

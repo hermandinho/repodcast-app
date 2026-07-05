@@ -8,9 +8,14 @@ import { isLiveDb } from "@/server/data/source";
  *
  * Reads the user's onboarding state and forwards to the right substep:
  *
- *   no membership → /onboarding/workspace     (create the Agency)
- *   no subscription → /onboarding/plan        (Stripe Checkout)
- *   paying         → /dashboard              (done — Stripe webhook landed)
+ *   no membership                 → /onboarding/workspace (create the Agency)
+ *   no sub, never subscribed      → /onboarding/plan      (first-time Stripe pick)
+ *   no sub, was subscribed before → /settings/billing     (resubscribe or delete)
+ *   paying                        → /dashboard            (done)
+ *
+ * The returning-subscriber branch avoids the trap where a canceled user
+ * bookmarking /onboarding gets round-tripped back to /onboarding/plan —
+ * they can now reach the Agency danger zone via Settings.
  *
  * The layout gate above already redirected unauthenticated users to
  * /sign-in, so by the time we get here we always have a Clerk session.
@@ -39,6 +44,7 @@ export default async function OnboardingRouter({
     case "no-membership":
       redirect(`/onboarding/workspace${suffix}`);
     case "no-subscription":
+      if (state.hadPriorSubscription) redirect("/settings/billing");
       redirect(`/onboarding/plan${suffix}`);
     case "paying":
       redirect("/dashboard");

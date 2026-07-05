@@ -49,7 +49,7 @@ export const KNOWN_SYSTEM_CONFIG: readonly KnownConfigEntry[] = [
       "Studios listed under the hero on the marketing landing page. Operators edit this without a redeploy.",
     readAt: "lib/landing-trusted-by.ts",
     defaultBehavior:
-      "Renders a placeholder set of studio names so the strip isn't broken — replace on a real deployment before launch.",
+      "Strip is hidden when the key is unset. Configure it to publish a studio list — placeholder names never leak to real visitors.",
     example: DEFAULT_TRUSTED_BY,
     revalidatePaths: ["/"],
   },

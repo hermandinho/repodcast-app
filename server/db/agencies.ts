@@ -159,8 +159,14 @@ export async function userHasAnyMembership(clerkUserId: string): Promise<boolean
  * Returns:
  *  - `{ kind: "no-membership" }` — user hasn't created an agency yet →
  *    /onboarding/workspace
- *  - `{ kind: "no-subscription", agencyId, agencyName }` — has agency but
- *    no live Stripe sub → /onboarding/plan
+ *  - `{ kind: "no-subscription", agencyId, agencyName, hadPriorSubscription }`
+ *    — has agency but no live Stripe sub. `hadPriorSubscription` distinguishes
+ *    a brand-new user who hasn't yet picked a plan (→ /onboarding/plan) from
+ *    a returning user who canceled or let their trial expire (→
+ *    /settings/billing, so they can either resubscribe or reach the danger
+ *    zone to delete). Signalled by a non-null `stripeCustomerId`, which
+ *    Stripe stamps on the very first Checkout Session — the same marker the
+ *    trial-eligibility gate uses.
  *  - `{ kind: "paying", agencyId, agencyName }` — sub is live → /dashboard
  *
  * Scoped to the user's oldest agency, matching every other "which agency
@@ -168,7 +174,12 @@ export async function userHasAnyMembership(clerkUserId: string): Promise<boolean
  */
 export type OnboardingStateForUser =
   | { kind: "no-membership" }
-  | { kind: "no-subscription"; agencyId: string; agencyName: string }
+  | {
+      kind: "no-subscription";
+      agencyId: string;
+      agencyName: string;
+      hadPriorSubscription: boolean;
+    }
   | { kind: "paying"; agencyId: string; agencyName: string };
 
 export async function getOnboardingStateForUser(
@@ -183,7 +194,14 @@ export async function getOnboardingStateForUser(
     where: { clerkUserId },
     orderBy: [{ role: "asc" }, { updatedAt: "desc" }],
     select: {
-      agency: { select: { id: true, name: true, stripeSubscriptionId: true } },
+      agency: {
+        select: {
+          id: true,
+          name: true,
+          stripeSubscriptionId: true,
+          stripeCustomerId: true,
+        },
+      },
     },
   });
   if (!member) return { kind: "no-membership" };
@@ -191,7 +209,12 @@ export async function getOnboardingStateForUser(
   if (agency.stripeSubscriptionId) {
     return { kind: "paying", agencyId: agency.id, agencyName: agency.name };
   }
-  return { kind: "no-subscription", agencyId: agency.id, agencyName: agency.name };
+  return {
+    kind: "no-subscription",
+    agencyId: agency.id,
+    agencyName: agency.name,
+    hadPriorSubscription: agency.stripeCustomerId !== null,
+  };
 }
 
 /**

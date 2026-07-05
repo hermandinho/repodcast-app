@@ -2,7 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { assertActiveSubscription, requireAuthContext } from "@/server/auth/context";
 import { ValidationError } from "@/server/auth/errors";
+import { toTenantContext } from "@/server/auth/tenant";
 import {
   createShow as repoCreateShow,
   createShowInput,
@@ -31,7 +33,9 @@ export async function createShowAction(raw: unknown): Promise<ActionResult<{ sho
     return { ok: true, data: { showId: "demo-new" } };
   }
 
-  const tenant = await resolveTenantContext();
+  const auth = await requireAuthContext();
+  assertActiveSubscription(auth);
+  const tenant = toTenantContext(auth);
   const show = await repoCreateShow(tenant, parsed.data);
   revalidatePath("/shows");
   revalidatePath("/clients", "layout");
