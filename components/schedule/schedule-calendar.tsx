@@ -30,9 +30,14 @@ type CalendarEntry = CalendarOutput & { anchorDate: Date };
 export function ScheduleCalendar({
   outputs,
   monthIso,
+  emptyHint = null,
 }: {
   outputs: CalendarOutput[];
   monthIso: string;
+  /** Optional single-line note shown above the grid when the current
+   *  month has no scheduled/published outputs. Keeps the calendar and
+   *  its next/prev controls visible so the user can navigate away. */
+  emptyHint?: string | null;
 }) {
   const monthStart = useMemo(() => new Date(monthIso), [monthIso]);
   const [drawerKey, setDrawerKey] = useState<string | null>(null);
@@ -101,6 +106,12 @@ export function ScheduleCalendar({
           </Link>
         </div>
       </div>
+
+      {emptyHint && (
+        <div className="border-border bg-surface text-muted mb-3 rounded-2xl border px-4 py-3 text-[12.5px]">
+          {emptyHint}
+        </div>
+      )}
 
       <div className="border-border grid grid-cols-7 overflow-hidden rounded-2xl border">
         {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (

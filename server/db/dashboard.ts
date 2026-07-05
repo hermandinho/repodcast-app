@@ -84,9 +84,29 @@ export async function outputsGeneratedPriorMonth(ctx: TenantContext): Promise<nu
 }
 
 /**
- * Approval rate = approved ÷ (approved + ready + in_review) — looks only at
- * outputs that have reached a reviewable state. Generating + failed don't
- * count.
+ * "Past-approval" statuses — every state a row can be in after the
+ * internal team has signed off. Once approved, a row can be scheduled
+ * and then published; both count as "approved" for KPI purposes.
+ *
+ * `AWAITING_CLIENT_APPROVAL` is deliberately excluded — the internal
+ * team has passed it on but the client's decision is still pending, so
+ * it isn't fully approved yet. This matches the KPI strip on
+ * `/episodes/[id]`.
+ */
+const PAST_APPROVAL_STATUSES = [
+  OutputStatus.APPROVED,
+  OutputStatus.SCHEDULED,
+  OutputStatus.PUBLISHED,
+] as const;
+
+/**
+ * Approval rate = past-approval ÷ (past-approval + ready + in_review +
+ * awaiting-client) — looks only at outputs that have reached a
+ * reviewable state. Generating + failed don't count.
+ *
+ * We count anything the internal team has already approved, not just
+ * the momentary `APPROVED` status, so the rate doesn't rewind to 0 as
+ * scheduled / published rows accumulate.
  */
 export async function approvalRate(ctx: TenantContext): Promise<number> {
   requireReadRole(ctx, READ_ROLES);
@@ -94,13 +114,20 @@ export async function approvalRate(ctx: TenantContext): Promise<number> {
     prisma.generatedOutput.count({
       where: {
         episode: { show: { client: { agencyId: ctx.agencyId } } },
-        status: OutputStatus.APPROVED,
+        status: { in: [...PAST_APPROVAL_STATUSES] },
       },
     }),
     prisma.generatedOutput.count({
       where: {
         episode: { show: { client: { agencyId: ctx.agencyId } } },
-        status: { in: [OutputStatus.APPROVED, OutputStatus.READY, OutputStatus.IN_REVIEW] },
+        status: {
+          in: [
+            ...PAST_APPROVAL_STATUSES,
+            OutputStatus.READY,
+            OutputStatus.IN_REVIEW,
+            OutputStatus.AWAITING_CLIENT_APPROVAL,
+          ],
+        },
       },
     }),
   ]);
@@ -114,6 +141,12 @@ export async function approvalRate(ctx: TenantContext): Promise<number> {
  * Levenshtein distance of every in-place edit), which 1.9 added — superseded
  * the prior `version == 1` proxy that mis-classified edited-then-approved
  * v1 rows as untouched.
+ *
+ * Counts every past-approval status (not just the momentary `APPROVED`)
+ * so the KPI doesn't collapse to 0 once scheduled / published rows
+ * accumulate. The `editDistance` field lives on the row itself and
+ * survives status transitions, so an approved-then-published row still
+ * reports its accumulated edit distance.
  */
 export async function percentPostedUnedited(ctx: TenantContext): Promise<number> {
   requireReadRole(ctx, READ_ROLES);
@@ -121,13 +154,13 @@ export async function percentPostedUnedited(ctx: TenantContext): Promise<number>
     prisma.generatedOutput.count({
       where: {
         episode: { show: { client: { agencyId: ctx.agencyId } } },
-        status: OutputStatus.APPROVED,
+        status: { in: [...PAST_APPROVAL_STATUSES] },
       },
     }),
     prisma.generatedOutput.count({
       where: {
         episode: { show: { client: { agencyId: ctx.agencyId } } },
-        status: OutputStatus.APPROVED,
+        status: { in: [...PAST_APPROVAL_STATUSES] },
         editDistance: 0,
       },
     }),

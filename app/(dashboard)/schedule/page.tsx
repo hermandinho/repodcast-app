@@ -43,18 +43,19 @@ export default async function SchedulePage({
           </p>
         </div>
 
-        {outputs.length === 0 ? (
-          <div className="border-border bg-surface flex flex-col items-center justify-center gap-2 rounded-3xl border p-12 text-center">
-            <div className="font-display text-ink text-[16px] font-semibold">
-              Nothing scheduled this month.
-            </div>
-            <div className="text-muted text-[13px]">
-              Approve outputs on your episodes to add them to the calendar.
-            </div>
-          </div>
-        ) : (
-          <ScheduleCalendar outputs={outputs} monthIso={monthStart.toISOString()} />
-        )}
+        {/* Always render the calendar — the next/prev/Today controls live
+            inside it. Bug fix: the previous code swapped the calendar for
+            an "empty" card when the month had zero outputs, which stranded
+            the user with no way to navigate to a different month. */}
+        <ScheduleCalendar
+          outputs={outputs}
+          monthIso={monthStart.toISOString()}
+          emptyHint={
+            outputs.length === 0
+              ? "Nothing scheduled this month — approve outputs on your episodes to add them to the calendar."
+              : null
+          }
+        />
       </div>
     </div>
   );
