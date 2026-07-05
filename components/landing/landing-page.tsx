@@ -1,23 +1,26 @@
 import Link from "next/link";
 import { PricingPicker } from "@/components/pricing/pricing-picker";
 import { DEFAULT_TRUSTED_BY, type LandingTrustedBy } from "@/lib/landing-trusted-by";
-import { ClientPicker } from "./client-picker";
 import { FAQAccordion } from "./faq-accordion";
 import { LandingFooter } from "./footer";
 import { LandingNav } from "./nav";
 
 /**
- * Marketing landing (Phase 3.1). Layout mirrors
- * `ref/UI/Landing/Repodcast Landing.dc.html`.
+ * Marketing landing (revamp per ref/UI/Revamp/Landings.html option 1a
+ * "Polished light — Stripe-grade refinement of the current structure").
  *
- * Everything below renders server-side except the two interactive client
- * components (`<ClientPicker>`, `<FAQAccordion>`) — initial frames are
- * server-rendered too, so the page is hydration-shift-free.
+ * Section order mirrors the ref exactly: Hero (with inline product
+ * mock), TrustedBy strip, Problem (heading + stat grid), HowItWorks
+ * (three numbered steps), VoiceEngine (dark navy band with traits
+ * card), Outputs (seven format tiles + accent chip), SocialProof
+ * (testimonials — kept from the previous revision, adds trust beyond
+ * the ref's scope), Pricing, FAQ, FinalCTA.
  *
- * Styling note: marketing-surface tokens (mint, deep-ink, etc.) are
- * inlined as hex values rather than Tailwind classes — the landing has
- * its own palette and the inline-style pattern matches the dashboard's
- * defensive approach so a stale Tailwind cache can't break the visual.
+ * Color note: every ref accent-blue (`#2e5bff`) is intentionally mapped
+ * to `var(--color-accent)` so the workspace brand color drives the page
+ * instead of the ref's placeholder blue. Dark navy `#0A1E3C` is treated
+ * as a neutral surface color (used for section backgrounds only) and is
+ * unchanged.
  */
 export function LandingPage({
   isSignedIn = false,
@@ -25,21 +28,20 @@ export function LandingPage({
 }: {
   isSignedIn?: boolean;
   /**
-   * Managed from `/root/config` under the `LANDING_TRUSTED_BY` key. Server
-   * fetch + fallback lives in `lib/landing-trusted-by.ts`; the landing page
-   * itself just renders what it's given.
+   * Managed from `/root/config` under the `LANDING_TRUSTED_BY` key.
+   * Server fetch + fallback lives in `lib/landing-trusted-by.ts`; the
+   * landing page itself just renders what it's given.
    */
   trustedBy?: LandingTrustedBy & { heading: string };
 }) {
   return (
-    <div className="w-full overflow-x-hidden">
+    <div className="w-full overflow-x-hidden bg-white">
       <LandingNav isSignedIn={isSignedIn} />
-      <Hero isSignedIn={isSignedIn} trustedBy={trustedBy} />
+      <Hero isSignedIn={isSignedIn} />
+      <TrustedBy trustedBy={trustedBy} />
       <Problem />
       <HowItWorks />
       <VoiceEngine />
-      <Pillars />
-      <Compare />
       <Outputs />
       <SocialProof />
       <Pricing isSignedIn={isSignedIn} />
@@ -50,62 +52,37 @@ export function LandingPage({
   );
 }
 
-/* ============================================================
-   Hero
-   ============================================================ */
+// ============================================================
+// Palette + shared type ramp
+// ============================================================
+// Match the ref's specific ink / muted / border scales verbatim so the
+// visual system stays coherent when future sections extend the file.
+const INK = "#0A1E3C";
+const MUTED = "#41506B";
+const MUTED_2 = "#8A97AD";
+const MUTED_3 = "#B0BACB";
+const BORDER = "#E4E9F1";
+const BORDER_SOFT = "#EEF1F6";
+const CANVAS = "#F6F8FC";
 
-function Hero({
-  isSignedIn,
-  trustedBy,
-}: {
-  isSignedIn: boolean;
-  trustedBy: LandingTrustedBy & { heading: string };
-}) {
+// ============================================================
+// Hero
+// ============================================================
+
+function Hero({ isSignedIn }: { isSignedIn: boolean }) {
   return (
     <section
-      className="relative overflow-hidden"
-      style={{
-        background: "linear-gradient(180deg,#fff 0%,#FBFCFE 100%)",
-        borderBottom: "1px solid #ECEEF3",
-      }}
+      className="px-14 pt-[76px] pb-16"
+      style={{ background: `linear-gradient(180deg,#fff 0%,${CANVAS} 100%)` }}
     >
       <div
-        className="pointer-events-none absolute"
-        style={{
-          top: "-160px",
-          right: "-120px",
-          width: 520,
-          height: 520,
-          borderRadius: "50%",
-          background: "radial-gradient(circle,rgba(58,91,160,0.10) 0%,rgba(58,91,160,0) 70%)",
-          animation: "floaty 9s ease-in-out infinite",
-        }}
-      />
-      <div
-        className="pointer-events-none absolute inset-0"
-        style={{
-          backgroundImage: "radial-gradient(#1A2A4A 0.8px, transparent 0.8px)",
-          backgroundSize: "24px 24px",
-          opacity: 0.035,
-        }}
-      />
-      <div
-        className="relative mx-auto grid items-center gap-14 px-7 lg:gap-14"
-        style={{
-          maxWidth: 1180,
-          paddingTop: 60,
-          paddingBottom: 52,
-          gridTemplateColumns: "1.02fr 0.98fr",
-        }}
+        className="mx-auto grid items-center gap-14"
+        style={{ maxWidth: 1180, gridTemplateColumns: "1.05fr 0.95fr" }}
       >
         <div>
           <div
-            className="mb-[26px] text-[12px] font-medium uppercase"
-            style={{
-              fontFamily: "var(--font-mono)",
-              letterSpacing: "0.14em",
-              color: "#3A5BA0",
-            }}
+            className="mb-5 font-mono text-[12px] font-semibold uppercase"
+            style={{ letterSpacing: "0.14em", color: "var(--color-accent)" }}
           >
             For podcast agencies
           </div>
@@ -113,59 +90,52 @@ function Hero({
             className="m-0"
             style={{
               fontFamily: "var(--font-display)",
-              fontWeight: 700,
-              fontSize: 56,
-              lineHeight: 1.05,
-              letterSpacing: "-0.035em",
-              color: "#1A2A4A",
-              marginBottom: 24,
+              fontSize: 58,
+              lineHeight: 1.04,
+              fontWeight: 800,
+              letterSpacing: "-0.03em",
+              color: INK,
             }}
           >
             Sounds exactly like you.
             <br />
-            Gets better every episode.
+            <span style={{ color: MUTED_2 }}>Gets better every episode.</span>
           </h1>
           <p
-            className="m-0"
+            className="m-0 mt-6 mb-8"
             style={{
-              fontSize: "18.5px",
+              fontSize: 18,
               lineHeight: 1.6,
-              color: "#5A6473",
-              maxWidth: 478,
-              marginBottom: 36,
-              letterSpacing: "-0.01em",
+              color: MUTED,
+              maxWidth: 480,
             }}
           >
             Turn every client episode into platform-ready content — X threads, LinkedIn posts, show
             notes, and more — written in your client&apos;s exact voice, in under 60 seconds.
           </p>
-          <div className="mb-[22px] flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <Link
               href={isSignedIn ? "/after-sign-in" : "/pricing"}
-              className="rounded-[9px] text-[15px] font-medium no-underline transition-colors"
-              style={{
-                background: "#1A2A4A",
-                color: "#FFFFFF",
-                padding: "13px 24px",
-              }}
+              className="rounded-[9px] text-[15px] font-semibold text-white no-underline transition-[filter] hover:brightness-110"
+              style={{ background: INK, padding: "13px 24px" }}
             >
               {isSignedIn ? "Continue" : "Get started"}
             </Link>
-            <Link
+            <a
               href="#voice"
-              className="rounded-[9px] text-[15px] font-medium no-underline transition-colors"
+              className="rounded-[9px] text-[15px] font-semibold no-underline"
               style={{
-                background: "#FFFFFF",
-                color: "#1A2A4A",
-                padding: "13px 24px",
-                border: "1px solid #DDE2EC",
+                background: "#fff",
+                color: INK,
+                border: `1px solid #D4DBE7`,
+                padding: "12px 22px",
               }}
             >
               See the voice engine
-            </Link>
+            </a>
           </div>
           {!isSignedIn && (
-            <p className="m-0 text-[13px]" style={{ color: "#9AA3B2", letterSpacing: 0 }}>
+            <p className="mt-4 text-[13px]" style={{ color: MUTED_2 }}>
               Monthly or annual · Cancel any time · 5 currencies
             </p>
           )}
@@ -173,326 +143,224 @@ function Hero({
 
         <HeroProductPanel />
       </div>
-
-      {/* Logo strip — admin sets `studios: []` in the LANDING_TRUSTED_BY
-          SystemConfig row to hide it entirely. */}
-      {trustedBy.studios.length > 0 && (
-        <div style={{ borderTop: "1px solid #ECEEF3" }}>
-          <div
-            className="mx-auto flex flex-wrap items-center gap-10 px-7 py-[22px]"
-            style={{ maxWidth: 1180 }}
-          >
-            <span
-              className="text-[11px] font-medium uppercase"
-              style={{
-                fontFamily: "var(--font-mono)",
-                color: "#A6AEBC",
-                letterSpacing: "0.1em",
-              }}
-            >
-              {trustedBy.heading}
-            </span>
-            <div className="flex flex-wrap items-center gap-[34px]" style={{ opacity: 0.65 }}>
-              {trustedBy.studios.map((s) => {
-                const label = (
-                  <span
-                    className="text-[15px] font-semibold"
-                    style={{
-                      fontFamily: "var(--font-display)",
-                      color: "#7E8799",
-                    }}
-                  >
-                    {s.name}
-                  </span>
-                );
-                return s.href ? (
-                  <Link
-                    key={s.name}
-                    href={s.href}
-                    className="no-underline"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {label}
-                  </Link>
-                ) : (
-                  <span key={s.name}>{label}</span>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
     </section>
   );
 }
 
+/**
+ * Product-mock panel shown alongside the hero copy. Static — no data
+ * wiring — but every internal state (voice pill, waveform, format tabs,
+ * copy body, action row) mirrors the actual /episodes/[id] drawer so a
+ * visitor's first impression matches what they see once they sign in.
+ */
 function HeroProductPanel() {
-  const heroSeed = [
-    5, 9, 14, 7, 20, 11, 26, 16, 30, 12, 22, 8, 18, 28, 13, 24, 10, 32, 15, 7, 19, 29, 12, 23, 9,
-    17, 27, 14, 21, 6, 16, 25, 11, 30, 13, 8, 20, 15, 10, 18,
-  ];
+  // Deterministic waveform heights so the mock renders identically on
+  // every render (no random paint on hydration).
+  const wave = [10, 18, 26, 14, 22, 9, 24, 16, 28, 12, 20, 8, 23, 15, 11];
   return (
     <div
-      className="overflow-hidden"
+      className="overflow-hidden rounded-[14px] bg-white"
       style={{
-        border: "1px solid #E4E8F0",
-        borderRadius: 14,
-        background: "#FFFFFF",
-        boxShadow: "0 24px 60px -28px rgba(26,42,74,0.28)",
+        border: `1px solid ${BORDER}`,
+        boxShadow: "0 24px 60px -20px rgba(10,30,60,.18)",
       }}
     >
-      {/* Header row */}
       <div
-        className="flex items-center justify-between"
-        style={{
-          padding: "14px 18px",
-          borderBottom: "1px solid #EEF0F5",
-          background: "#FBFCFE",
-        }}
+        className="flex items-center justify-between px-[18px] py-[14px]"
+        style={{ borderBottom: `1px solid ${BORDER_SOFT}` }}
       >
+        <span className="font-mono text-[11px]" style={{ color: MUTED_2, letterSpacing: "0.06em" }}>
+          EP 41 · THE FOUNDER&apos;S CUT
+        </span>
         <span
-          className="text-[11px]"
+          className="rounded-full px-[10px] py-1 text-[11px] font-semibold"
           style={{
-            fontFamily: "var(--font-mono)",
-            color: "#9AA3B2",
-            letterSpacing: "0.04em",
+            background: "var(--color-accent-soft)",
+            color: "var(--color-accent)",
           }}
         >
-          EP 47 · The Founder&apos;s Cut
+          Voice: Strong
         </span>
-        <div
-          className="inline-flex items-center gap-[7px] rounded-md"
-          style={{ background: "#EAF7F0", padding: "5px 10px" }}
-        >
-          <span className="flex items-end gap-[1.5px]">
-            <span style={{ width: 2.5, height: 6, background: "#1F8A5B", borderRadius: 1 }} />
-            <span style={{ width: 2.5, height: 9, background: "#1F8A5B", borderRadius: 1 }} />
-            <span style={{ width: 2.5, height: 12, background: "#1F8A5B", borderRadius: 1 }} />
-          </span>
-          <span className="text-[11.5px] font-semibold" style={{ color: "#1F8A5B" }}>
-            Voice: Strong
-          </span>
-        </div>
       </div>
-
-      {/* Dark audio band */}
-      <div
-        className="flex items-center gap-[14px]"
-        style={{
-          padding: "14px 18px",
-          borderBottom: "1px solid #EEF0F5",
-          background: "#0F1B33",
-        }}
-      >
-        <span
-          className="flex h-[30px] w-[30px] flex-shrink-0 items-center justify-center rounded-full"
-          style={{ background: "#3A5BA0" }}
+      <div className="flex items-center gap-[10px] px-[18px] py-4">
+        <div
+          className="grid h-[34px] w-[34px] place-items-center rounded-full text-[12px] text-white"
+          style={{ background: "var(--color-accent)" }}
         >
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="#fff">
-            <path d="M2 1.2 9.3 5.5 2 9.8z" />
-          </svg>
-        </span>
-        <div className="flex flex-1 items-center gap-[2px]" style={{ height: 34 }}>
-          {heroSeed.map((h, i) => (
-            <span
+          ▶
+        </div>
+        <div className="flex h-[30px] flex-1 items-center gap-[2.5px]">
+          {wave.map((h, i) => (
+            <div
               key={i}
+              className="w-[3px] rounded-[2px]"
               style={{
-                width: 3,
                 height: h,
-                borderRadius: 2,
-                background: "#5B7FD0",
-                transformOrigin: "center",
-                animation: "eq 1.4s ease-in-out infinite",
-                animationDelay: `${((i % 9) * 0.1).toFixed(2)}s`,
+                background: i % 2 === 0 ? "var(--color-accent)" : "#C6D3EC",
               }}
             />
           ))}
         </div>
-        <span
-          className="flex-shrink-0 text-[11px]"
-          style={{ fontFamily: "var(--font-mono)", color: "#7E8BA8" }}
-        >
-          52:14
-        </span>
       </div>
-
-      {/* Tabs */}
-      <div className="flex" style={{ borderBottom: "1px solid #EEF0F5", padding: "0 8px" }}>
+      <div className="flex gap-[6px] px-[18px] pb-3">
         <span
-          className="text-[12.5px] font-semibold"
-          style={{
-            color: "#1A2A4A",
-            padding: "11px 12px",
-            borderBottom: "2px solid #1A2A4A",
-          }}
+          className="rounded-[7px] px-[12px] py-[6px] text-[12px] font-semibold text-white"
+          style={{ background: INK }}
         >
           LinkedIn
         </span>
-        {["X thread", "Show notes", "+4"].map((t) => (
-          <span
-            key={t}
-            className="text-[12.5px] font-medium"
-            style={{ color: "#9AA3B2", padding: "11px 12px" }}
-          >
-            {t}
-          </span>
-        ))}
+        <span className="px-[12px] py-[6px] text-[12px] font-semibold" style={{ color: MUTED_2 }}>
+          X thread
+        </span>
+        <span className="px-[12px] py-[6px] text-[12px] font-semibold" style={{ color: MUTED_2 }}>
+          Show notes
+        </span>
+        <span className="px-[12px] py-[6px] text-[12px] font-semibold" style={{ color: MUTED_2 }}>
+          +4
+        </span>
       </div>
-
-      {/* Body */}
-      <div style={{ padding: "20px 20px 18px" }}>
-        <p
-          className="m-0"
-          style={{
-            fontSize: "14.5px",
-            lineHeight: 1.62,
-            color: "#2A3445",
-            marginBottom: 16,
-          }}
-        >
-          Most founders don&apos;t have a growth problem. They have a focus problem. This week: why
-          saying no to a great opportunity is the highest-leverage move you&apos;ll make all quarter
-          — and why it never gets easier. 👇
-        </p>
-        <div
-          className="flex items-center justify-between"
-          style={{ borderTop: "1px solid #F0F2F6", paddingTop: 14 }}
-        >
+      <div
+        className="mx-[18px] rounded-[10px] p-4 text-[13.5px] leading-[1.65]"
+        style={{
+          background: CANVAS,
+          border: `1px solid ${BORDER_SOFT}`,
+          color: "#2C3A52",
+        }}
+      >
+        Most founders don&apos;t have a growth problem. They have a focus problem. This week: why
+        saying no to a great opportunity is the highest-leverage thing you&apos;ll make all quarter
+        — and why it never gets easier.
+      </div>
+      <div className="flex items-center justify-between px-[18px] pt-[14px] pb-[18px]">
+        <span className="font-mono text-[11px]" style={{ color: MUTED_3 }}>
+          generated in 48s
+        </span>
+        <div className="flex gap-2">
           <span
-            className="text-[11px]"
-            style={{ fontFamily: "var(--font-mono)", color: "#9AA3B2" }}
+            className="rounded-[7px] px-[14px] py-[7px] text-[12px] font-semibold"
+            style={{ border: `1px solid #D4DBE7`, color: MUTED }}
           >
-            generated in 48s
+            Tweak
           </span>
-          <div className="flex gap-2">
-            <span
-              className="rounded-md text-[12px] font-semibold"
-              style={{ background: "#EAF7F0", color: "#1F8A5B", padding: "6px 12px" }}
-            >
-              Approve
-            </span>
-            <span
-              className="rounded-md text-[12px] font-medium"
-              style={{ background: "#F4F6FA", color: "#5A6473", padding: "6px 12px" }}
-            >
-              Tweak
-            </span>
-          </div>
+          <span
+            className="rounded-[7px] px-[14px] py-[7px] text-[12px] font-semibold text-white"
+            style={{ background: "var(--color-accent)" }}
+          >
+            Approve
+          </span>
         </div>
       </div>
     </div>
   );
 }
 
-/* ============================================================
-   Section helpers
-   ============================================================ */
+// ============================================================
+// TrustedBy — thin studio-logos strip between hero and problem
+// ============================================================
 
-function Kicker({ children, color = "#9AA3B2" }: { children: React.ReactNode; color?: string }) {
+function TrustedBy({ trustedBy }: { trustedBy: LandingTrustedBy & { heading: string } }) {
+  if (trustedBy.studios.length === 0) return null;
   return (
     <div
-      className="mb-5 text-[12px] font-medium uppercase"
+      className="px-14 py-[22px]"
       style={{
-        fontFamily: "var(--font-mono)",
-        letterSpacing: "0.14em",
-        color,
+        background: "#fff",
+        borderTop: `1px solid ${BORDER_SOFT}`,
+        borderBottom: `1px solid ${BORDER_SOFT}`,
       }}
     >
-      {children}
+      <div className="mx-auto flex flex-wrap items-center gap-11" style={{ maxWidth: 1180 }}>
+        <span
+          className="font-mono text-[11px] font-medium uppercase"
+          style={{ letterSpacing: "0.12em", color: MUTED_2 }}
+        >
+          {trustedBy.heading}
+        </span>
+        {trustedBy.studios.map((s) => {
+          const label = (
+            <span
+              className="text-[15px] font-bold"
+              style={{ color: MUTED_3, fontFamily: "var(--font-display)" }}
+            >
+              {s.name}
+            </span>
+          );
+          return s.href ? (
+            <Link
+              key={s.name}
+              href={s.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="no-underline"
+            >
+              {label}
+            </Link>
+          ) : (
+            <span key={s.name}>{label}</span>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-function H2({
-  children,
-  color = "#1A2A4A",
-  size = 38,
-}: {
-  children: React.ReactNode;
-  color?: string;
-  size?: number;
-}) {
-  return (
-    <h2
-      className="m-0"
-      style={{
-        fontFamily: "var(--font-display)",
-        fontWeight: 700,
-        fontSize: size,
-        lineHeight: 1.12,
-        letterSpacing: "-0.03em",
-        color,
-      }}
-    >
-      {children}
-    </h2>
-  );
-}
-
-/* ============================================================
-   Problem
-   ============================================================ */
+// ============================================================
+// Problem
+// ============================================================
 
 function Problem() {
+  const stats = [
+    {
+      value: "6–9h",
+      caption: "to manually repurpose one episode across platforms",
+    },
+    {
+      value: "3+",
+      caption: "edit rounds to get a freelancer draft to sound like the client",
+    },
+    {
+      value: "$40–70",
+      caption: "per episode in contractor time — before you've posted",
+    },
+  ];
   return (
-    <section
-      className="px-7 py-[72px]"
-      style={{ background: "#FFFFFF", borderBottom: "1px solid #ECEEF3" }}
-    >
+    <section className="px-14 py-[88px]" style={{ background: "#fff" }}>
       <div
-        className="mx-auto grid items-start gap-16"
-        style={{ maxWidth: 1180, gridTemplateColumns: "0.85fr 1.15fr" }}
+        className="mx-auto grid gap-16"
+        style={{ maxWidth: 1180, gridTemplateColumns: "1fr 1fr" }}
       >
         <div>
           <Kicker>The problem</Kicker>
           <H2>Content doesn&apos;t scale with your client count.</H2>
-          <p className="m-0 mt-5" style={{ fontSize: 17, lineHeight: 1.64, color: "#5A6473" }}>
-            Every new show means more posts, more platforms, more &quot;make it sound like
-            them.&quot; So you hire VAs, juggle freelancers, and still rewrite everything yourself
+          <p
+            className="m-0 mt-[18px] text-[16px] leading-[1.65]"
+            style={{ color: MUTED, maxWidth: 420 }}
+          >
+            Every new show means more posts, more platforms, more &ldquo;make it sound like
+            them.&rdquo; So you hire VAs, juggle freelancers, and still rewrite everything yourself
             at 11pm. The work grows linearly. Your margins don&apos;t.
           </p>
         </div>
         <div
-          className="grid overflow-hidden"
+          className="grid overflow-hidden rounded-[12px]"
           style={{
-            gridTemplateColumns: "1fr 1fr 1fr",
-            border: "1px solid #E8EBF1",
-            borderRadius: 14,
+            gridTemplateColumns: "repeat(3,1fr)",
+            gap: 1,
+            background: BORDER,
+            border: `1px solid ${BORDER}`,
           }}
         >
-          {[
-            { value: "6–9h", body: "to manually repurpose one episode across platforms." },
-            {
-              value: "3+",
-              body: "edit rounds to get a freelancer draft to sound like the client.",
-            },
-            { value: "$40–70", body: "per episode in contractor time — before you've posted." },
-          ].map((s, i) => (
-            <div
-              key={s.value}
-              style={{
-                padding: "32px 26px",
-                borderRight: i < 2 ? "1px solid #EEF0F5" : "none",
-              }}
-            >
+          {stats.map((s) => (
+            <div key={s.value} className="bg-white px-[22px] py-[26px]">
               <div
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontWeight: 700,
-                  fontSize: 32,
-                  color: "#1A2A4A",
-                  letterSpacing: "-0.02em",
-                }}
+                className="text-[34px] font-extrabold"
+                style={{ letterSpacing: "-0.02em", color: INK }}
               >
                 {s.value}
               </div>
-              <p
-                className="m-0 mt-[10px]"
-                style={{ fontSize: 14, color: "#5A6473", lineHeight: 1.5 }}
-              >
-                {s.body}
-              </p>
+              <div className="mt-2 text-[13px] leading-[1.5]" style={{ color: MUTED }}>
+                {s.caption}
+              </div>
             </div>
           ))}
         </div>
@@ -501,91 +369,74 @@ function Problem() {
   );
 }
 
-/* ============================================================
-   How it works
-   ============================================================ */
+// ============================================================
+// How it works
+// ============================================================
 
 function HowItWorks() {
+  const steps = [
+    {
+      num: "01",
+      title: "Drop in a transcript",
+      body: "Paste text, upload audio, or connect an RSS feed or YouTube link. We handle the rest.",
+      tags: ["paste", "audio", "rss"],
+      highlight: false,
+    },
+    {
+      num: "02",
+      title: "Get content in their voice",
+      body: "A full set of platform-ready posts, written in that specific client's voice — not generic AI copy.",
+      tags: ["7 formats", "< 60s"],
+      highlight: false,
+    },
+    {
+      num: "03",
+      title: "Approve, and it sharpens",
+      body: "Every post you approve teaches the voice engine. The next episode comes back closer to perfect.",
+      tags: ["voice +8% this week"],
+      highlight: true,
+    },
+  ];
   return (
-    <section
-      id="how"
-      className="px-7 py-[72px]"
-      style={{ background: "#FBFCFE", borderBottom: "1px solid #ECEEF3" }}
-    >
+    <section id="how" className="px-14 pb-[88px]" style={{ background: "#fff" }}>
       <div className="mx-auto" style={{ maxWidth: 1180 }}>
-        <div className="mb-10" style={{ maxWidth: 620 }}>
-          <Kicker>How it works</Kicker>
-          <H2>From transcript to a full content set in three steps.</H2>
-        </div>
-        <div
-          className="grid overflow-hidden"
-          style={{
-            gridTemplateColumns: "repeat(3,1fr)",
-            gap: 1,
-            background: "#E8EBF1",
-            border: "1px solid #E8EBF1",
-            borderRadius: 14,
-          }}
-        >
-          {[
-            {
-              n: "01",
-              title: "Drop in a transcript",
-              body: "Paste text, upload audio, or connect an RSS feed or YouTube link. We handle the rest.",
-              tags: ["paste", "audio", "rss", "youtube"],
-              tagAccent: false,
-            },
-            {
-              n: "02",
-              title: "Get content in their voice",
-              body: "A full set of platform-ready posts, written in that specific client's voice — not generic AI copy.",
-              tags: ["7 formats", "< 60s"],
-              tagAccent: false,
-            },
-            {
-              n: "03",
-              title: "Approve, and it sharpens",
-              body: "Every post you approve teaches the voice engine. The next episode comes back closer to perfect.",
-              tags: ["voice +2% this week"],
-              tagAccent: true,
-            },
-          ].map((step) => (
-            <div key={step.n} style={{ background: "#FFFFFF", padding: "36px 30px" }}>
-              <div
-                className="mb-[26px] text-[13px] font-medium"
-                style={{ fontFamily: "var(--font-mono)", color: "#3A5BA0" }}
-              >
-                {step.n}
+        <Kicker>How it works</Kicker>
+        <H2 maxWidth={560}>From transcript to a full content set in three steps.</H2>
+
+        <div className="mt-10 grid" style={{ gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
+          {steps.map((s) => (
+            <div
+              key={s.num}
+              className="rounded-[12px] p-[26px]"
+              style={{
+                border: `1px solid ${BORDER}`,
+                background: s.highlight ? CANVAS : "#fff",
+              }}
+            >
+              <div className="font-mono text-[12px]" style={{ color: MUTED_2 }}>
+                {s.num}
               </div>
-              <h3
-                className="m-0 mb-[11px]"
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontWeight: 600,
-                  fontSize: 20,
-                  color: "#1A2A4A",
-                  letterSpacing: "-0.02em",
-                }}
-              >
-                {step.title}
-              </h3>
-              <p className="m-0 mb-5" style={{ fontSize: 15, lineHeight: 1.6, color: "#5A6473" }}>
-                {step.body}
+              <div className="mt-3 mb-2 text-[19px] font-bold" style={{ color: INK }}>
+                {s.title}
+              </div>
+              <p className="m-0 text-[14px] leading-[1.6]" style={{ color: MUTED }}>
+                {s.body}
               </p>
-              <div className="flex flex-wrap gap-[7px]">
-                {step.tags.map((t) => (
+              <div className="mt-4 flex flex-wrap gap-[6px]">
+                {s.tags.map((tag) => (
                   <span
-                    key={t}
-                    className="rounded-md text-[11.5px] font-medium"
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      color: step.tagAccent ? "#1F8A5B" : "#5A6473",
-                      background: step.tagAccent ? "#EAF7F0" : "transparent",
-                      border: step.tagAccent ? "none" : "1px solid #E4E8F0",
-                      padding: "5px 10px",
-                    }}
+                    key={tag}
+                    className="rounded-full px-[10px] py-[4px] font-mono text-[11px]"
+                    style={
+                      s.highlight
+                        ? {
+                            background: "var(--color-accent-soft)",
+                            color: "var(--color-accent)",
+                          }
+                        : { background: "#F1F4F9", color: MUTED }
+                    }
                   >
-                    {t}
+                    {tag}
                   </span>
                 ))}
               </div>
@@ -597,271 +448,162 @@ function HowItWorks() {
   );
 }
 
-/* ============================================================
-   Voice Engine
-   ============================================================ */
+// ============================================================
+// Voice engine — dark band
+// ============================================================
 
 function VoiceEngine() {
+  const traits = [
+    "Short, declarative opener",
+    "Drops one contrarian take early",
+    "Ends with a soft CTA, never salesy",
+    'Never uses "game-changer"',
+  ];
   return (
-    <section
-      id="voice"
-      className="relative overflow-hidden px-7 py-[76px]"
-      style={{ background: "#1A2A4A", borderBottom: "1px solid #1A2A4A" }}
-    >
+    <section id="voice" className="px-14 py-[80px] text-white" style={{ background: INK }}>
       <div
-        className="pointer-events-none absolute"
-        style={{
-          top: "-140px",
-          left: "-120px",
-          width: 480,
-          height: 480,
-          borderRadius: "50%",
-          background: "radial-gradient(circle,rgba(58,91,160,0.30) 0%,rgba(58,91,160,0) 70%)",
-          animation: "floaty 9s ease-in-out infinite",
-        }}
-      />
-      <svg
-        className="pointer-events-none absolute"
-        style={{ top: "-60px", right: "-60px", opacity: 0.5 }}
-        width="360"
-        height="360"
-        viewBox="0 0 360 360"
-        fill="none"
-        stroke="#3A5BA0"
-        strokeWidth="1"
+        className="mx-auto grid items-center gap-16"
+        style={{ maxWidth: 1180, gridTemplateColumns: "1fr 1fr" }}
       >
-        <circle cx="180" cy="180" r="60" strokeOpacity="0.5" />
-        <circle cx="180" cy="180" r="105" strokeOpacity="0.35" />
-        <circle cx="180" cy="180" r="150" strokeOpacity="0.22" />
-        <circle cx="180" cy="180" r="178" strokeOpacity="0.12" />
-      </svg>
-      <div
-        className="pointer-events-none absolute inset-0"
-        style={{
-          backgroundImage: "radial-gradient(#5B7FD0 0.8px, transparent 0.8px)",
-          backgroundSize: "26px 26px",
-          opacity: 0.04,
-        }}
-      />
-      <div className="relative mx-auto" style={{ maxWidth: 1180 }}>
-        <div className="mb-[38px]" style={{ maxWidth: 660 }}>
-          <Kicker color="#7FA0E0">The Voice Engine</Kicker>
-          <h2
-            className="m-0"
-            style={{
-              fontFamily: "var(--font-display)",
-              fontWeight: 700,
-              fontSize: 42,
-              lineHeight: 1.08,
-              letterSpacing: "-0.035em",
-              color: "#FFFFFF",
-              marginBottom: 18,
-            }}
+        <div>
+          <div
+            className="mb-4 font-mono text-[12px] font-semibold uppercase"
+            style={{ letterSpacing: "0.14em", color: "var(--color-accent-soft)" }}
+          >
+            The voice engine
+          </div>
+          <div
+            className="text-[38px] font-extrabold"
+            style={{ letterSpacing: "-0.02em", lineHeight: 1.12 }}
           >
             It learns each client, one approval at a time.
-          </h2>
+          </div>
           <p
-            className="m-0"
-            style={{
-              fontSize: "17.5px",
-              lineHeight: 1.6,
-              color: "#A9B6D4",
-            }}
+            className="m-0 mt-[18px] text-[16px] leading-[1.65]"
+            style={{ color: "#A9B8D4", maxWidth: 440 }}
           >
             A separate voice model per client — trained on their words, their cadence, their pet
             phrases. The more you use it, the stronger the match.
           </p>
+          <div className="mt-8 flex items-center gap-7">
+            <div>
+              <div className="text-[26px] font-extrabold">38</div>
+              <div className="mt-1 text-[12.5px]" style={{ color: "#A9B8D4" }}>
+                approved posts in this voice
+              </div>
+            </div>
+            <div className="h-[36px] w-px" style={{ background: "rgba(255,255,255,0.12)" }} />
+            <div>
+              <div
+                className="text-[26px] font-extrabold"
+                style={{ color: "var(--color-accent-soft)" }}
+              >
+                Strong
+              </div>
+              <div className="mt-1 text-[12.5px]" style={{ color: "#A9B8D4" }}>
+                voice strength, month over month
+              </div>
+            </div>
+          </div>
         </div>
 
-        <ClientPicker />
-      </div>
-    </section>
-  );
-}
-
-/* ============================================================
-   Pillars
-   ============================================================ */
-
-function Pillars() {
-  const pillars = [
-    {
-      title: "In your client's voice, not the AI's.",
-      body: "Per-client voice models mean every post reads like the host wrote it — not like a chatbot. No more “make it sound human” passes.",
-      icon: (
-        <svg
-          width="26"
-          height="26"
-          viewBox="0 0 26 26"
-          fill="none"
-          stroke="#3A5BA0"
-          strokeWidth="1.6"
-        >
-          <circle cx="13" cy="13" r="3.5" />
-          <circle cx="13" cy="13" r="8" />
-          <circle cx="13" cy="13" r="12.2" strokeOpacity="0.4" />
-        </svg>
-      ),
-    },
-    {
-      title: "Built for agencies, full stop.",
-      body: "Manage every client from one place. White-label the output, route drafts through an approval workflow, and keep each voice walled off.",
-      icon: (
-        <svg
-          width="26"
-          height="26"
-          viewBox="0 0 26 26"
-          fill="none"
-          stroke="#3A5BA0"
-          strokeWidth="1.6"
-        >
-          <rect x="2" y="3" width="22" height="5" rx="1.5" />
-          <rect x="2" y="10.5" width="22" height="5" rx="1.5" strokeOpacity="0.7" />
-          <rect x="2" y="18" width="22" height="5" rx="1.5" strokeOpacity="0.4" />
-        </svg>
-      ),
-    },
-    {
-      title: "Gets better the more you use it.",
-      body: "Approvals feed straight back into the model. Month three takes a fraction of the edits month one did — and it compounds per client.",
-      icon: (
-        <svg
-          width="26"
-          height="26"
-          viewBox="0 0 26 26"
-          fill="none"
-          stroke="#3A5BA0"
-          strokeWidth="1.6"
-        >
-          <polyline points="2,20 9,13 14,17 24,5" strokeLinecap="round" strokeLinejoin="round" />
-          <polyline points="17,5 24,5 24,12" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      ),
-    },
-  ];
-
-  return (
-    <section
-      className="px-7 py-[72px]"
-      style={{ background: "#FFFFFF", borderBottom: "1px solid #ECEEF3" }}
-    >
-      <div className="mx-auto" style={{ maxWidth: 1180 }}>
         <div
-          className="grid overflow-hidden"
+          className="rounded-[14px] p-[22px]"
           style={{
-            gridTemplateColumns: "repeat(3,1fr)",
-            gap: 1,
-            background: "#E8EBF1",
-            border: "1px solid #E8EBF1",
-            borderRadius: 14,
+            background: "rgba(255,255,255,0.05)",
+            border: "1px solid rgba(255,255,255,0.10)",
           }}
         >
-          {pillars.map((p) => (
-            <div key={p.title} style={{ background: "#FFFFFF", padding: "38px 32px" }}>
-              <div style={{ marginBottom: 22 }}>{p.icon}</div>
-              <h3
-                className="m-0 mb-[11px]"
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontWeight: 600,
-                  fontSize: 20,
-                  color: "#1A2A4A",
-                  letterSpacing: "-0.02em",
-                }}
+          <div
+            className="mb-[14px] font-mono text-[11px]"
+            style={{ letterSpacing: "0.12em", color: "var(--color-accent-soft)" }}
+          >
+            LEARNED TRAITS · THE FOUNDER&apos;S CUT
+          </div>
+          <div className="flex flex-col gap-[10px]">
+            {traits.map((t) => (
+              <div
+                key={t}
+                className="flex items-center gap-[10px] text-[14px]"
+                style={{ color: "#DBE4F5" }}
               >
-                {p.title}
-              </h3>
-              <p className="m-0" style={{ fontSize: "14.5px", lineHeight: 1.62, color: "#5A6473" }}>
-                {p.body}
-              </p>
-            </div>
-          ))}
+                <span
+                  className="h-[6px] w-[6px] rounded-full"
+                  style={{ background: "var(--color-accent)" }}
+                />
+                {t}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </section>
   );
 }
 
-/* ============================================================
-   Outputs
-   ============================================================ */
+// ============================================================
+// Outputs — every format
+// ============================================================
 
 function Outputs() {
-  const outputs = [
-    { name: "X / Twitter thread", platform: "x.com", badge: "𝕏", color: "#000000" },
-    { name: "LinkedIn post", platform: "linkedin", badge: "in", color: "#0A66C2" },
-    { name: "Instagram caption", platform: "instagram", badge: "◎", color: "#C5318B" },
-    { name: "TikTok script", platform: "tiktok", badge: "♪", color: "#111111" },
-    { name: "Show notes", platform: "episode page", badge: "✎", color: "#3A5BA0" },
-    { name: "Blog post", platform: "long-form", badge: "¶", color: "#1A2A4A" },
-    { name: "Newsletter", platform: "email", badge: "✉", color: "#5B7FD0" },
+  const tiles = [
+    { badge: "X", title: "X thread", sub: "8–12 posts", bg: INK, fg: "#fff" },
+    {
+      badge: "in",
+      title: "LinkedIn post",
+      sub: "long-form",
+      bg: "var(--color-accent)",
+      fg: "#fff",
+    },
+    { badge: "Ig", title: "Instagram caption", sub: "+ hashtags", bg: MUTED, fg: "#fff" },
+    { badge: "Tk", title: "TikTok script", sub: "60–90s", bg: INK, fg: "#fff" },
+    { badge: "≡", title: "Show notes", sub: "episode page", bg: MUTED, fg: "#fff" },
+    { badge: "B", title: "Blog post", sub: "SEO-ready", bg: "var(--color-accent)", fg: "#fff" },
+    { badge: "✉", title: "Newsletter", sub: "email-ready", bg: INK, fg: "#fff" },
   ];
   return (
-    <section
-      className="px-7 py-[72px]"
-      style={{ background: "#FBFCFE", borderBottom: "1px solid #ECEEF3" }}
-    >
+    <section className="px-14 py-[88px]" style={{ background: "#fff" }}>
       <div className="mx-auto" style={{ maxWidth: 1180 }}>
-        <div className="mb-9 flex flex-wrap items-end justify-between gap-6">
-          <div style={{ maxWidth: 560 }}>
+        <div className="flex items-end justify-between gap-6">
+          <div>
             <Kicker>Every output, every episode</Kicker>
             <H2>One transcript. Seven formats.</H2>
           </div>
-          <div
-            className="text-[15px] font-bold"
-            style={{ fontFamily: "var(--font-display)", color: "#3A5BA0" }}
-          >
-            7× the output, one drop-in.
+          <div className="pb-1 text-[14px]" style={{ color: MUTED_2 }}>
+            7× the output, one draft pass
           </div>
         </div>
-        <div className="grid gap-[14px]" style={{ gridTemplateColumns: "repeat(4,1fr)" }}>
-          {outputs.map((o) => (
+        <div className="mt-9 grid" style={{ gridTemplateColumns: "repeat(4,1fr)", gap: 14 }}>
+          {tiles.map((t) => (
             <div
-              key={o.name}
-              className="flex items-center gap-[13px] transition-all hover:-translate-y-[2px]"
-              style={{
-                background: "#FFFFFF",
-                border: "1px solid #E8EBF1",
-                borderRadius: 12,
-                padding: 22,
-              }}
+              key={t.title}
+              className="flex items-center gap-3 rounded-[10px] p-[18px]"
+              style={{ border: `1px solid ${BORDER}` }}
             >
-              <span
-                className="flex h-[38px] w-[38px] flex-shrink-0 items-center justify-center rounded-[9px] text-[14px] font-bold text-white"
-                style={{ background: o.color }}
+              <div
+                className="grid h-[34px] w-[34px] place-items-center rounded-[8px] text-[13px] font-extrabold"
+                style={{ background: t.bg, color: t.fg }}
               >
-                {o.badge}
-              </span>
+                {t.badge}
+              </div>
               <div>
-                <div className="font-semibold" style={{ fontSize: "14.5px", color: "#1A2A4A" }}>
-                  {o.name}
+                <div className="text-[14.5px] font-bold" style={{ color: INK }}>
+                  {t.title}
                 </div>
-                <div
-                  className="mt-[2px] text-[11px]"
-                  style={{ fontFamily: "var(--font-mono)", color: "#9AA3B2" }}
-                >
-                  {o.platform}
+                <div className="text-[12px]" style={{ color: MUTED_2 }}>
+                  {t.sub}
                 </div>
               </div>
             </div>
           ))}
           <div
-            className="flex flex-col justify-center"
-            style={{ background: "#1A2A4A", borderRadius: 12, padding: 22 }}
+            className="flex items-center rounded-[10px] p-[18px] text-[14.5px] font-bold"
+            style={{
+              background: "var(--color-accent-soft)",
+              color: "var(--color-accent)",
+            }}
           >
-            <div
-              className="font-bold"
-              style={{
-                fontFamily: "var(--font-display)",
-                fontSize: 15,
-                color: "#FFFFFF",
-                lineHeight: 1.4,
-              }}
-            >
-              All written in the
-              <br />
-              client&apos;s voice.
-            </div>
+            All written in the client&apos;s voice.
           </div>
         </div>
       </div>
@@ -869,9 +611,11 @@ function Outputs() {
   );
 }
 
-/* ============================================================
-   Social Proof
-   ============================================================ */
+// ============================================================
+// Social proof — kept from the previous revision because
+// the ref doesn't include testimonials and dropping them loses
+// signal for cold visitors.
+// ============================================================
 
 function SocialProof() {
   const testimonials = [
@@ -899,60 +643,43 @@ function SocialProof() {
   ];
   return (
     <section
-      className="px-7 py-[72px]"
-      style={{ background: "#FFFFFF", borderBottom: "1px solid #ECEEF3" }}
+      className="px-14 py-[72px]"
+      style={{ background: "#fff", borderTop: `1px solid ${BORDER_SOFT}` }}
     >
       <div className="mx-auto" style={{ maxWidth: 1180 }}>
-        <div className="mb-10" style={{ maxWidth: 620 }}>
+        <div className="mb-9" style={{ maxWidth: 620 }}>
           <Kicker>From the studios using it</Kicker>
           <H2>Built to give contractor hours back.</H2>
         </div>
         <div
-          className="grid overflow-hidden"
+          className="grid overflow-hidden rounded-[14px]"
           style={{
             gridTemplateColumns: "repeat(3,1fr)",
             gap: 1,
-            background: "#E8EBF1",
-            border: "1px solid #E8EBF1",
-            borderRadius: 14,
+            background: BORDER,
+            border: `1px solid ${BORDER}`,
           }}
         >
           {testimonials.map((t) => (
-            <div
-              key={t.name}
-              className="flex flex-col"
-              style={{ background: "#FFFFFF", padding: "34px 30px" }}
-            >
+            <div key={t.name} className="flex flex-col bg-white" style={{ padding: "34px 30px" }}>
               <p
-                className="m-0 flex-1"
-                style={{
-                  fontSize: 16,
-                  lineHeight: 1.6,
-                  color: "#1A2A4A",
-                  marginBottom: 26,
-                  letterSpacing: "-0.01em",
-                }}
+                className="m-0 mb-[26px] flex-1 text-[16px] leading-[1.6]"
+                style={{ color: INK, letterSpacing: "-0.01em" }}
               >
                 &ldquo;{t.quote}&rdquo;
               </p>
               <div className="flex items-center gap-3">
                 <span
                   className="flex h-[42px] w-[42px] items-center justify-center rounded-full text-[14px] font-semibold text-white"
-                  style={{
-                    background: "#1A2A4A",
-                    fontFamily: "var(--font-display)",
-                  }}
+                  style={{ background: INK, fontFamily: "var(--font-display)" }}
                 >
                   {t.initials}
                 </span>
                 <div>
-                  <div className="text-[14.5px] font-semibold" style={{ color: "#1A2A4A" }}>
+                  <div className="text-[14.5px] font-semibold" style={{ color: INK }}>
                     {t.name}
                   </div>
-                  <div
-                    className="mt-[2px] text-[11.5px]"
-                    style={{ fontFamily: "var(--font-mono)", color: "#9AA3B2" }}
-                  >
+                  <div className="mt-[2px] font-mono text-[11.5px]" style={{ color: MUTED_2 }}>
                     {t.role}
                   </div>
                 </div>
@@ -965,120 +692,50 @@ function SocialProof() {
   );
 }
 
-/* ============================================================
-   Pricing
-   ============================================================ */
+// ============================================================
+// Pricing — thin wrapper around <PricingPicker>
+// ============================================================
 
 function Pricing({ isSignedIn }: { isSignedIn: boolean }) {
   return (
     <section
       id="pricing"
-      className="relative overflow-hidden px-7 py-[76px]"
-      style={{ background: "#FBFCFE", borderBottom: "1px solid #ECEEF3" }}
+      className="px-14 py-[88px]"
+      style={{ background: CANVAS, borderTop: `1px solid ${BORDER_SOFT}` }}
     >
-      <div
-        className="pointer-events-none absolute inset-0"
-        aria-hidden
-        style={{
-          backgroundImage: "radial-gradient(#3A5BA0 0.6px, transparent 0.6px)",
-          backgroundSize: "26px 26px",
-          opacity: 0.045,
-        }}
-      />
-      <div className="relative mx-auto" style={{ maxWidth: 1180 }}>
-        <div className="mb-10 text-center">
-          <Kicker>Pricing</Kicker>
-          <H2>Priced per studio, not per post.</H2>
-          <p
-            className="m-0 mt-3 text-[16px]"
-            style={{ color: "#5A6473", maxWidth: 620, marginLeft: "auto", marginRight: "auto" }}
-          >
-            One episode of saved contractor time usually covers the month. Toggle to annual for two
-            months free.
-          </p>
+      <div className="mx-auto text-center" style={{ maxWidth: 1180 }}>
+        <Kicker centered>Pricing</Kicker>
+        <div className="mx-auto" style={{ maxWidth: 640 }}>
+          <H2 centered>Priced per studio, not per post.</H2>
         </div>
-
-        <PricingPicker />
-
-        <div className="mt-6 flex flex-wrap items-center justify-center gap-4 text-[12.5px]">
-          <span
-            style={{
-              fontFamily: "var(--font-mono)",
-              color: "#8B95A6",
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
-            }}
-          >
-            All plans include
-          </span>
-          {[
-            "7 output formats",
-            "Per-client voice",
-            "Approval workflow",
-            "Role-based permissions",
-          ].map((t) => (
-            <span
-              key={t}
-              className="rounded-md"
-              style={{
-                padding: "5px 11px",
-                background: "#FFFFFF",
-                border: "1px solid #E4E8F0",
-                color: "#1A2A4A",
-                fontWeight: 500,
-              }}
-            >
-              {t}
-            </span>
-          ))}
+        <p className="mt-3 text-[15px]" style={{ color: MUTED }}>
+          One episode of saved contractor time usually covers the month.
+        </p>
+        <div className="mt-11 text-left">
+          {/* Signed-in visitors have already consumed their trial gate, so
+              we suppress the trial framing to match the /pricing surface. */}
+          <PricingPicker kind="public" trialEligible={!isSignedIn} />
         </div>
-
-        <div className="mt-7 flex justify-center">
-          <Link
-            href="/pricing#compare"
-            className="inline-flex items-center gap-[7px] rounded-[9px] text-[14px] font-medium no-underline transition-colors"
-            style={{
-              background: "#FFFFFF",
-              color: "#1A2A4A",
-              padding: "11px 20px",
-              border: "1px solid #DDE2EC",
-            }}
-          >
-            View full plan comparison
-            <span aria-hidden style={{ color: "#3A5BA0" }}>
-              →
-            </span>
-          </Link>
-        </div>
-
-        {!isSignedIn && (
-          <p className="m-0 mt-4 text-center text-[12.5px]" style={{ color: "#9AA3B2" }}>
-            Prices exclude local tax. Enterprise volume? Contact us.
-          </p>
-        )}
       </div>
     </section>
   );
 }
 
-/* ============================================================
-   FAQ
-   ============================================================ */
+// ============================================================
+// FAQ — thin wrapper preserved from the previous revision
+// ============================================================
 
 function FAQ() {
   return (
     <section
       id="faq"
-      className="px-7 py-[72px]"
-      style={{ background: "#FFFFFF", borderBottom: "1px solid #ECEEF3" }}
+      className="px-14 py-[80px]"
+      style={{ background: "#fff", borderTop: `1px solid ${BORDER_SOFT}` }}
     >
-      <div
-        className="mx-auto grid items-start gap-14"
-        style={{ maxWidth: 860, gridTemplateColumns: "0.7fr 1.3fr" }}
-      >
-        <div>
-          <Kicker>FAQ</Kicker>
-          <H2 size={34}>Questions, answered.</H2>
+      <div className="mx-auto" style={{ maxWidth: 820 }}>
+        <div className="mb-9" style={{ textAlign: "center" }}>
+          <Kicker centered>Questions</Kicker>
+          <H2 centered>Everything you need to know.</H2>
         </div>
         <FAQAccordion />
       </div>
@@ -1086,270 +743,69 @@ function FAQ() {
   );
 }
 
-/* ============================================================
-   Final CTA
-   ============================================================ */
+// ============================================================
+// Final CTA bar
+// ============================================================
 
 function FinalCTA({ isSignedIn }: { isSignedIn: boolean }) {
-  const bandSeed = [
-    8, 16, 11, 22, 14, 28, 12, 19, 26, 10, 18, 30, 13, 24, 9, 20, 15, 27, 11, 21, 17, 29, 12, 23, 8,
-    18, 25, 14, 31, 10, 19, 13, 26, 16, 9, 22, 12, 28, 15, 20, 11, 24, 8, 17, 30, 13, 21, 9, 18, 27,
-  ];
   return (
-    <section className="relative overflow-hidden px-7 py-[68px]" style={{ background: "#1A2A4A" }}>
-      <div
-        className="pointer-events-none absolute inset-0 flex items-center gap-[5px] px-7"
-        style={{ opacity: 0.1 }}
-      >
-        {bandSeed.map((h, i) => (
-          <span
-            key={i}
-            style={{
-              flex: 1,
-              height: 30 + h * 2.4,
-              borderRadius: 2,
-              background: "#5B7FD0",
-              transformOrigin: "center",
-              animation: "eq 1.4s ease-in-out infinite",
-              animationDelay: `${((i % 11) * 0.09).toFixed(2)}s`,
-            }}
-          />
-        ))}
+    <section
+      className="flex flex-wrap items-center justify-between gap-6 px-14 py-9 text-white"
+      style={{ background: INK }}
+    >
+      <div className="text-[22px] font-extrabold" style={{ letterSpacing: "-0.02em" }}>
+        Give your contractor hours back.
       </div>
-      <div
-        className="relative mx-auto grid items-center gap-10"
-        style={{ maxWidth: 1180, gridTemplateColumns: "1fr auto" }}
+      <Link
+        href={isSignedIn ? "/after-sign-in" : "/pricing"}
+        className="rounded-[9px] text-[15px] font-semibold text-white no-underline transition-[filter] hover:brightness-110"
+        style={{ background: "var(--color-accent)", padding: "12px 22px" }}
       >
-        <div>
-          <h2
-            className="m-0"
-            style={{
-              fontFamily: "var(--font-display)",
-              fontWeight: 700,
-              fontSize: 40,
-              lineHeight: 1.08,
-              letterSpacing: "-0.035em",
-              color: "#FFFFFF",
-              marginBottom: 16,
-            }}
-          >
-            Give the rewriting back to the machine.
-          </h2>
-          <p
-            className="m-0"
-            style={{
-              fontSize: 17,
-              color: "#A9B6D4",
-              maxWidth: 520,
-              lineHeight: 1.6,
-            }}
-          >
-            Pick a plan, connect your first show, and watch one transcript become a week of content
-            — in your client&apos;s voice.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {isSignedIn ? (
-            <Link
-              href="/after-sign-in"
-              className="rounded-[9px] text-[15px] font-medium whitespace-nowrap no-underline"
-              style={{ background: "#FFFFFF", color: "#1A2A4A", padding: "14px 26px" }}
-            >
-              Continue
-            </Link>
-          ) : (
-            <>
-              <Link
-                href="/pricing"
-                className="rounded-[9px] text-[15px] font-medium whitespace-nowrap no-underline"
-                style={{ background: "#FFFFFF", color: "#1A2A4A", padding: "14px 26px" }}
-              >
-                Get started
-              </Link>
-              <Link
-                href="/sign-in"
-                className="rounded-[9px] text-[15px] font-medium whitespace-nowrap no-underline"
-                style={{
-                  background: "rgba(255,255,255,0.1)",
-                  color: "#FFFFFF",
-                  padding: "14px 26px",
-                  border: "1px solid rgba(255,255,255,0.2)",
-                }}
-              >
-                Sign in
-              </Link>
-            </>
-          )}
-        </div>
-      </div>
+        {isSignedIn ? "Continue" : "Get started free"}
+      </Link>
     </section>
   );
 }
 
-/* ============================================================
-   Compare
-   ============================================================ */
+// ============================================================
+// Shared display helpers
+// ============================================================
 
-function Compare() {
-  const rows: Array<{
-    label: string;
-    diy: string;
-    freelancers: string;
-    generic: string;
-    us: string;
-    highlight?: boolean;
-  }> = [
-    {
-      label: "Turnaround per episode",
-      diy: "6–9 hours",
-      freelancers: "2–4 days",
-      generic: "20 min",
-      us: "< 60 seconds",
-      highlight: true,
-    },
-    {
-      label: "Voice fidelity",
-      diy: "You",
-      freelancers: "Drifts each hire",
-      generic: "Generic AI",
-      us: "Per-client model",
-    },
-    {
-      label: "Cost per episode",
-      diy: "Your time",
-      freelancers: "$40–70",
-      generic: "Per-word tokens",
-      us: "Flat plan",
-    },
-    {
-      label: "Formats produced",
-      diy: "Whatever fits",
-      freelancers: "2–3 platforms",
-      generic: "1 at a time",
-      us: "7 in one pass",
-      highlight: true,
-    },
-    {
-      label: "Improves with use",
-      diy: "No",
-      freelancers: "No",
-      generic: "No",
-      us: "Yes — every approval",
-    },
-    {
-      label: "White-label for clients",
-      diy: "Manual",
-      freelancers: "Manual",
-      generic: "No",
-      us: "Built in",
-    },
-  ];
-
-  const headers: Array<{
-    label: string;
-    key: "diy" | "freelancers" | "generic" | "us";
-    accent?: boolean;
-  }> = [
-    { label: "Doing it yourself", key: "diy" },
-    { label: "Contract freelancers", key: "freelancers" },
-    { label: "Generic AI tool", key: "generic" },
-    { label: "Repodcast", key: "us", accent: true },
-  ];
-
+function Kicker({ children, centered = false }: { children: React.ReactNode; centered?: boolean }) {
   return (
-    <section
-      className="px-7 py-[76px]"
-      style={{ background: "#FBFCFE", borderBottom: "1px solid #ECEEF3" }}
+    <div
+      className={`mb-4 font-mono text-[12px] font-semibold uppercase ${centered ? "text-center" : ""}`}
+      style={{ letterSpacing: "0.14em", color: "var(--color-accent)" }}
     >
-      <div className="mx-auto" style={{ maxWidth: 1180 }}>
-        <div className="mb-10 flex flex-wrap items-end justify-between gap-6">
-          <div style={{ maxWidth: 580 }}>
-            <Kicker>Compared</Kicker>
-            <H2>Why not just do it the way you already do?</H2>
-            <p className="m-0 mt-3" style={{ fontSize: 16, lineHeight: 1.62, color: "#5A6473" }}>
-              Every alternative has the same trade-off: it scales your workload, not your margins.
-              Here&apos;s the honest side-by-side.
-            </p>
-          </div>
-        </div>
-        <div
-          className="overflow-hidden"
-          style={{
-            border: "1px solid #E4E8F0",
-            borderRadius: 16,
-            background: "#FFFFFF",
-          }}
-        >
-          <div
-            className="grid text-[12.5px] font-medium uppercase"
-            style={{
-              gridTemplateColumns: "1.4fr repeat(4,1fr)",
-              background: "#F5F7FB",
-              borderBottom: "1px solid #E8EBF1",
-              color: "#5A6473",
-              fontFamily: "var(--font-mono)",
-              letterSpacing: "0.06em",
-            }}
-          >
-            <div style={{ padding: "18px 22px" }}>&nbsp;</div>
-            {headers.map((h) => (
-              <div
-                key={h.key}
-                style={{
-                  padding: "18px 20px",
-                  color: h.accent ? "#1A2A4A" : undefined,
-                  background: h.accent ? "#FFFFFF" : undefined,
-                  fontWeight: h.accent ? 700 : undefined,
-                  borderLeft: "1px solid #E8EBF1",
-                  fontSize: h.accent ? 13.5 : undefined,
-                }}
-              >
-                {h.label}
-              </div>
-            ))}
-          </div>
-          {rows.map((row, i) => (
-            <div
-              key={row.label}
-              className="grid"
-              style={{
-                gridTemplateColumns: "1.4fr repeat(4,1fr)",
-                borderBottom: i < rows.length - 1 ? "1px solid #EEF0F5" : "none",
-              }}
-            >
-              <div
-                style={{
-                  padding: "18px 22px",
-                  color: "#1A2A4A",
-                  fontWeight: 500,
-                  fontSize: "14px",
-                  background: row.highlight ? "#F9FBFD" : undefined,
-                }}
-              >
-                {row.label}
-              </div>
-              {headers.map((h) => {
-                const isUs = h.accent;
-                return (
-                  <div
-                    key={h.key}
-                    style={{
-                      padding: "18px 20px",
-                      borderLeft: "1px solid #EEF0F5",
-                      color: isUs ? "#1A2A4A" : "#5A6473",
-                      fontSize: 13.5,
-                      fontWeight: isUs ? 600 : 400,
-                      background: isUs ? "#F1F6FF" : row.highlight ? "#F9FBFD" : undefined,
-                    }}
-                  >
-                    {row[h.key]}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
+      {children}
+    </div>
+  );
+}
+
+function H2({
+  children,
+  maxWidth,
+  centered = false,
+}: {
+  children: React.ReactNode;
+  maxWidth?: number;
+  centered?: boolean;
+}) {
+  return (
+    <div
+      className={centered ? "text-center" : ""}
+      style={{
+        fontFamily: "var(--font-display)",
+        fontSize: 38,
+        lineHeight: 1.12,
+        fontWeight: 800,
+        letterSpacing: "-0.02em",
+        color: INK,
+        maxWidth,
+        marginInline: centered ? "auto" : undefined,
+      }}
+    >
+      {children}
+    </div>
   );
 }
