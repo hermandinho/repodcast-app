@@ -262,7 +262,38 @@ async function showToUI(
   }
 
   const episodes = await dbListEpisodesForShow(ctx, s.id);
+  const episodeSlice = episodes.slice(0, 5);
   const lastActivity = episodes[0]?.updatedAt ?? s.updatedAt;
+
+  // Per-episode output totals + pending-review counts. Two grouped counts
+  // over the same subset of episodes so the /shows/[key] episode list can
+  // render "N outputs · M reviewed" and the "N to review" pill without a
+  // round-trip per row. Prisma's `_count` doesn't accept two aliased
+  // filters on the same relation, so we merge the two groupBy results by
+  // episodeId in memory.
+  const sliceIds = episodeSlice.map((e) => e.id);
+  const [totalGroups, pendingGroups] = sliceIds.length
+    ? await Promise.all([
+        prisma.generatedOutput.groupBy({
+          by: ["episodeId"],
+          where: { episodeId: { in: sliceIds }, supersededAt: null },
+          _count: { _all: true },
+        }),
+        prisma.generatedOutput.groupBy({
+          by: ["episodeId"],
+          where: {
+            episodeId: { in: sliceIds },
+            supersededAt: null,
+            status: { in: [OutputStatus.READY, OutputStatus.IN_REVIEW] },
+          },
+          _count: { _all: true },
+        }),
+      ])
+    : [[], []];
+  const totalByEp = new Map<string, number>(totalGroups.map((r) => [r.episodeId, r._count._all]));
+  const pendingByEp = new Map<string, number>(
+    pendingGroups.map((r) => [r.episodeId, r._count._all]),
+  );
 
   return {
     key: s.id,
@@ -277,11 +308,13 @@ async function showToUI(
     episodeCount: episodes.length,
     lastActivity: timeAgo(lastActivity),
     platformSamples,
-    episodes: episodes.slice(0, 5).map(episodeToUiSummary),
+    episodes: episodeSlice.map((e) =>
+      episodeToUiSummary(e, totalByEp.get(e.id) ?? 0, pendingByEp.get(e.id) ?? 0),
+    ),
   };
 }
 
-function episodeToUiSummary(e: Episode) {
+function episodeToUiSummary(e: Episode, outputCount: number, pendingReviewCount: number) {
   const status = STATUS_TO_KEY[e.status] ?? "ready";
   const date = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(
     e.createdAt,
@@ -293,7 +326,9 @@ function episodeToUiSummary(e: Episode) {
     title: e.title,
     date,
     status,
-    outputs: "7 outputs",
+    outputs: outputCount > 0 ? `${outputCount} output${outputCount === 1 ? "" : "s"}` : "",
+    outputCount,
+    pendingReviewCount,
   };
 }
 

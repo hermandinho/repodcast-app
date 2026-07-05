@@ -12,6 +12,12 @@ export type SampleEpisode = {
   date: string;
   status: EpisodeStatus;
   outputs: string;
+  /** Total current-version outputs on this episode. `0` when generation
+   *  hasn't run yet. */
+  outputCount: number;
+  /** Current-version outputs still waiting on internal review. `> 0`
+   *  swaps the row's pill to "N to review" + accent Review CTA. */
+  pendingReviewCount: number;
 };
 
 /**
@@ -61,24 +67,32 @@ export const sampleShows: SampleShow[] = [
         date: "Jun 24",
         status: "review",
         outputs: "7 outputs",
+        outputCount: 7,
+        pendingReviewCount: 5,
       },
       {
         title: "The Pricing Conversation You're Avoiding",
         date: "Jun 17",
         status: "approved",
         outputs: "7 outputs",
+        outputCount: 7,
+        pendingReviewCount: 0,
       },
       {
         title: "Hiring Your First Exec Without Regret",
         date: "Jun 10",
         status: "approved",
         outputs: "7 outputs",
+        outputCount: 7,
+        pendingReviewCount: 0,
       },
       {
         title: "Fundraising Is a Filter, Not a Finish Line",
         date: "Jun 3",
         status: "approved",
         outputs: "7 outputs",
+        outputCount: 7,
+        pendingReviewCount: 0,
       },
     ],
   },
@@ -100,18 +114,24 @@ export const sampleShows: SampleShow[] = [
         date: "Jun 18",
         status: "approved",
         outputs: "7 outputs",
+        outputCount: 7,
+        pendingReviewCount: 0,
       },
       {
         title: "Reading Weather Without a Phone",
         date: "Jun 11",
         status: "scheduled",
         outputs: "7 outputs",
+        outputCount: 7,
+        pendingReviewCount: 0,
       },
       {
         title: "The Gear That Didn't Make the Cut",
         date: "Jun 4",
         status: "approved",
         outputs: "7 outputs",
+        outputCount: 7,
+        pendingReviewCount: 0,
       },
     ],
   },
@@ -133,18 +153,24 @@ export const sampleShows: SampleShow[] = [
         date: "Jun 20",
         status: "generating",
         outputs: "5 / 7",
+        outputCount: 5,
+        pendingReviewCount: 0,
       },
       {
         title: 'What "Passive Income" Actually Costs',
         date: "Jun 13",
         status: "approved",
         outputs: "7 outputs",
+        outputCount: 7,
+        pendingReviewCount: 0,
       },
       {
         title: "Your Budget Is Lying to You",
         date: "Jun 6",
         status: "review",
         outputs: "7 outputs",
+        outputCount: 7,
+        pendingReviewCount: 3,
       },
     ],
   },
