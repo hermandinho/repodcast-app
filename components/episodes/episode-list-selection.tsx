@@ -311,7 +311,7 @@ function EpisodeRow({
       )}
       <Link
         href={`/episodes/${episode.id}`}
-        className="group border-border bg-surface shadow-card hover:border-border-2 hover:shadow-card-hover flex flex-1 items-center gap-[14px] rounded-2xl border px-4 py-[14px] transition-shadow"
+        className="group border-border bg-surface shadow-card hover:border-border-2 hover:shadow-card-hover flex min-w-0 flex-1 items-center gap-[14px] rounded-2xl border px-4 py-[14px] transition-shadow"
       >
         <div
           className="font-display flex h-[42px] w-[42px] flex-shrink-0 items-center justify-center rounded-xl text-[13.5px] font-bold text-white"

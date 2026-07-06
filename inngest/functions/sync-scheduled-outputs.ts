@@ -5,6 +5,7 @@ import {
   makeBufferAuthRefresher,
   stampIntegrationSync,
 } from "@/server/db/integrations";
+import { notifyClientPostPublished } from "@/server/db/notifications";
 import { listInFlightScheduledOutputs } from "@/server/db/outputs";
 import { listRecentPostsForOrg } from "@/server/integrations/buffer";
 import { inngest } from "../client";
@@ -197,6 +198,10 @@ export async function syncScheduledOutputsHandler(
                 },
               }),
             ]);
+            // Best-effort client email — helper self-swallows errors
+            // and no-ops when no contactEmail is set, so nothing here
+            // can derail the batch loop.
+            await notifyClientPostPublished(row.id);
             bufferConfirmed += 1;
           } else if (status === "error" || status === "failed") {
             await prisma.$transaction([
@@ -261,6 +266,8 @@ export async function syncScheduledOutputsHandler(
           },
         }),
       ]);
+      // Same best-effort notify as the Buffer branch above.
+      await notifyClientPostPublished(row.id);
       manualAutoPublished += 1;
     } catch (err) {
       errors += 1;

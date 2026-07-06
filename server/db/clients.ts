@@ -1,6 +1,6 @@
 import "server-only";
 
-import { MemberRole, type Client } from "@prisma/client";
+import { MemberRole, ValidationMode, type Client } from "@prisma/client";
 import { z } from "zod";
 import { NotFoundError } from "@/server/auth/errors";
 import { requireReadRole, requireRole, type TenantContext } from "@/server/auth/tenant";
@@ -98,4 +98,37 @@ export async function deleteClient(ctx: TenantContext, clientId: string): Promis
     where: { id: clientId, agencyId: ctx.agencyId },
   });
   if (count === 0) throw new NotFoundError(`Client ${clientId} not found`);
+}
+
+// ============================================================
+// Workflow settings — validation mode + notification recipients
+// ============================================================
+
+const notificationEmailSchema = z.string().trim().toLowerCase().email().max(320);
+
+export const updateClientWorkflowInput = z.object({
+  validationMode: z.nativeEnum(ValidationMode),
+  /** Extra recipients that receive workflow notification emails on top of
+   *  the agency's OWNER/ADMIN members. Deduped + case-normalized on write;
+   *  capped at 10 so the field can't turn into a broadcast list. */
+  notificationEmails: z.array(notificationEmailSchema).max(10),
+});
+export type UpdateClientWorkflowInput = z.infer<typeof updateClientWorkflowInput>;
+
+export async function updateClientWorkflow(
+  ctx: TenantContext,
+  clientId: string,
+  input: UpdateClientWorkflowInput,
+): Promise<Client> {
+  requireRole(ctx, WRITE_ROLES);
+  const emails = Array.from(new Set(input.notificationEmails));
+  const { count } = await prisma.client.updateMany({
+    where: { id: clientId, agencyId: ctx.agencyId },
+    data: {
+      validationMode: input.validationMode,
+      notificationEmails: emails,
+    },
+  });
+  if (count === 0) throw new NotFoundError(`Client ${clientId} not found`);
+  return prisma.client.findUniqueOrThrow({ where: { id: clientId } });
 }

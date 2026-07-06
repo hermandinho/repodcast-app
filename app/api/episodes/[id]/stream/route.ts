@@ -53,6 +53,9 @@ const STATUS_TO_UI: Record<OutputStatus, string> = {
   GENERATING: "generating",
   READY: "ready",
   IN_REVIEW: "review",
+  // Keep in sync with `EpisodeStatus` in `lib/sample-data/episode-status.ts`
+  // and `STATUS_TO_KEY` in `server/data/source.ts`.
+  AWAITING_CLIENT_APPROVAL: "awaiting-client",
   APPROVED: "approved",
   SCHEDULED: "scheduled",
   PUBLISHED: "published",
@@ -68,6 +71,8 @@ type OutputPayload = {
   version: number;
   versionCount: number;
   failureReason: string | null;
+  sentToClientAtIso: string | null;
+  clientApprovedAtIso: string | null;
 };
 
 type Snap = {
@@ -79,6 +84,8 @@ type Snap = {
   version: number;
   versionCount: number;
   failureReason: string | null;
+  sentToClientAtIso: string | null;
+  clientApprovedAtIso: string | null;
 };
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -164,6 +171,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         version: o.version,
         versionCount,
         failureReason,
+        sentToClientAtIso: o.sentToClientAt?.toISOString() ?? null,
+        clientApprovedAtIso: o.clientApprovedAt?.toISOString() ?? null,
       });
 
       const poll = async (): Promise<void> => {
@@ -235,6 +244,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
               version: o.version,
               versionCount: versionCountByPlatform.get(o.platform) ?? 1,
               failureReason: reasonById.get(o.id) ?? null,
+              sentToClientAtIso: o.sentToClientAt?.toISOString() ?? null,
+              clientApprovedAtIso: o.clientApprovedAt?.toISOString() ?? null,
             });
           }
           lastEpisodeStatus = episode.status;
@@ -255,6 +266,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
               version: o.version,
               versionCount,
               failureReason,
+              sentToClientAtIso: o.sentToClientAt?.toISOString() ?? null,
+              clientApprovedAtIso: o.clientApprovedAt?.toISOString() ?? null,
             };
             const prev = snap.get(key);
             const changed =
@@ -265,7 +278,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
               prev.quality !== cur.quality ||
               prev.version !== cur.version ||
               prev.versionCount !== cur.versionCount ||
-              prev.failureReason !== cur.failureReason;
+              prev.failureReason !== cur.failureReason ||
+              prev.sentToClientAtIso !== cur.sentToClientAtIso ||
+              prev.clientApprovedAtIso !== cur.clientApprovedAtIso;
             if (changed) {
               snap.set(key, cur);
               send("output", buildPayload(o, versionCount, failureReason));

@@ -13,11 +13,15 @@ export function ClientTabNav({
   clientKey,
   showBillingTab,
   showStatementsTab,
+  showWorkflowTab,
 }: {
   clientKey: string;
   showBillingTab: boolean;
   /** Statements are billing material — OWNER/ADMIN-only at the page level. */
   showStatementsTab: boolean;
+  /** Workflow (validation mode + notification recipients) is OWNER/ADMIN-only
+   *  since it affects the approval pipeline. */
+  showWorkflowTab: boolean;
 }) {
   const pathname = usePathname();
   const base = `/clients/${clientKey}`;
@@ -27,6 +31,9 @@ export function ClientTabNav({
   }
   if (showStatementsTab) {
     tabs.push({ href: `${base}/statements`, label: "Statements" });
+  }
+  if (showWorkflowTab) {
+    tabs.push({ href: `${base}/workflow`, label: "Workflow" });
   }
 
   return (

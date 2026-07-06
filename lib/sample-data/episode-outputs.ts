@@ -27,6 +27,19 @@ export type SampleOutput = {
   publishedAtIso?: string | null;
   externalScheduler?: "BUFFER" | "MANUAL" | null;
   externalPostUrl?: string | null;
+  /** Populated when the parent client runs the CLIENT validation flow and
+   *  this output is either sitting in the portal awaiting approval or has
+   *  been approved by the end client. Terminal freeze once the client
+   *  approves — no more edits / regenerations from anyone. */
+  sentToClientAtIso?: string | null;
+  clientApprovedAtIso?: string | null;
+  /** Derived signal — the client requested changes via the portal and the
+   *  agency hasn't acted on the feedback yet. Present when the output's
+   *  most recent transition is `AWAITING_CLIENT_APPROVAL → READY`; cleared
+   *  by any subsequent transition (approve, request review, regen). Paired
+   *  with an optional short note from the client (transition audit note). */
+  clientRevisionRequestedAtIso?: string | null;
+  clientRevisionNote?: string | null;
 };
 
 export type SampleEpisode = {

@@ -47,6 +47,8 @@ function mapOutputStatus(status: UiEpisodeStatus): OutputStatus {
       return OutputStatus.READY;
     case "review":
       return OutputStatus.IN_REVIEW;
+    case "awaiting-client":
+      return OutputStatus.AWAITING_CLIENT_APPROVAL;
     case "approved":
       return OutputStatus.APPROVED;
     case "scheduled":

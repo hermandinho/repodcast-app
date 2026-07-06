@@ -11,6 +11,8 @@ import {
   deleteClient as repoDeleteClient,
   updateClient as repoUpdateClient,
   updateClientInput,
+  updateClientWorkflow as repoUpdateClientWorkflow,
+  updateClientWorkflowInput,
 } from "@/server/db/clients";
 import { prisma } from "@/server/db/client";
 import { trackServer } from "@/server/analytics/track";
@@ -89,6 +91,36 @@ export async function updateClientAction(
   const tenant = await resolveTenantContext();
   await repoUpdateClient(tenant, clientId, patch);
   revalidatePath("/clients", "layout");
+  return { ok: true, data: { clientId } };
+}
+
+// ============================================================
+// Workflow settings — validation mode + notification recipients
+// ============================================================
+
+const updateWorkflowWithId = z
+  .object({ clientId: z.string().min(1) })
+  .and(updateClientWorkflowInput);
+
+export async function updateClientWorkflowAction(
+  raw: unknown,
+): Promise<ActionResult<{ clientId: string }>> {
+  const parsed = updateWorkflowWithId.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid workflow input", parsed.error.issues);
+  }
+  const { clientId, ...patch } = parsed.data;
+
+  if (!isLiveDb()) {
+    return { ok: true, data: { clientId } };
+  }
+
+  const tenant = await resolveTenantContext();
+  await repoUpdateClientWorkflow(tenant, clientId, patch);
+  // Layout-level revalidation covers the client detail chrome + any
+  // outputs-view pages downstream that read `validationMode`.
+  revalidatePath("/clients", "layout");
+  revalidatePath("/episodes", "layout");
   return { ok: true, data: { clientId } };
 }
 

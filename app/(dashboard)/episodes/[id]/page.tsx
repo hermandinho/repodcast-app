@@ -32,6 +32,7 @@ export default async function EpisodeOutputsPage({ params }: { params: Promise<{
       client={result.show}
       episode={result.episode}
       viewerRole={tenant.role}
+      clientValidationMode={result.clientValidationMode}
       streamUrl={streamUrl}
       readOnly={readOnly}
       bufferConnected={buffer !== null}

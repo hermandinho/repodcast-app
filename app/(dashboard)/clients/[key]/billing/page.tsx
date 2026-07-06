@@ -77,6 +77,7 @@ const STATUS_STYLES: Record<OutputStatus, { label: string; bg: string; color: st
   GENERATING: { label: "Generating", bg: "#EEF2FB", color: "#3A5BA0" },
   READY: { label: "Ready", bg: "#F1F4F9", color: "#7A8496" },
   IN_REVIEW: { label: "In review", bg: "#FBF1DE", color: "#A06D12" },
+  AWAITING_CLIENT_APPROVAL: { label: "With client", bg: "#EEF1FB", color: "#3A4A80" },
   APPROVED: { label: "Approved", bg: "#E7F4EC", color: "#1E7A47" },
   SCHEDULED: { label: "Scheduled", bg: "#F1F4F9", color: "#7A8496" },
   PUBLISHED: { label: "Published", bg: "#E7F4EC", color: "#1E7A47" },

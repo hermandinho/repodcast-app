@@ -25,6 +25,7 @@ const STATUS_LABEL: Record<OutputStatus, string> = {
   GENERATING: "Generating",
   READY: "Ready",
   IN_REVIEW: "In review",
+  AWAITING_CLIENT_APPROVAL: "With client",
   APPROVED: "Approved",
   SCHEDULED: "Scheduled",
   PUBLISHED: "Published",

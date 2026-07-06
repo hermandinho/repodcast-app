@@ -52,6 +52,20 @@ export type OutputState = {
   publishedAtIso?: string | null;
   externalScheduler?: "BUFFER" | "MANUAL" | null;
   externalPostUrl?: string | null;
+  /** Non-null when the end client has final-approved via the portal —
+   *  terminal freeze, no one on the agency side may edit or regen. */
+  clientApprovedAtIso?: string | null;
+  /** Non-null while the output is sitting in the client's portal awaiting
+   *  their approval decision. Paired with `status === "awaiting-client"`. */
+  sentToClientAtIso?: string | null;
+  /** Populated when the client hit "Request revision" in the portal on
+   *  this row and the agency hasn't followed up yet. Server derives this
+   *  from the row's latest OutputTransition — cleared by any subsequent
+   *  approve / request-review / regen. Drives the "Client asked for
+   *  changes" chip in the header so the agency knows which of the
+   *  currently READY outputs is actually the flagged one. */
+  clientRevisionRequestedAtIso?: string | null;
+  clientRevisionNote?: string | null;
 };
 
 export type OutputCardActions = {
@@ -73,6 +87,10 @@ export type OutputCardActions = {
 const APPROVE_ROLES: MemberRole[] = [MemberRole.OWNER, MemberRole.ADMIN, MemberRole.REVIEWER];
 const EDIT_ROLES: MemberRole[] = [MemberRole.OWNER, MemberRole.ADMIN, MemberRole.EDITOR];
 const SCHEDULE_ROLES: MemberRole[] = [MemberRole.OWNER, MemberRole.ADMIN, MemberRole.EDITOR];
+/** Only editors see the "Request review" affordance. Owners, admins, and
+ *  reviewers are the approvers — they don't request review of themselves.
+ *  Mirrors `REQUEST_REVIEW_ROLES` in `server/db/outputs.ts`. */
+const REQUEST_REVIEW_ROLES: MemberRole[] = [MemberRole.EDITOR];
 
 type VoiceBand = { label: string; color: string; muted: string };
 function voiceBandFromQuality(q: number): VoiceBand {
@@ -95,6 +113,7 @@ export function OutputCard({
   platform,
   state,
   viewerRole,
+  clientValidationMode = "INTERNAL",
   readOnly = false,
   onOpen,
   actions,
@@ -107,6 +126,10 @@ export function OutputCard({
   state: OutputState;
   episodeId: string;
   viewerRole: MemberRole;
+  /** Parent client's validation flow. Drives post-approval edit gating:
+   *  INTERNAL → OWNER can still edit after APPROVED; CLIENT → frozen once
+   *  sent to client. Mirrors `canEditOutput` in `server/db/outputs.ts`. */
+  clientValidationMode?: "INTERNAL" | "CLIENT";
   readOnly?: boolean;
   bufferConnected?: boolean;
   bufferConnectedPlatforms?: import("@prisma/client").Platform[];
@@ -125,13 +148,35 @@ export function OutputCard({
   const isFailed = state.status === "failed";
   const isReady = state.status === "ready";
   const inReview = state.status === "review";
+  const awaitingClient = state.status === "awaiting-client";
   const approved = state.status === "approved";
   const isScheduled = state.status === "scheduled";
   const isPublished = state.status === "published";
   const isLocked = isScheduled || isPublished;
+  const clientApproved = Boolean(state.clientApprovedAtIso);
 
-  const roleCanEdit = !readOnly && EDIT_ROLES.includes(viewerRole) && !isLocked;
-  const roleCanApprove = !readOnly && APPROVE_ROLES.includes(viewerRole) && !isLocked;
+  // Post-approval edit rules mirror `canEditOutput` on the server:
+  // - `clientApprovedAtIso` set → frozen for everyone forever.
+  // - `awaiting-client` → frozen (out of the agency's hands).
+  // - `approved` + INTERNAL mode → OWNER only.
+  // - `approved` + CLIENT mode → frozen (either the client approves or
+  //   asks for revision; the agency can't tweak in the meantime).
+  // - `ready` / `review` → standard EDIT_ROLES set.
+  const canEditInState = (() => {
+    if (readOnly || isLocked || clientApproved || awaitingClient) return false;
+    if (approved) {
+      if (clientValidationMode === "CLIENT") return false;
+      return viewerRole === MemberRole.OWNER;
+    }
+    if (isReady || inReview) return EDIT_ROLES.includes(viewerRole);
+    return false;
+  })();
+
+  const roleCanEdit = canEditInState;
+  const roleCanApprove =
+    !readOnly && APPROVE_ROLES.includes(viewerRole) && !isLocked && !awaitingClient;
+  const roleCanRequestReview =
+    !readOnly && REQUEST_REVIEW_ROLES.includes(viewerRole) && !isLocked && !awaitingClient;
   const roleCanSchedule = !readOnly && SCHEDULE_ROLES.includes(viewerRole);
 
   const voice = voiceBandFromQuality(state.quality);
@@ -174,8 +219,28 @@ export function OutputCard({
             {state.meta}
           </div>
         </div>
-        <StatusPill sm={sm} />
+        {isReady && state.clientRevisionRequestedAtIso ? (
+          <RevisionRequestedPill />
+        ) : (
+          <StatusPill sm={sm} />
+        )}
       </div>
+
+      {/* Revision-request note strip. Appears when the client hit "Request
+          revision" in the portal — replaces the "Ready" status semantics
+          with an actionable signal so the agency knows which of the
+          currently READY cards is actually flagged. Only shown when a
+          note was submitted — a note-less request already flips the pill,
+          the strip is for surfacing the client's rationale. */}
+      {isReady && state.clientRevisionRequestedAtIso && state.clientRevisionNote ? (
+        <div
+          className="mx-4 mb-[10px] rounded-[8px] px-3 py-[7px] text-[11.5px] leading-[1.45] text-[#7A3128]"
+          style={{ background: "#FBEDEC", border: "1px solid #F0CFC2" }}
+        >
+          <span className="font-semibold">Note:</span>{" "}
+          <span className="line-clamp-2">{state.clientRevisionNote}</span>
+        </div>
+      ) : null}
 
       {/* Content preview — click-to-open with fade mask + "Open →" chip.
           Failed / generating states swap out the preview box entirely. */}
@@ -224,6 +289,7 @@ export function OutputCard({
             state={state.status}
             isReady={isReady}
             inReview={inReview}
+            awaitingClient={awaitingClient}
             approved={approved}
             isScheduled={isScheduled}
             isPublished={isPublished}
@@ -232,6 +298,7 @@ export function OutputCard({
             externalPostUrl={state.externalPostUrl ?? null}
             roleCanEdit={roleCanEdit}
             roleCanApprove={roleCanApprove}
+            roleCanRequestReview={roleCanRequestReview}
             roleCanSchedule={roleCanSchedule}
             onApprove={actions.onApprove}
             onRequestReview={actions.onRequestReview}
@@ -257,6 +324,22 @@ function StatusPill({ sm }: { sm: ReturnType<typeof statusMeta> }) {
     >
       <span className="block h-[6px] w-[6px] rounded-full" style={{ background: sm.color }} />
       {sm.label}
+    </span>
+  );
+}
+
+/** Alternate header pill for READY outputs the client has bounced back
+ *  from the portal — same shape as StatusPill but styled to read as an
+ *  attention signal instead of the neutral "Ready" peach. Distinguishes
+ *  "just generated, needs review" from "client asked for changes". */
+function RevisionRequestedPill() {
+  return (
+    <span
+      className="inline-flex flex-shrink-0 items-center gap-[6px] rounded-[7px] px-[9px] py-[5px] font-sans text-[11px] font-semibold"
+      style={{ background: "#FBEDEC", color: "#A03425" }}
+    >
+      <span className="block h-[6px] w-[6px] rounded-full" style={{ background: "#A03425" }} />
+      Changes requested
     </span>
   );
 }
@@ -408,6 +491,7 @@ function ActionBand(p: {
   state: EpisodeStatus;
   isReady: boolean;
   inReview: boolean;
+  awaitingClient: boolean;
   approved: boolean;
   isScheduled: boolean;
   isPublished: boolean;
@@ -416,6 +500,9 @@ function ActionBand(p: {
   externalPostUrl: string | null;
   roleCanEdit: boolean;
   roleCanApprove: boolean;
+  /** Editor-only surface — hides the "Request review" secondary button
+   *  for OWNER/ADMIN/REVIEWER. */
+  roleCanRequestReview: boolean;
   roleCanSchedule: boolean;
   onApprove: () => void;
   onRequestReview: () => void;
@@ -512,12 +599,26 @@ function ActionBand(p: {
         label="Schedule"
         onClick={clickWithStop(() => p.onOpen?.())}
         disabled={!p.roleCanSchedule}
+        tone="schedule"
       />
+    );
+  }
+
+  if (p.awaitingClient) {
+    // The client is the actor here — the agency team can't approve or
+    // reject from this side. Show a passive waiting affordance instead
+    // of an interactive button.
+    return (
+      <div className="text-muted-2 flex-1 py-[10px] text-center font-sans text-[11.5px]">
+        Waiting on client approval
+      </div>
     );
   }
 
   // Ready or in-review — both terminate with Approve. Secondary opens
   // the counterflow (Reject when in review, Request review when ready).
+  // "Request review" is EDITOR-only — hidden for OWNER/ADMIN/REVIEWER,
+  // who approve directly.
   return (
     <>
       <PrimaryButton
@@ -531,32 +632,50 @@ function ActionBand(p: {
           onClick={clickWithStop(p.onReject)}
           disabled={!p.roleCanApprove}
         />
-      ) : (
+      ) : p.roleCanRequestReview ? (
         <SecondaryButton
           label="Request review"
           onClick={clickWithStop(p.onRequestReview)}
           disabled={!p.roleCanEdit}
         />
-      )}
+      ) : null}
     </>
   );
 }
 
+/** Primary CTA on the card's action band. Two tones:
+ *  - `brand` (default) — accent navy for terminal review actions
+ *    (Approve, Try again, Mark published).
+ *  - `schedule` — purple #5D3FD3 for the post-approval Schedule step so
+ *    the eye separates "finalize the copy" (navy) from "commit a
+ *    publish time" (purple). Purple also pairs with the Scheduled
+ *    status pill + the drawer's schedule confirmation button, so the
+ *    color threads through the whole scheduling flow. */
 function PrimaryButton({
   label,
   onClick,
   disabled = false,
+  tone = "brand",
 }: {
   label: string;
   onClick: (e: React.MouseEvent) => void;
   disabled?: boolean;
+  tone?: "brand" | "schedule";
 }) {
-  const style: CSSProperties = {
-    background: "var(--color-accent)",
-    color: "#fff",
-    border: "1px solid rgba(0,0,0,.06)",
-    boxShadow: "0 1px 2px rgba(58,91,160,.22)",
-  };
+  const style: CSSProperties =
+    tone === "schedule"
+      ? {
+          background: "#5D3FD3",
+          color: "#fff",
+          border: "1px solid rgba(0,0,0,.06)",
+          boxShadow: "0 1px 2px rgba(93,63,211,.22)",
+        }
+      : {
+          background: "var(--color-accent)",
+          color: "#fff",
+          border: "1px solid rgba(0,0,0,.06)",
+          boxShadow: "0 1px 2px rgba(58,91,160,.22)",
+        };
   return (
     <button
       type="button"

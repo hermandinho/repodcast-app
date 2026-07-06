@@ -135,7 +135,12 @@ export default async function ClientLayout({
           sub-panel within is OWNER/ADMIN-only — EDITOR/REVIEWER see the
           deliverable ledger instead). Statements is OWNER/ADMIN-only —
           billing material. */}
-      <ClientTabNav clientKey={key} showBillingTab showStatementsTab={isAdminOrOwner} />
+      <ClientTabNav
+        clientKey={key}
+        showBillingTab
+        showStatementsTab={isAdminOrOwner}
+        showWorkflowTab={isAdminOrOwner}
+      />
 
       {children}
     </div>
