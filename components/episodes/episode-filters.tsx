@@ -6,17 +6,26 @@ import type { EpisodeListFilterOptions } from "@/server/data/source";
 
 type Props = {
   options: EpisodeListFilterOptions;
+  /** Total episodes in the current tenant — drives the "All N" pill count. */
+  totalAll: number;
+  /** Episodes currently in `DRAFT` — drives the "Draft N" pill count. */
+  totalDraft: number;
+  /** Everything not in DRAFT — the review bucket. Drives "Needs review N". */
+  totalReview: number;
 };
 
 /**
- * Filter row for /episodes. Pushes URL state on change so the page server-
- * renders with the right `searchParams`. Search input is debounced (250 ms);
- * the show/status selects fire immediately.
+ * Toolbar for `/episodes` — single-line card that combines search, three
+ * segmented status pills (All / Needs review / Draft), a show picker, and
+ * a compact date range. Pushes URL state on change so the page server-
+ * renders with the right `searchParams`; search is debounced (250 ms).
  *
- * Resets to page 1 on any filter change so the user doesn't land on an empty
- * trailing page after a narrowing edit.
+ * The status pills replace the earlier full-status `<select>`. Rare
+ * statuses (PROCESSING, ARCHIVED, FAILED) still route through the URL —
+ * the ref intentionally simplifies to the two buckets agencies triage
+ * against daily.
  */
-export function EpisodeFilters({ options }: Props) {
+export function EpisodeFilters({ options, totalAll, totalDraft, totalReview }: Props) {
   const router = useRouter();
   const params = useSearchParams();
   const [, startTransition] = useTransition();
@@ -27,21 +36,15 @@ export function EpisodeFilters({ options }: Props) {
   const currentFrom = params.get("from") ?? "";
   const currentTo = params.get("to") ?? "";
 
-  // Local mirror so typing is responsive — flushed to URL on debounce.
   const [draft, setDraft] = useState(currentSearch);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Keep local state in sync when the page reloads with new params (e.g.
-  // user hit back). Avoid clobbering user typing — only re-sync when
-  // the URL changes while no debounce timer is pending.
   useEffect(() => {
     if (debounceTimer.current) return;
     setDraft(currentSearch);
   }, [currentSearch]);
 
   const push = (next: URLSearchParams) => {
-    // Filters always reset to page 1 — narrowing while on page 5 is the
-    // single most common way to land on an empty list.
     next.delete("page");
     const qs = next.toString();
     startTransition(() => {
@@ -65,19 +68,14 @@ export function EpisodeFilters({ options }: Props) {
     }, 250);
   };
 
-  const clearAll = () => {
-    setDraft("");
-    if (debounceTimer.current) {
-      clearTimeout(debounceTimer.current);
-      debounceTimer.current = null;
-    }
-    startTransition(() => router.push("/episodes"));
-  };
-
-  const hasAny = currentSearch || currentShow || currentStatus || currentFrom || currentTo;
+  // Segment == active if URL matches. `All` is the default (no `status`).
+  const active: "all" | "review" | "draft" =
+    currentStatus === "DRAFT" ? "draft" : currentStatus === "READY" ? "review" : "all";
 
   return (
-    <div className="border-border bg-surface shadow-card mb-[18px] flex flex-wrap items-center gap-2 rounded-2xl border px-3 py-2">
+    <div className="border-border bg-surface shadow-card mb-[18px] flex flex-wrap items-center gap-[10px] rounded-2xl border px-3 py-[10px]">
+      {/* Search — icon, `/` hint, subtle grey background so it reads as
+          the passive default of the toolbar instead of a hard input. */}
       <div className="relative min-w-[220px] flex-1">
         <svg
           width="14"
@@ -88,7 +86,7 @@ export function EpisodeFilters({ options }: Props) {
           strokeWidth="1.6"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className="text-muted-2 pointer-events-none absolute top-1/2 left-[10px] -translate-y-1/2"
+          className="text-muted-2 pointer-events-none absolute top-1/2 left-[13px] -translate-y-1/2"
           aria-hidden
         >
           <circle cx="6.5" cy="6.5" r="3.5" />
@@ -99,39 +97,64 @@ export function EpisodeFilters({ options }: Props) {
           value={draft}
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder="Search episodes by title…"
-          className="bg-canvas text-ink focus:border-accent-border w-full rounded-md border border-transparent py-2 pr-3 pl-8 font-sans text-[13px] transition-colors outline-none focus:bg-white"
+          className="bg-canvas text-ink border-border-subtle placeholder:text-muted-2 focus:border-accent-border w-full rounded-lg border py-[9px] pr-[46px] pl-[34px] font-sans text-[13px] transition-colors outline-none focus:bg-white"
+        />
+        <span
+          className="border-border bg-surface text-muted-2 pointer-events-none absolute top-1/2 right-[10px] -translate-y-1/2 rounded-[5px] border px-[6px] py-[1px] font-mono text-[10px]"
+          aria-hidden
+        >
+          /
+        </span>
+      </div>
+
+      {/* Segmented status pills. `All` is dark-filled when active; the
+          other two get a light accent tint. */}
+      <div className="flex flex-shrink-0 items-center gap-[6px]">
+        <StatusPill
+          label="All"
+          count={totalAll}
+          active={active === "all"}
+          onClick={() => setParam("status", "")}
+        />
+        <StatusPill
+          label="Needs review"
+          count={totalReview}
+          tone="review"
+          active={active === "review"}
+          onClick={() => setParam("status", active === "review" ? "" : "READY")}
+        />
+        <StatusPill
+          label="Draft"
+          count={totalDraft}
+          tone="draft"
+          active={active === "draft"}
+          onClick={() => setParam("status", active === "draft" ? "" : "DRAFT")}
         />
       </div>
 
-      <select
-        value={currentShow}
-        onChange={(e) => setParam("show", e.target.value)}
-        className="border-border text-muted rounded-md border bg-white px-3 py-2 font-sans text-[12.5px] font-medium"
-        aria-label="Filter by show"
-      >
-        <option value="">All shows</option>
-        {options.shows.map((s) => (
-          <option key={s.id} value={s.id}>
-            {s.name}
-          </option>
-        ))}
-      </select>
+      <span aria-hidden className="bg-border-divider hidden h-[22px] w-px flex-shrink-0 sm:block" />
 
-      <select
-        value={currentStatus}
-        onChange={(e) => setParam("status", e.target.value)}
-        className="border-border text-muted rounded-md border bg-white px-3 py-2 font-sans text-[12.5px] font-medium"
-        aria-label="Filter by status"
-      >
-        <option value="">All statuses</option>
-        {options.statuses.map((s) => (
-          <option key={s} value={s}>
-            {s.charAt(0) + s.slice(1).toLowerCase()}
-          </option>
-        ))}
-      </select>
+      {/* Show picker — bordered pill so it sits with the segmented row visually. */}
+      <label className="border-border text-muted flex flex-shrink-0 items-center gap-[7px] rounded-lg border bg-white px-3 py-[7px] font-sans text-[12.5px] font-medium">
+        <span className="text-muted-2">Show</span>
+        <select
+          value={currentShow}
+          onChange={(e) => setParam("show", e.target.value)}
+          className="text-ink cursor-pointer border-none bg-transparent font-sans text-[12.5px] font-medium outline-none"
+          aria-label="Filter by show"
+        >
+          <option value="">All</option>
+          {options.shows.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+      </label>
 
-      <div className="border-border text-muted flex items-center gap-1 rounded-md border bg-white px-2 py-1 font-sans text-[12px]">
+      {/* Date range — compact two-input pill; From/to labels demote the
+          picker so it doesn't compete visually with search + pills. */}
+      <div className="border-border text-muted flex flex-shrink-0 items-center gap-1 rounded-lg border bg-white px-3 py-[6px] font-sans text-[12px]">
         <span className="text-muted-2">From</span>
         <input
           type="date"
@@ -151,16 +174,56 @@ export function EpisodeFilters({ options }: Props) {
           aria-label="Filter to date"
         />
       </div>
-
-      {hasAny && (
-        <button
-          type="button"
-          onClick={clearAll}
-          className="text-muted-2 hover:bg-canvas hover:text-ink rounded-md px-3 py-2 font-sans text-[12.5px] font-medium transition-colors"
-        >
-          Clear
-        </button>
-      )}
     </div>
+  );
+}
+
+/**
+ * Single status pill. Dark filled when active + `tone === undefined` (the
+ * `All` case); accent-tinted when active + `tone === "review" | "draft"`.
+ * Passive resting is a bordered white pill with a grey count.
+ */
+function StatusPill({
+  label,
+  count,
+  tone,
+  active,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  tone?: "review" | "draft";
+  active: boolean;
+  onClick: () => void;
+}) {
+  const base =
+    "inline-flex flex-shrink-0 items-center gap-[7px] rounded-full px-[13px] py-[6px] font-sans text-[12.5px] transition-colors";
+  const restingClass = "border-border text-muted-2 border bg-white hover:text-ink";
+  const activeAllClass = "bg-ink font-semibold text-white";
+  const activeReviewClass = "border-accent-border bg-accent-soft text-ink border font-semibold";
+  const activeDraftClass = "border-border-2 bg-canvas text-ink border font-semibold";
+  const chipRestingClass = "text-muted-2 text-[11.5px] font-semibold tabular-nums";
+  const chipActiveAllClass = "text-white/80 text-[11.5px] font-semibold tabular-nums";
+  const chipActiveTonedClass = "text-muted text-[11.5px] font-semibold tabular-nums";
+
+  const className = active
+    ? tone === "review"
+      ? `${base} ${activeReviewClass}`
+      : tone === "draft"
+        ? `${base} ${activeDraftClass}`
+        : `${base} ${activeAllClass}`
+    : `${base} ${restingClass}`;
+
+  const chipClassName = active
+    ? tone === undefined
+      ? chipActiveAllClass
+      : chipActiveTonedClass
+    : chipRestingClass;
+
+  return (
+    <button type="button" onClick={onClick} className={className} aria-pressed={active}>
+      {label}
+      <span className={chipClassName}>{count}</span>
+    </button>
   );
 }

@@ -15,6 +15,7 @@ import {
   listShowsForClient as dbListShowsForClient,
 } from "@/server/db/shows";
 import {
+  episodeBucketTotals as dbEpisodeBucketTotals,
   getEpisode as dbGetEpisode,
   listEpisodesFiltered as dbListEpisodesFiltered,
   listEpisodesForShow as dbListEpisodesForShow,
@@ -423,6 +424,30 @@ export async function listEpisodesForUI(
   }));
 
   return { items, total };
+}
+
+/**
+ * Agency-wide bucket totals for the `/episodes` toolbar pills + subtitle.
+ * Not scoped to the caller's search/show/date filters — the pills are a
+ * navigational aid, so counts should stay stable as users narrow.
+ * Sample-data mode returns synthetic values keyed off `sampleShows` so
+ * the demo surface still lights up.
+ */
+export async function episodeBucketTotalsForUI(ctx: TenantContext): Promise<{
+  all: number;
+  draft: number;
+  review: number;
+  outputsWaitingReview: number;
+}> {
+  if (!isLiveDb()) {
+    return {
+      all: sampleShows.length,
+      draft: 1,
+      review: Math.max(0, sampleShows.length - 1),
+      outputsWaitingReview: sampleShows.length * 3,
+    };
+  }
+  return dbEpisodeBucketTotals(ctx);
 }
 
 /**

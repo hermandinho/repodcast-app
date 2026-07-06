@@ -10,13 +10,18 @@ import {
   bulkGenerateEpisodesAction,
 } from "@/app/(dashboard)/episodes/actions";
 
-const STATUS_STYLES: Record<EpisodeListStatus, { label: string; bg: string; color: string }> = {
-  DRAFT: { label: "Draft", bg: "#F1F4F9", color: "#7A8496" },
-  PROCESSING: { label: "Processing", bg: "#EEF2FB", color: "#3A5BA0" },
-  READY: { label: "Ready", bg: "#E7F4EC", color: "#1E7A47" },
-  ARCHIVED: { label: "Archived", bg: "#F1F4F9", color: "#9AA3B2" },
-  FAILED: { label: "Failed", bg: "#FBEDEC", color: "#C0392B" },
-};
+/**
+ * Two-section list — `NEEDS REVIEW` (rows with outputs still in flight)
+ * and `DRAFTS — NO OUTPUTS YET` (rows in DRAFT or with no outputs). Each
+ * row carries the state-appropriate primary action (Review → for review
+ * rows, Generate outputs for drafts). Bulk selection stays intact — the
+ * checkboxes ride outside the link so a click never navigates.
+ *
+ * Bucketing rule: an episode with `outputCount === 0` OR `status ===
+ * "DRAFT"` lands in the Drafts group; everything else lands in Needs
+ * Review. This uses the same proxy as the toolbar's pill filter so
+ * clicking a pill and reading the grouped headings match.
+ */
 
 const APPROVE_ROLES: MemberRole[] = [MemberRole.OWNER, MemberRole.ADMIN, MemberRole.REVIEWER];
 const GENERATE_ROLES: MemberRole[] = [MemberRole.OWNER, MemberRole.ADMIN, MemberRole.EDITOR];
@@ -24,6 +29,22 @@ const GENERATE_ROLES: MemberRole[] = [MemberRole.OWNER, MemberRole.ADMIN, Member
 type BulkResultBanner =
   | { kind: "approve"; totalApproved: number; episodeCount: number }
   | { kind: "generate"; dispatchedCount: number; skippedCount: number };
+
+const STATUS_STYLES: Record<EpisodeListStatus, { label: string; bg: string; color: string }> = {
+  DRAFT: { label: "Draft", bg: "var(--color-neutral-soft)", color: "var(--color-neutral-text)" },
+  PROCESSING: { label: "Processing", bg: "var(--color-accent-soft)", color: "var(--color-accent)" },
+  READY: { label: "Ready", bg: "var(--color-warn-soft)", color: "var(--color-warn-text)" },
+  ARCHIVED: {
+    label: "Archived",
+    bg: "var(--color-neutral-soft)",
+    color: "var(--color-neutral-text)",
+  },
+  FAILED: { label: "Failed", bg: "#FBEDEC", color: "#C0392B" },
+};
+
+function isDraftBucket(e: EpisodeListItem): boolean {
+  return e.status === "DRAFT" || e.outputCount === 0;
+}
 
 export function EpisodeListSelection({
   items,
@@ -43,10 +64,15 @@ export function EpisodeListSelection({
   const selectable = canApprove || canGenerate;
   const selectedCount = selected.size;
 
-  // The approve action only mutates READY/IN_REVIEW outputs — surfacing
-  // the count of episodes in those states (vs. selected) keeps the bar
-  // honest. Generate-eligibility tracks DRAFT/FAILED — those are the
-  // only statuses the batch helper accepts (server re-validates).
+  const { reviewItems, draftItems } = useMemo(() => {
+    const drafts: EpisodeListItem[] = [];
+    const review: EpisodeListItem[] = [];
+    for (const e of items) {
+      (isDraftBucket(e) ? drafts : review).push(e);
+    }
+    return { reviewItems: review, draftItems: drafts };
+  }, [items]);
+
   const { approveEligibleCount, generateEligibleCount } = useMemo(() => {
     let approveN = 0;
     let generateN = 0;
@@ -101,8 +127,6 @@ export function EpisodeListSelection({
           episodeCount: r.data.episodeCount,
         });
         setSelected(new Set());
-        // The action's revalidatePath calls cover the route, but client
-        // state (status pills cached above) gets refreshed too.
         router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Approve failed.");
@@ -128,8 +152,6 @@ export function EpisodeListSelection({
           skippedCount: r.data.skippedCount,
         });
         setSelected(new Set());
-        // Server flipped rows to PROCESSING + revalidated the layout;
-        // the refresh ensures the status pills re-render immediately.
         router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Generate failed.");
@@ -166,9 +188,9 @@ export function EpisodeListSelection({
             ? `Nothing to approve — the ${result.episodeCount} selected episode${
                 result.episodeCount === 1 ? "" : "s"
               } had no READY or IN_REVIEW outputs.`
-            : `Approved ${result.totalApproved} output${result.totalApproved === 1 ? "" : "s"} across ${
-                result.episodeCount
-              } episode${result.episodeCount === 1 ? "" : "s"}.`}
+            : `Approved ${result.totalApproved} output${
+                result.totalApproved === 1 ? "" : "s"
+              } across ${result.episodeCount} episode${result.episodeCount === 1 ? "" : "s"}.`}
         </div>
       )}
       {result && result.kind === "generate" && (
@@ -195,17 +217,29 @@ export function EpisodeListSelection({
         </div>
       )}
 
-      <ul className="flex flex-col gap-2">
-        {items.map((e) => (
-          <EpisodeRow
-            key={e.id}
-            episode={e}
-            checked={selected.has(e.id)}
-            onToggle={() => toggleOne(e.id)}
-            selectable={selectable}
-          />
-        ))}
-      </ul>
+      {reviewItems.length > 0 && (
+        <GroupSection
+          eyebrow="Needs review"
+          count={reviewItems.length}
+          tone="review"
+          items={reviewItems}
+          selected={selected}
+          selectable={selectable}
+          onToggle={toggleOne}
+        />
+      )}
+
+      {draftItems.length > 0 && (
+        <GroupSection
+          eyebrow="Drafts — no outputs yet"
+          count={draftItems.length}
+          tone="draft"
+          items={draftItems}
+          selected={selected}
+          selectable={selectable}
+          onToggle={toggleOne}
+        />
+      )}
 
       {selectable && selectedCount > 0 && (
         <div
@@ -277,75 +311,199 @@ export function EpisodeListSelection({
   );
 }
 
+/**
+ * Section header (eyebrow label + count pill + hairline) followed by a
+ * white card holding a stack of rows. Rendered once per bucket so the
+ * two lists visually sit as peers.
+ */
+function GroupSection({
+  eyebrow,
+  count,
+  tone,
+  items,
+  selected,
+  selectable,
+  onToggle,
+}: {
+  eyebrow: string;
+  count: number;
+  tone: "review" | "draft";
+  items: EpisodeListItem[];
+  selected: Set<string>;
+  selectable: boolean;
+  onToggle: (id: string) => void;
+}) {
+  const eyebrowColor = tone === "review" ? "var(--color-warn-text)" : "var(--color-muted-2)";
+  const chipBg = tone === "review" ? "var(--color-warn-soft)" : "var(--color-neutral-soft)";
+  const chipColor = tone === "review" ? "var(--color-warn-text)" : "var(--color-muted)";
+
+  return (
+    <section className="mt-6 first:mt-0">
+      <div className="mb-[10px] flex items-center gap-[10px]">
+        <span
+          className="font-mono text-[10.5px] font-semibold tracking-[0.12em] uppercase"
+          style={{ color: eyebrowColor }}
+        >
+          {eyebrow}
+        </span>
+        <span
+          className="inline-flex items-center rounded-full px-[8px] py-[2px] font-sans text-[11px] font-semibold tabular-nums"
+          style={{ background: chipBg, color: chipColor }}
+        >
+          {count}
+        </span>
+        <span aria-hidden className="bg-border h-px flex-1" />
+      </div>
+      <ul className="border-border bg-surface overflow-hidden rounded-2xl border">
+        {items.map((e, i) => (
+          <EpisodeRow
+            key={e.id}
+            episode={e}
+            checked={selected.has(e.id)}
+            onToggle={() => onToggle(e.id)}
+            selectable={selectable}
+            isLast={i === items.length - 1}
+            variant={tone}
+          />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * Single episode row. Two visual variants driven by `variant`:
+ *   - `review` — surfaces an amber "N to review" pill + a filled
+ *     `Review →` accent button.
+ *   - `draft` — greys the meta with a "No outputs generated" caption,
+ *     `Draft` pill, and an outlined `Generate outputs` CTA.
+ *
+ * Rows share a single row shell so borders + hover states stay uniform
+ * across sections. The checkbox is a sibling of the link (not nested)
+ * so a checkbox click never navigates.
+ */
 function EpisodeRow({
   episode,
   checked,
   onToggle,
   selectable,
+  isLast,
+  variant,
 }: {
   episode: EpisodeListItem;
   checked: boolean;
   onToggle: () => void;
   selectable: boolean;
+  isLast: boolean;
+  variant: "review" | "draft";
 }) {
   const sm = STATUS_STYLES[episode.status];
+  const rowClasses = `group hover:bg-canvas relative flex items-center gap-[14px] px-[22px] py-[14px] transition-colors ${
+    isLast ? "" : "border-border-divider border-b"
+  }`;
 
-  // The checkbox is a sibling of the link, not inside it — clicking the
-  // checkbox must not navigate. We use a flex row with the link filling
-  // the remaining space.
   return (
-    <li className="flex items-stretch gap-2">
-      {selectable && (
-        <label
-          className="flex flex-shrink-0 cursor-pointer items-center px-1"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <input
-            type="checkbox"
-            checked={checked}
-            onChange={onToggle}
-            className="border-border h-[16px] w-[16px] rounded accent-[var(--color-accent)]"
-            aria-label={`Select ${episode.title}`}
-          />
-        </label>
-      )}
-      <Link
-        href={`/episodes/${episode.id}`}
-        className="group border-border bg-surface shadow-card hover:border-border-2 hover:shadow-card-hover flex min-w-0 flex-1 items-center gap-[14px] rounded-2xl border px-4 py-[14px] transition-shadow"
-      >
-        <div
-          className="font-display flex h-[42px] w-[42px] flex-shrink-0 items-center justify-center rounded-xl text-[13.5px] font-bold text-white"
-          style={{ background: episode.avatarBg }}
-        >
-          {episode.initial}
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="font-display text-ink truncate text-[14.5px] leading-tight font-semibold">
-            {episode.title}
-          </div>
-          <div className="text-muted-2 mt-[3px] truncate text-[12px]">
-            {episode.showName}
-            {episode.clientName ? ` · ${episode.clientName}` : ""}
-            {" · "}
-            {episode.outputCount} output{episode.outputCount === 1 ? "" : "s"}
-            {" · "}
-            {episode.createdAt}
-          </div>
-        </div>
-
+    <li>
+      <div className={rowClasses}>
+        {/* Left accent bar reveals on hover so users can spot which row
+            they're aiming at even without a full row-tint. */}
         <span
-          className="rounded-pill inline-flex flex-shrink-0 items-center gap-[6px] px-[10px] py-1 font-sans text-[11px] font-semibold"
-          style={{ background: sm.bg, color: sm.color }}
-        >
-          <span className="block h-[6px] w-[6px] rounded-full" style={{ background: sm.color }} />
-          {sm.label}
-        </span>
+          aria-hidden
+          className="bg-accent absolute top-0 bottom-0 left-0 w-[3px] opacity-0 transition-opacity group-hover:opacity-100"
+        />
 
-        <span className="text-accent hidden text-[12.5px] font-semibold transition-transform group-hover:translate-x-[2px] sm:inline">
-          Open →
-        </span>
-      </Link>
+        {selectable && (
+          <label
+            className="flex flex-shrink-0 cursor-pointer items-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={onToggle}
+              className="border-border h-[16px] w-[16px] rounded accent-[var(--color-accent)]"
+              aria-label={`Select ${episode.title}`}
+            />
+          </label>
+        )}
+
+        <Link
+          href={`/episodes/${episode.id}`}
+          className="flex min-w-0 flex-1 items-center gap-[14px] no-underline"
+        >
+          <div
+            className="font-display flex h-[38px] w-[38px] flex-shrink-0 items-center justify-center rounded-[10px] text-[11px] font-extrabold text-white"
+            style={{ background: episode.avatarBg }}
+          >
+            {episode.initial}
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <div className="font-display text-ink truncate text-[14px] leading-tight font-bold">
+              {episode.title}
+            </div>
+            <div className="text-muted-2 mt-[3px] flex items-center gap-[8px] truncate text-[12px]">
+              <span className="text-muted font-semibold">{episode.showName}</span>
+              {episode.clientName ? (
+                <>
+                  <span>·</span>
+                  <span>{episode.clientName}</span>
+                </>
+              ) : null}
+              <span>·</span>
+              <span>{episode.createdAt}</span>
+            </div>
+          </div>
+        </Link>
+
+        {variant === "review" ? (
+          <>
+            <div className="hidden w-[150px] flex-shrink-0 sm:block">
+              <div className="text-muted mb-[5px] flex justify-between text-[11px] font-semibold">
+                <span>{episode.outputCount} outputs</span>
+              </div>
+              {/* Filled bar as a lightweight "progress" until we ship
+                  per-episode approved/pending counts on the query. */}
+              <div className="bg-border-subtle h-[5px] rounded-[3px]">
+                <div
+                  className="bg-accent h-[5px] rounded-[3px]"
+                  style={{ width: episode.outputCount > 0 ? "20%" : "4%" }}
+                />
+              </div>
+            </div>
+            <span
+              className="rounded-pill inline-flex flex-shrink-0 items-center gap-[6px] px-[11px] py-[4px] font-sans text-[11px] font-semibold"
+              style={{ background: sm.bg, color: sm.color }}
+            >
+              {sm.label}
+            </span>
+            <Link
+              href={`/episodes/${episode.id}`}
+              className="bg-accent flex-shrink-0 rounded-lg px-[15px] py-[8px] font-sans text-[12.5px] font-semibold text-white no-underline transition-[filter] hover:brightness-95"
+            >
+              Review →
+            </Link>
+          </>
+        ) : (
+          <>
+            <span className="text-muted-2 hidden flex-shrink-0 text-[12px] sm:inline">
+              No outputs generated
+            </span>
+            <span
+              className="rounded-pill inline-flex flex-shrink-0 items-center px-[11px] py-[4px] font-sans text-[11px] font-semibold"
+              style={{ background: sm.bg, color: sm.color }}
+            >
+              {sm.label}
+            </span>
+            <Link
+              href={`/episodes/${episode.id}`}
+              className="border-border text-muted hover:border-accent-border hover:text-accent flex-shrink-0 rounded-lg border bg-white px-[15px] py-[7px] font-sans text-[12.5px] font-semibold no-underline transition-colors"
+            >
+              Generate outputs
+            </Link>
+          </>
+        )}
+      </div>
     </li>
   );
 }

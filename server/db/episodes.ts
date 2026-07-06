@@ -228,6 +228,51 @@ export async function listEpisodesFiltered(
   return { rows, total };
 }
 
+/**
+ * Cheap agency-wide bucket totals for the `/episodes` toolbar pills +
+ * header subtitle. Independent of the paged list's search/show/date
+ * filters — the pill counts are meant to convey attention magnitude at
+ * a glance, so scoping them to the current filters would give shrinking
+ * numbers as users narrow their view.
+ *
+ * `outputsWaitingReview` counts current outputs (non-superseded) sitting
+ * in a reviewable status. Powers the "M outputs waiting for review"
+ * fragment in the page subtitle.
+ */
+export async function episodeBucketTotals(
+  ctx: TenantContext,
+): Promise<{ all: number; draft: number; review: number; outputsWaitingReview: number }> {
+  requireReadRole(ctx, READ_ROLES);
+
+  // Group by status once — Prisma runs it as a single SQL query, which
+  // is cheaper than three separate counts.
+  const groups = await prisma.episode.groupBy({
+    by: ["status"],
+    where: { show: { client: { agencyId: ctx.agencyId } } },
+    _count: { _all: true },
+  });
+
+  let all = 0;
+  let draft = 0;
+  for (const g of groups) {
+    all += g._count._all;
+    if (g.status === EpisodeStatus.DRAFT) draft += g._count._all;
+  }
+  const review = all - draft;
+
+  // Outputs in a reviewable state — needs a separate count since
+  // Episode.status doesn't track per-output review progress.
+  const outputsWaitingReview = await prisma.generatedOutput.count({
+    where: {
+      supersededAt: null,
+      status: { in: ["READY", "IN_REVIEW", "AWAITING_CLIENT_APPROVAL"] },
+      episode: { show: { client: { agencyId: ctx.agencyId } } },
+    },
+  });
+
+  return { all, draft, review, outputsWaitingReview };
+}
+
 export async function getEpisode(ctx: TenantContext, episodeId: string): Promise<Episode> {
   requireReadRole(ctx, READ_ROLES);
   const episode = await prisma.episode.findFirst({
