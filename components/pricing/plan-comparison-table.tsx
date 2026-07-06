@@ -46,13 +46,12 @@ const COMPARISON: ComparisonRow[] = [
   { label: "Client portal (per-client)", values: ["—", "—", "✓"] },
   { label: "Custom brand accent", values: ["—", "—", "✓"] },
 
-  { section: "Ops", label: "Monthly cost cap", values: ["$9", "$27", "$90"] },
-  { label: "Episodes / month", values: ["20", "60", "250"] },
+  { section: "Ops", label: "Episodes / month", values: ["20", "60", "250"] },
   { label: "Generations / month", values: ["140", "420", "1,750"] },
 
   { section: "Billing", label: "Currencies", values: ["5", "5", "5"] },
   { label: "Monthly or annual", values: ["✓", "✓", "✓"] },
-  { label: "$1 activation, 7-day trial", values: ["✓", "✓", "✓"] },
+  { label: "$1 activation, 7-day trial", values: ["✓", "—", "—"] },
   { label: "Cancel any time", values: ["✓", "✓", "✓"] },
 ];
 
@@ -244,10 +243,10 @@ function ComparisonInner({ compact }: { compact: boolean }) {
         {PLAN_NAMES.map((name, i) => {
           const isPopular = i === POPULAR_IDX;
           // Solo card at index 0 shows the trial CTA (Solo-only trial); the
-          // other columns retain the neutral "Choose X" copy since they
-          // subscribe directly. All three anchor-scroll to the picker at
-          // top; the actual plan submit happens up there.
-          const label = i === 0 ? "Start 7-day trial" : `Choose ${name}`;
+          // paid plans use a neutral "Get started" so the two rows share
+          // one label instead of naming the plan back at the user. All
+          // three anchor-scroll to the picker at the top of the page.
+          const label = i === 0 ? "Start 7-day trial" : "Get started";
           return (
             <div
               key={name}

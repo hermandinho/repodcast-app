@@ -44,7 +44,22 @@ const splineSansMono = Spline_Sans_Mono({
   weight: ["400", "500", "600"],
 });
 
+/**
+ * Absolute origin every generated `og:image` / `twitter:image` URL is
+ * resolved against. Without this, Next.js falls back to `VERCEL_URL` on
+ * Vercel deployments — which, on preview builds, is the ugly
+ * `<project>-git-<branch>-<user>-projects.vercel.app` host that ends up
+ * baked into shared links until the crawler re-fetches. The same
+ * fallback chain the sitemap + robots routes use so all three surfaces
+ * agree on the canonical origin.
+ */
+const metadataBase = new URL(
+  process.env.NEXT_PUBLIC_APP_URL ??
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "https://repodcastapp.com"),
+);
+
 export const metadata: Metadata = {
+  metadataBase,
   title: "Repodcast",
   description: "Turn podcast episodes into platform-ready content in your client's voice.",
 };

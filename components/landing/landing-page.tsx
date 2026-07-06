@@ -12,9 +12,13 @@ import { LandingNav } from "./nav";
  * Section order mirrors the ref exactly: Hero (with inline product
  * mock), TrustedBy strip, Problem (heading + stat grid), HowItWorks
  * (three numbered steps), VoiceEngine (dark navy band with traits
- * card), Outputs (seven format tiles + accent chip), SocialProof
- * (testimonials — kept from the previous revision, adds trust beyond
- * the ref's scope), Pricing, FAQ, FinalCTA.
+ * card), Outputs (seven format tiles + accent chip), Pricing, FAQ,
+ * FinalCTA.
+ *
+ * The testimonial block from the previous revision was removed — the
+ * quotes were placeholder copy, and shipping invented endorsements
+ * violates FTC endorsement rules. Re-add only when we have real quotes
+ * from consenting studios.
  *
  * Color note: every ref accent-blue (`#2e5bff`) is intentionally mapped
  * to `var(--color-accent)` so the workspace brand color drives the page
@@ -45,7 +49,6 @@ export function LandingPage({
       <HowItWorks />
       <VoiceEngine />
       <Outputs />
-      <SocialProof />
       <Pricing isSignedIn={isSignedIn} />
       <FAQ />
       <FinalCTA isSignedIn={isSignedIn} />
@@ -624,88 +627,6 @@ function Outputs() {
 }
 
 // ============================================================
-// Social proof — kept from the previous revision because
-// the ref doesn't include testimonials and dropping them loses
-// signal for cold visitors.
-// ============================================================
-
-function SocialProof() {
-  const testimonials = [
-    {
-      quote:
-        "We dropped two freelancers and our turnaround went from four days to same-day. And it actually sounds like our hosts — clients stopped asking for rewrites.",
-      initials: "MO",
-      name: "Maya Okafor",
-      role: "Founder, Northwind Audio",
-    },
-    {
-      quote:
-        "Six shows, one afternoon. What used to eat my whole week is now a review queue. The white-label means clients think we built it in-house.",
-      initials: "DC",
-      name: "Devin Castellanos",
-      role: "Owner, Tightrope Studio",
-    },
-    {
-      quote:
-        "By the third episode for each client the edits basically vanish. It's the first tool that got better instead of staying mediocre.",
-      initials: "PR",
-      name: "Priya Raman",
-      role: "Director, Frequency Lab",
-    },
-  ];
-  return (
-    <section
-      className="px-5 py-14 sm:px-8 sm:py-16 lg:px-14 lg:py-[72px]"
-      style={{ background: "#fff", borderTop: `1px solid ${BORDER_SOFT}` }}
-    >
-      <div className="mx-auto" style={{ maxWidth: 1180 }}>
-        <div className="mb-7 max-w-[620px] sm:mb-9">
-          <Kicker>From the studios using it</Kicker>
-          <H2>Built to give contractor hours back.</H2>
-        </div>
-        <div
-          className="grid grid-cols-1 gap-px overflow-hidden rounded-[14px] md:grid-cols-3"
-          style={{
-            background: BORDER,
-            border: `1px solid ${BORDER}`,
-          }}
-        >
-          {testimonials.map((t) => (
-            <div
-              key={t.name}
-              className="flex flex-col bg-white px-6 py-7 sm:px-[30px] sm:py-[34px]"
-            >
-              <p
-                className="m-0 mb-6 flex-1 text-[15px] leading-[1.6] sm:mb-[26px] sm:text-[16px]"
-                style={{ color: INK, letterSpacing: "-0.01em" }}
-              >
-                &ldquo;{t.quote}&rdquo;
-              </p>
-              <div className="flex items-center gap-3">
-                <span
-                  className="flex h-[42px] w-[42px] flex-shrink-0 items-center justify-center rounded-full text-[14px] font-semibold text-white"
-                  style={{ background: INK, fontFamily: "var(--font-display)" }}
-                >
-                  {t.initials}
-                </span>
-                <div>
-                  <div className="text-[14.5px] font-semibold" style={{ color: INK }}>
-                    {t.name}
-                  </div>
-                  <div className="mt-[2px] font-mono text-[11.5px]" style={{ color: MUTED_2 }}>
-                    {t.role}
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ============================================================
 // Pricing — thin wrapper around <PricingPicker>
 // ============================================================
 
@@ -815,7 +736,7 @@ function FinalCTA({ isSignedIn }: { isSignedIn: boolean }) {
           className="rounded-[9px] px-5 py-3 text-[14px] font-semibold text-white no-underline transition-[filter] hover:brightness-110 sm:px-[22px] sm:py-3 sm:text-[15px]"
           style={{ background: "var(--color-accent)" }}
         >
-          {isSignedIn ? "Continue" : "Get started free"}
+          {isSignedIn ? "Continue" : "Get started"}
         </Link>
       </div>
     </section>

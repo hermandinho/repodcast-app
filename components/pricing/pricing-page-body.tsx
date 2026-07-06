@@ -84,8 +84,8 @@ function PricingHero() {
           className="m-0 mx-auto max-w-[560px] text-[15px] leading-[1.6] sm:text-[17px]"
           style={{ color: "#5A6473" }}
         >
-          Pick a plan that fits your studio. Toggle annual to save two months. Everything switches
-          or cancels from Settings — no calls, no forms.
+          From a one-person show to a full client roster — pick the plan that fits. Toggle annual to
+          save two months. Everything switches or cancels from Settings — no calls, no forms.
         </p>
       </div>
     </section>
@@ -263,7 +263,7 @@ function PricingFinalCTA({ isSignedIn }: { isSignedIn: boolean }) {
               className="rounded-[9px] px-5 py-3 text-[14px] font-medium whitespace-nowrap no-underline sm:px-[26px] sm:py-[14px] sm:text-[15px]"
               style={{ background: "#FFFFFF", color: "#1A2A4A" }}
             >
-              Create account
+              Get started
             </Link>
           )}
         </div>

@@ -107,7 +107,7 @@ export const PLAN_DISPLAY: Record<Plan, PlanDisplay> = {
   SOLO: {
     name: "Solo",
     prices: PLAN_PRICES_BY_CURRENCY.SOLO,
-    tagline: "One host, one show, your voice",
+    tagline: "Just you — one show, one voice",
     highlights: ["1 show", "1 seat", "20 episodes / month"],
   },
   STUDIO: {
