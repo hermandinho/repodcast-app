@@ -9,7 +9,7 @@ import {
   revokePortalLinkAction,
 } from "@/app/(dashboard)/clients/[key]/billing/portal-actions";
 
-const PORTAL_MIN_PLAN: Plan = "NETWORK";
+const PORTAL_MIN_PLAN: Plan = "AGENCY";
 
 const DATE_FMT = new Intl.DateTimeFormat("en-US", {
   month: "short",
@@ -58,12 +58,13 @@ export function PortalLinksCard({
   /** Effective agency plan. `null` in sample-data mode → treat as unlocked. */
   plan: Plan | null;
 }) {
-  // Client portals are a Network-tier feature (they cluster with white-label
-  // + batch on the "look professional to clients" moat). Solo/Studio agencies
-  // see an inline upsell instead of a mint form whose submit would just
-  // throw. Existing links stay visible + revocable so a downgrade doesn't
-  // strand deliverables the client already has a URL for.
-  const planUnlocksMint = plan === null || plan === "NETWORK";
+  // Client portals unlock at AGENCY (see PORTAL_MIN_PLAN + the
+  // `createPortalLink` gate in `server/db/client-portal.ts`). Solo and
+  // Studio agencies see an inline upsell instead of a mint form whose
+  // submit would just throw. Existing links stay visible + revocable so
+  // a downgrade doesn't strand deliverables the client already has a
+  // URL for.
+  const planUnlocksMint = plan === null || plan === "AGENCY" || plan === "NETWORK";
   const [links, setLinks] = useState<PortalLinkRow[]>(initialLinks);
   const [expiresInDays, setExpiresInDays] = useState<number>(30);
   const [passwordEnabled, setPasswordEnabled] = useState(false);
