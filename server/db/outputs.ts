@@ -479,6 +479,70 @@ export async function clientRequestRevisionFromPortal(input: {
 }
 
 /**
+ * Agency-side "pull it back" — the mirror of the portal's
+ * `clientRequestRevisionFromPortal`. Same target state (READY) so
+ * editors can rework the piece, but the transition is initiated by an
+ * agency member (Reviewer/Admin/Owner) instead of the end client.
+ * Typical trigger: the operator spots something to fix after the
+ * output was already sent to the portal but before the client acted.
+ *
+ * Gated to `APPROVE_ROLES` because the recall reverses the same
+ * gesture (approve → send-to-client) that only those roles could
+ * initiate. No client-side notification fires — the item just vanishes
+ * from their pending queue; a resend will land as a fresh event.
+ */
+export async function recallOutputFromClient(
+  ctx: TenantContext,
+  outputId: string,
+  byMemberId: string,
+  note?: string,
+): Promise<GeneratedOutput> {
+  requireRole(ctx, APPROVE_ROLES);
+
+  const output = await prisma.generatedOutput.findFirst({
+    where: {
+      id: outputId,
+      episode: { show: { client: { agencyId: ctx.agencyId } } },
+    },
+    select: { id: true, status: true },
+  });
+  if (!output) throw new NotFoundError(`Output ${outputId} not found`);
+  if (output.status !== OutputStatus.AWAITING_CLIENT_APPROVAL) {
+    throw new ValidationError(
+      `Output ${outputId} is not awaiting client approval (status: ${output.status}). ` +
+        "Only outputs currently sent to the client can be recalled.",
+    );
+  }
+
+  const trimmedNote = note?.trim();
+  const transitionNote = trimmedNote
+    ? `Recalled from client — ${trimmedNote}`
+    : "Recalled from client";
+
+  const [updated] = await prisma.$transaction([
+    prisma.generatedOutput.update({
+      where: { id: outputId },
+      data: {
+        status: OutputStatus.READY,
+        sentToClientAt: null,
+      },
+    }),
+    prisma.outputTransition.create({
+      data: {
+        agencyId: ctx.agencyId,
+        outputId,
+        fromStatus: OutputStatus.AWAITING_CLIENT_APPROVAL,
+        toStatus: OutputStatus.READY,
+        byMemberId,
+        note: transitionNote,
+      },
+    }),
+  ]);
+
+  return updated;
+}
+
+/**
  * READY → IN_REVIEW. Used by editors to flag content for an approver.
  * Optional note (e.g. "second pass on hook?") becomes the transition note.
  */

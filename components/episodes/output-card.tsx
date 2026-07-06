@@ -86,6 +86,10 @@ export type OutputCardActions = {
   onApprove: () => void;
   onRequestReview: () => void;
   onReject: () => void;
+  /** Pull an AWAITING_CLIENT_APPROVAL output back to READY so the agency
+   *  can edit / regen before resending. Only meaningful while the row is
+   *  actually awaiting the client — the drawer guards on state. */
+  onRecall: () => void;
   onRetry: () => void;
 };
 

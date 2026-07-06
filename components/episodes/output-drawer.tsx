@@ -103,6 +103,13 @@ export function OutputDrawer({
   const roleCanRequestReview =
     !readOnly && REQUEST_REVIEW_ROLES.includes(viewerRole) && !isLocked && !awaitingClient;
   const roleCanSchedule = !readOnly && SCHEDULE_ROLES.includes(viewerRole);
+  // Recall is authorised for the same roles that could approve + send-
+  // to-client (OWNER/ADMIN/REVIEWER). Only meaningful while the row is
+  // actually in the client's portal queue, so gate on `awaitingClient`.
+  // Deliberately separate from `roleCanApprove` because that one is
+  // false under AWAITING (by design — no re-approve while in portal).
+  const roleCanRecall =
+    !readOnly && APPROVE_ROLES.includes(viewerRole) && awaitingClient && !clientApproved;
 
   // Escape key + backdrop click close.
   useEffect(() => {
@@ -643,6 +650,11 @@ export function OutputDrawer({
               }
             />
           ) : awaitingClient ? (
+            /* Row is sitting in the client's portal queue. Approve
+               roles get a "Recall from client" affordance so they can
+               pull it back, edit, and resend — the only escape hatch
+               out of AWAITING_CLIENT_APPROVAL besides waiting for the
+               client to act. */
             <FooterRow
               onCancel={onClose}
               secondaryActions={[
@@ -651,6 +663,16 @@ export function OutputDrawer({
                   onClick: actions.onCopy,
                 },
               ]}
+              primary={
+                roleCanRecall
+                  ? {
+                      label: "Recall from client",
+                      tone: "brand",
+                      onClick: actions.onRecall,
+                      disabled: pending,
+                    }
+                  : undefined
+              }
             />
           ) : (
             /* ready or review */

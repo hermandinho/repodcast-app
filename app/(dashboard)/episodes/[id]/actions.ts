@@ -24,6 +24,7 @@ import {
   approveOutput,
   listVersionsForOutput,
   markOutputRegenerating,
+  recallOutputFromClient,
   regenerateOutputInput,
   rejectOutputForRevision,
   requestReviewOutput,
@@ -353,6 +354,36 @@ export async function rejectOutputAction(
 
   const auth = await requireAuthContext();
   await rejectOutputForRevision(toTenantContext(auth), outputId, auth.member.id, note);
+  revalidatePath(`/episodes/${auth.agency.id}`);
+  return noopOk({ outputId });
+}
+
+// ============================================================
+// Recall from client (AWAITING_CLIENT_APPROVAL → READY)
+// ============================================================
+//
+// Mirror of the portal-side revision request, initiated by the agency
+// instead of the end client. Used when an operator spots something to
+// fix after the output was already sent to the portal but before the
+// client acted on it. Post-recall the output lands in READY, editable +
+// regenerable via the standard drafts flow — the operator adjusts, then
+// re-approves (which re-sends to the portal in CLIENT mode).
+
+const recallInput = idInput.and(reviewNoteInput);
+
+export async function recallOutputAction(
+  raw: unknown,
+): Promise<ActionResult<{ outputId: string }>> {
+  const parsed = recallInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid recall input", parsed.error.issues);
+  }
+  const { outputId, note } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ outputId });
+
+  const auth = await requireAuthContext();
+  await recallOutputFromClient(toTenantContext(auth), outputId, auth.member.id, note);
   revalidatePath(`/episodes/${auth.agency.id}`);
   return noopOk({ outputId });
 }

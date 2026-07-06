@@ -22,6 +22,7 @@ import { qualityColor } from "@/lib/sample-data/quality";
 import { voiceBg, voiceLabel, voiceTextColor } from "@/lib/sample-data/voice-strength";
 import {
   approveOutputAction,
+  recallOutputAction,
   regenerateOutputAction,
   rejectOutputAction,
   requestReviewOutputAction,
@@ -740,6 +741,34 @@ export function OutputsView({
       });
   };
 
+  // Recall an AWAITING_CLIENT_APPROVAL output back to READY so the
+  // agency can edit / regen before resending. Optimistic flip; roll
+  // back on server error. Also drops `sentToClientAtIso` so the
+  // "sent to client at …" chip in the drawer stops rendering.
+  const onRecall = (key: string) => {
+    if (readOnly) return;
+    const o = outputs.find((x) => x.key === key);
+    if (!o || o.status !== "awaiting-client") return;
+    const prevStatus = o.status;
+    const prevSentToClientAtIso = o.sentToClientAtIso;
+    update(key, {
+      status: "ready",
+      showRegen: false,
+      editing: false,
+      sentToClientAtIso: null,
+    });
+    void recallOutputAction({ outputId: o.id })
+      .then((result) => {
+        if (!result.ok) {
+          update(key, { status: prevStatus, sentToClientAtIso: prevSentToClientAtIso });
+        }
+      })
+      .catch((err) => {
+        console.error("recallOutputAction failed", err);
+        update(key, { status: prevStatus, sentToClientAtIso: prevSentToClientAtIso });
+      });
+  };
+
   const onRegenAll = () => {
     if (readOnly) return;
     if (generatingAll) return;
@@ -989,6 +1018,7 @@ export function OutputsView({
               onApprove: () => onApprove(o.key),
               onRequestReview: () => onRequestReview(o.key),
               onReject: () => onReject(o.key),
+              onRecall: () => onRecall(o.key),
               onRetry: () => onRetry(o.key),
             };
             return (
@@ -1031,6 +1061,7 @@ export function OutputsView({
             onApprove: () => onApprove(o.key),
             onRequestReview: () => onRequestReview(o.key),
             onReject: () => onReject(o.key),
+            onRecall: () => onRecall(o.key),
             onRetry: () => onRetry(o.key),
           };
           return (
