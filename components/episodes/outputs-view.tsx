@@ -822,7 +822,7 @@ export function OutputsView({
   return (
     <div className="flex min-h-full">
       {/* CONTENT */}
-      <div className="min-w-0 flex-1 px-7 pt-[26px] pb-[60px]">
+      <div className="min-w-0 flex-1 px-4 pt-5 pb-14 sm:px-6 md:px-7 md:pt-[26px] md:pb-[60px]">
         {/* Breadcrumb — `client` here is actually a SHOW (the prop name
             is legacy from the pre-hierarchy days). Links go to /shows/*.
             The tail crumb is the episode title (truncated); we drop the
@@ -844,7 +844,11 @@ export function OutputsView({
 
         {/* Episode header — title row + action buttons */}
         <div className="mb-[14px] flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-[300px] flex-1">
+          {/* `min-w-0` lets the flex parent shrink us below the natural
+              content width on phones; the wide `min-w-[300px]` floor
+              re-applies at sm+ where the header can afford it and the
+              action row wants to sit inline. */}
+          <div className="min-w-0 flex-1 sm:min-w-[300px]">
             <EditableTitle episodeId={episode.id} initial={episode.episode} />
             <div className="text-muted mt-[6px] text-[13px]">
               {client.name} · {episode.episodeMeta}
@@ -918,8 +922,8 @@ export function OutputsView({
             Vertical dividers separate the three groups per ref, and the
             trainer copy lives on the right so the eye reads the row as
             "state on the left, provenance on the right". */}
-        <div className="border-border bg-surface mb-[22px] flex flex-wrap items-center gap-x-[22px] gap-y-[10px] rounded-[14px] border px-[22px] py-[15px]">
-          <div className="flex min-w-[200px] flex-1 items-center gap-[12px]">
+        <div className="border-border bg-surface mb-[22px] flex flex-wrap items-center gap-x-4 gap-y-[10px] rounded-[14px] border px-4 py-[13px] sm:gap-x-[22px] sm:px-[22px] sm:py-[15px]">
+          <div className="flex min-w-0 flex-1 items-center gap-[12px] sm:min-w-[200px]">
             <div className="text-[14px] whitespace-nowrap text-[#5A6473]">
               <span className="font-display text-ink text-[15px] font-bold">
                 {approvedCount} of {totalCount}

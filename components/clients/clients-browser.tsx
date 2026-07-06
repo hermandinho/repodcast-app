@@ -197,7 +197,11 @@ export function ClientsBrowser({ clients }: { clients: ClientWithStats[] }) {
       ) : (
         <div
           className="grid gap-[18px]"
-          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(296px, 1fr))" }}
+          // 260px works down to ~340px phone viewports (card+padding fits
+          // inside), while auto-fill still expands to 296-ish on desktop
+          // as more room appears. Slight relaxation from the previous
+          // 296px floor that was overflowing narrow phones.
+          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}
         >
           {filtered.map((c) => {
             const hasUnread = c.unreadFeedback > 0;

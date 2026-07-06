@@ -104,7 +104,7 @@ export default async function EpisodesListPage({
     : "No episodes yet";
 
   return (
-    <div className="px-[32px] pt-[28px] pb-[60px]">
+    <div className="px-4 pt-5 pb-14 sm:px-6 sm:pt-6 md:px-[32px] md:pt-[28px] md:pb-[60px]">
       {/* Header — title, subtitle, dual CTAs. `Review all waiting →` is
           the primary attention affordance when there's review work; the
           `+ New episode` outlined pair sits beside it as the always-on

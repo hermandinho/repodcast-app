@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { ImpersonationBanner } from "@/components/dashboard/impersonation-banner";
 import { TrialBanner } from "@/components/dashboard/trial-banner";
+import { NavDrawerProvider } from "@/components/shell/nav-drawer-context";
 import { Sidebar } from "@/components/shell/sidebar";
 import { Topbar } from "@/components/shell/topbar";
 import { getAuthContext } from "@/server/auth/context";
@@ -46,28 +47,30 @@ export default async function DashboardLayout({ children }: { children: React.Re
   }
 
   return (
-    <div className="bg-canvas flex h-screen w-full overflow-hidden">
-      <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar />
-        {auth?.impersonation ? (
-          <ImpersonationBanner
-            agencyName={auth.agency.name}
-            memberEmail={auth.impersonation.as.email}
-            memberName={auth.impersonation.as.name}
-            mode={auth.impersonation.mode}
-            actorRole={auth.impersonation.actorRole}
-          />
-        ) : null}
-        {auth?.agency.trialStatus === "ACTIVE" && auth.agency.trialEndsAt ? (
-          <TrialBanner
-            plan={auth.agency.plan}
-            daysLeft={daysUntil(auth.agency.trialEndsAt)}
-            endsAtLabel={formatShortDate(auth.agency.trialEndsAt)}
-          />
-        ) : null}
-        <main className="flex-1 overflow-y-auto">{children}</main>
+    <NavDrawerProvider>
+      <div className="bg-canvas flex h-screen w-full overflow-hidden">
+        <Sidebar />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Topbar />
+          {auth?.impersonation ? (
+            <ImpersonationBanner
+              agencyName={auth.agency.name}
+              memberEmail={auth.impersonation.as.email}
+              memberName={auth.impersonation.as.name}
+              mode={auth.impersonation.mode}
+              actorRole={auth.impersonation.actorRole}
+            />
+          ) : null}
+          {auth?.agency.trialStatus === "ACTIVE" && auth.agency.trialEndsAt ? (
+            <TrialBanner
+              plan={auth.agency.plan}
+              daysLeft={daysUntil(auth.agency.trialEndsAt)}
+              endsAtLabel={formatShortDate(auth.agency.trialEndsAt)}
+            />
+          ) : null}
+          <main className="flex-1 overflow-y-auto">{children}</main>
+        </div>
       </div>
-    </div>
+    </NavDrawerProvider>
   );
 }

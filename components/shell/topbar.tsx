@@ -1,9 +1,9 @@
 import { UserButton } from "@clerk/nextjs";
-import Link from "next/link";
 import { getAuthContext } from "@/server/auth/context";
 import { listClientsForUI, listShowsForUI } from "@/server/data/source";
 import { resolveTenantContext } from "@/server/data/tenant";
 import { ClientSwitcher, type ClientWithCounts } from "./client-switcher";
+import { NavToggle } from "./nav-toggle";
 
 /**
  * Dashboard topbar — revamp visual system (see `ref/UI/Revamp/`).
@@ -39,16 +39,18 @@ export async function Topbar() {
 
   return (
     <header
-      className="z-20 flex flex-shrink-0 items-center justify-between"
+      className="z-20 flex flex-shrink-0 items-center justify-between px-4 py-[10px] sm:px-6 md:px-8 md:py-3"
       style={{
         background: "#ffffff",
         borderBottom: "1px solid #eef1f6",
-        padding: "12px 32px",
         fontFamily: "var(--font-revamp-sans)",
       }}
     >
-      <div className="flex min-w-0 items-center" style={{ gap: 14 }}>
-        <span className="truncate" style={{ fontSize: 15, fontWeight: 700, color: "#0a1e3c" }}>
+      <div className="flex min-w-0 items-center gap-3 sm:gap-[14px]">
+        {/* Burger opens the sidebar drawer below md; hidden at md+ where
+            the sidebar is always visible inline. */}
+        <NavToggle />
+        <span className="truncate text-[14px] font-bold text-[#0a1e3c] sm:text-[15px]">
           {agencyName}
         </span>
         <span

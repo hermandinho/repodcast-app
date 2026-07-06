@@ -126,7 +126,7 @@ export function EditableTitle({
       className={`group hover:bg-canvas focus:bg-canvas -mx-[10px] -my-[2px] flex items-center gap-[10px] rounded-[8px] px-[10px] py-[2px] text-left transition-colors ${className ?? ""}`}
       title="Click to rename"
     >
-      <h1 className="font-display text-ink text-[27px] leading-[1.18] font-semibold tracking-[-0.5px]">
+      <h1 className="font-display text-ink text-[22px] leading-[1.2] font-semibold tracking-[-0.5px] sm:text-[24px] md:text-[27px] md:leading-[1.18]">
         {value}
       </h1>
       <svg

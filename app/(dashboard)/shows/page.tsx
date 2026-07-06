@@ -24,7 +24,7 @@ export default async function ShowsPage() {
   const browserClients = clients.map((c) => ({ key: c.key, name: c.name }));
 
   return (
-    <div className="px-[30px] pt-[28px] pb-[60px]">
+    <div className="px-4 pt-5 pb-14 sm:px-6 sm:pt-6 md:px-[30px] md:pt-[28px] md:pb-[60px]">
       <div className="mb-[22px] flex items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-ink text-[25px] font-semibold tracking-[-0.5px]">

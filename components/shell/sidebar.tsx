@@ -6,6 +6,7 @@ import { isLiveDb } from "@/server/data/source";
 import { countUnreadPortalFeedbackForAgency } from "@/server/db/client-portal";
 import { navItems } from "./nav-items";
 import { NavLink } from "./nav-link";
+import { SidebarShell } from "./sidebar-shell";
 
 function initialsFor(name: string | null, email: string): string {
   if (name) {
@@ -51,10 +52,7 @@ export async function Sidebar() {
   const badgeByHref: Record<string, number> = { "/clients": unreadFeedbackCount };
 
   return (
-    <aside
-      className="bg-sidebar text-sidebar-text flex flex-shrink-0 flex-col"
-      style={{ width: "var(--sidebar-width)", fontFamily: "var(--font-revamp-sans)" }}
-    >
+    <SidebarShell>
       {/* Logo row — matches ref padding (20px 22px). BrandMark carries the
           three-bar SVG lockup that's already our brand. */}
       <div className="flex items-center" style={{ gap: 10, padding: "20px 22px" }}>
@@ -116,6 +114,6 @@ export async function Sidebar() {
           </div>
         </div>
       </div>
-    </aside>
+    </SidebarShell>
   );
 }

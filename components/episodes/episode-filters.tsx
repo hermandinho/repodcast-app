@@ -99,7 +99,7 @@ export function EpisodeFilters({ options, totalAll, totalDraft, totalReview }: P
     <div className="border-border bg-surface shadow-card mb-[18px] flex flex-wrap items-center gap-[10px] rounded-2xl border px-3 py-[10px]">
       {/* Search — icon, `/` hint, subtle grey background so it reads as
           the passive default of the toolbar instead of a hard input. */}
-      <div className="relative min-w-[220px] flex-1">
+      <div className="relative min-w-[160px] flex-1 sm:min-w-[220px]">
         <svg
           width="14"
           height="14"
@@ -176,8 +176,11 @@ export function EpisodeFilters({ options, totalAll, totalDraft, totalReview }: P
       </label>
 
       {/* Date range — compact two-input pill; From/to labels demote the
-          picker so it doesn't compete visually with search + pills. */}
-      <div className="border-border text-muted flex flex-shrink-0 items-center gap-1 rounded-lg border bg-white px-3 py-[6px] font-sans text-[12px]">
+          picker so it doesn't compete visually with search + pills.
+          Hidden below md so the toolbar doesn't line-wrap awkwardly on
+          phones; the query param still applies if a bookmarked URL
+          carries `?from=…&to=…`. */}
+      <div className="border-border text-muted hidden flex-shrink-0 items-center gap-1 rounded-lg border bg-white px-3 py-[6px] font-sans text-[12px] md:flex">
         <span className="text-muted-2">From</span>
         <input
           type="date"

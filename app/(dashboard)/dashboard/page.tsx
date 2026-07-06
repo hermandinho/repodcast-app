@@ -78,7 +78,7 @@ export default async function DashboardPage() {
   const now = new Date();
 
   return (
-    <div className="min-w-0 flex-1 bg-[#F6F8FC] px-8 pt-7 pb-14">
+    <div className="min-w-0 flex-1 bg-[#F6F8FC] px-4 pt-6 pb-14 sm:px-6 md:px-8 md:pt-7">
       <div className="mx-auto max-w-[1140px]">
         {/* Greeting + date badge */}
         <div className="flex flex-wrap items-end justify-between gap-6">
