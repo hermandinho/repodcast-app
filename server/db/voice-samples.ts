@@ -75,11 +75,30 @@ export async function createSampleFromOutput(
   outputId: string,
 ): Promise<VoiceSample> {
   requireRole(ctx, APPROVE_ROLES);
+  return writeSampleFromOutput({ outputId, agencyId: ctx.agencyId });
+}
 
+/**
+ * Portal-side variant of `createSampleFromOutput`. Used by
+ * `clientApproveOutputFromPortal` where no `TenantContext` exists — the
+ * caller has already validated the portal token and knows the agency id.
+ * Scoping by (outputId, agencyId) still enforces tenancy.
+ */
+export async function createSampleFromOutputRaw(
+  outputId: string,
+  agencyId?: string,
+): Promise<VoiceSample> {
+  return writeSampleFromOutput({ outputId, agencyId });
+}
+
+async function writeSampleFromOutput(input: {
+  outputId: string;
+  agencyId?: string;
+}): Promise<VoiceSample> {
   const output = await prisma.generatedOutput.findFirst({
     where: {
-      id: outputId,
-      episode: { show: { client: { agencyId: ctx.agencyId } } },
+      id: input.outputId,
+      ...(input.agencyId ? { episode: { show: { client: { agencyId: input.agencyId } } } } : {}),
     },
     select: {
       id: true,
@@ -89,7 +108,7 @@ export async function createSampleFromOutput(
       episode: { select: { showId: true } },
     },
   });
-  if (!output) throw new NotFoundError(`Output ${outputId} not found`);
+  if (!output) throw new NotFoundError(`Output ${input.outputId} not found`);
 
   return prisma.voiceSample.create({
     data: {

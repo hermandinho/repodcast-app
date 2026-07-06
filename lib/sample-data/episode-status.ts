@@ -1,5 +1,12 @@
 export type EpisodeStatus =
-  "generating" | "ready" | "review" | "scheduled" | "approved" | "published" | "failed";
+  | "generating"
+  | "ready"
+  | "review"
+  | "awaiting-client"
+  | "scheduled"
+  | "approved"
+  | "published"
+  | "failed";
 
 export type StatusMeta = {
   label: string;
@@ -19,6 +26,11 @@ export function statusMeta(status: EpisodeStatus): StatusMeta {
       return { label: "Ready", bg: "#FDECDD", color: "#B9631C", cardBorder: "#F5D9BE" };
     case "review":
       return { label: "In review", bg: "#FBF1DE", color: "#A06D12", cardBorder: "#F0E3CB" };
+    case "awaiting-client":
+      // Muted navy — signals "waiting on the client" without competing
+      // with the peach + amber attention states. The team can't act on
+      // these directly; the pill's calmer tone reflects that.
+      return { label: "With client", bg: "#EEF1FB", color: "#3A4A80", cardBorder: "#D6DDEE" };
     case "scheduled":
       // Purple — matches the Schedule CTA that got it into this state, so
       // the eye pairs pill and button color without a mental hop.
