@@ -55,10 +55,10 @@ export function LandingNav({
       }}
     >
       <nav
-        className="mx-auto flex items-center justify-between gap-6 px-7 py-[15px]"
+        className="mx-auto flex items-center justify-between gap-4 px-4 py-[13px] sm:gap-6 sm:px-7 sm:py-[15px]"
         style={{ maxWidth: 1180 }}
       >
-        <div className="flex items-center gap-[38px]">
+        <div className="flex items-center gap-6 md:gap-[38px]">
           <Link href="/" className="no-underline">
             <BrandMark />
           </Link>
@@ -96,15 +96,14 @@ export function LandingNav({
             </a>
           </div>
         </div>
-        <div className="flex items-center gap-[18px]">
+        <div className="flex items-center gap-3 sm:gap-[18px]">
           {isSignedIn ? (
             <Link
               href="/after-sign-in"
-              className="rounded-lg text-[14px] font-medium no-underline transition-colors"
+              className="rounded-lg px-4 py-[9px] text-[13.5px] font-medium no-underline transition-colors sm:px-[17px] sm:text-[14px]"
               style={{
                 background: "#1A2A4A",
                 color: "#FFFFFF",
-                padding: "9px 17px",
               }}
             >
               Continue
@@ -113,18 +112,17 @@ export function LandingNav({
             <>
               <Link
                 href="/sign-in"
-                className="text-[14px] font-medium no-underline"
+                className="text-[13.5px] font-medium no-underline sm:text-[14px]"
                 style={{ color: "#1A2A4A" }}
               >
                 Sign in
               </Link>
               <Link
                 href="/pricing"
-                className="rounded-lg text-[14px] font-medium no-underline transition-colors"
+                className="rounded-lg px-4 py-[9px] text-[13.5px] font-medium no-underline transition-colors sm:px-[17px] sm:text-[14px]"
                 style={{
                   background: "#1A2A4A",
                   color: "#FFFFFF",
-                  padding: "9px 17px",
                 }}
               >
                 Get started

@@ -31,16 +31,15 @@ const COLUMNS = [
 
 export function LandingFooter() {
   return (
-    <footer className="px-7" style={{ background: "#13203B", padding: "56px 28px 38px" }}>
+    <footer className="px-5 pt-12 pb-8 sm:px-7 sm:pt-14 sm:pb-10" style={{ background: "#13203B" }}>
       <div className="mx-auto" style={{ maxWidth: 1180 }}>
         <div
-          className="grid gap-10 pb-[42px]"
+          className="grid grid-cols-2 gap-8 pb-8 sm:gap-10 md:grid-cols-[1.6fr_1fr_1fr_1fr] md:pb-[42px]"
           style={{
-            gridTemplateColumns: "1.6fr 1fr 1fr 1fr",
             borderBottom: "1px solid #2A3C60",
           }}
         >
-          <div>
+          <div className="col-span-2 md:col-span-1">
             <div className="mb-[14px]">
               <BrandMark darkBg />
             </div>

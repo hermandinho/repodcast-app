@@ -74,26 +74,24 @@ const CANVAS = "#F6F8FC";
 function Hero({ isSignedIn }: { isSignedIn: boolean }) {
   return (
     <section
-      className="px-14 pt-[76px] pb-16"
+      className="px-5 pt-10 pb-12 sm:px-8 sm:pt-14 sm:pb-14 lg:px-14 lg:pt-[76px] lg:pb-16"
       style={{ background: `linear-gradient(180deg,#fff 0%,${CANVAS} 100%)` }}
     >
       <div
-        className="mx-auto grid items-center gap-14"
-        style={{ maxWidth: 1180, gridTemplateColumns: "1.05fr 0.95fr" }}
+        className="mx-auto grid items-center gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:gap-14"
+        style={{ maxWidth: 1180 }}
       >
         <div>
           <div
-            className="mb-5 font-mono text-[12px] font-semibold uppercase"
+            className="mb-4 font-mono text-[11px] font-semibold uppercase sm:mb-5 sm:text-[12px]"
             style={{ letterSpacing: "0.14em", color: "var(--color-accent)" }}
           >
             For podcast agencies
           </div>
           <h1
-            className="m-0"
+            className="m-0 text-[34px] leading-[1.08] sm:text-[44px] sm:leading-[1.06] lg:text-[58px] lg:leading-[1.04]"
             style={{
               fontFamily: "var(--font-display)",
-              fontSize: 58,
-              lineHeight: 1.04,
               fontWeight: 800,
               letterSpacing: "-0.03em",
               color: INK,
@@ -104,13 +102,8 @@ function Hero({ isSignedIn }: { isSignedIn: boolean }) {
             <span style={{ color: MUTED_2 }}>Gets better every episode.</span>
           </h1>
           <p
-            className="m-0 mt-6 mb-8"
-            style={{
-              fontSize: 18,
-              lineHeight: 1.6,
-              color: MUTED,
-              maxWidth: 480,
-            }}
+            className="m-0 mt-5 mb-7 max-w-[480px] text-[16px] leading-[1.6] sm:mt-6 sm:mb-8 sm:text-[18px]"
+            style={{ color: MUTED }}
           >
             Turn every client episode into platform-ready content — X threads, LinkedIn posts, show
             notes, and more — written in your client&apos;s exact voice, in under 60 seconds.
@@ -118,19 +111,18 @@ function Hero({ isSignedIn }: { isSignedIn: boolean }) {
           <div className="flex flex-wrap items-center gap-3">
             <Link
               href={isSignedIn ? "/after-sign-in" : "/pricing"}
-              className="rounded-[9px] text-[15px] font-semibold text-white no-underline transition-[filter] hover:brightness-110"
-              style={{ background: INK, padding: "13px 24px" }}
+              className="rounded-[9px] px-5 py-3 text-[14px] font-semibold text-white no-underline transition-[filter] hover:brightness-110 sm:px-6 sm:py-[13px] sm:text-[15px]"
+              style={{ background: INK }}
             >
               {isSignedIn ? "Continue" : "Get started"}
             </Link>
             <a
               href="#voice"
-              className="rounded-[9px] text-[15px] font-semibold no-underline"
+              className="rounded-[9px] px-5 py-3 text-[14px] font-semibold no-underline sm:px-[22px] sm:py-3 sm:text-[15px]"
               style={{
                 background: "#fff",
                 color: INK,
                 border: `1px solid #D4DBE7`,
-                padding: "12px 22px",
               }}
             >
               See the voice engine
@@ -204,7 +196,7 @@ function HeroProductPanel() {
           ))}
         </div>
       </div>
-      <div className="flex gap-[6px] px-[18px] pb-3">
+      <div className="flex flex-wrap gap-[6px] px-[18px] pb-3">
         <span
           className="rounded-[7px] px-[12px] py-[6px] text-[12px] font-semibold text-white"
           style={{ background: INK }}
@@ -264,14 +256,17 @@ function TrustedBy({ trustedBy }: { trustedBy: LandingTrustedBy & { heading: str
   if (trustedBy.studios.length === 0) return null;
   return (
     <div
-      className="px-14 py-[22px]"
+      className="px-5 py-5 sm:px-8 sm:py-[22px] lg:px-14"
       style={{
         background: "#fff",
         borderTop: `1px solid ${BORDER_SOFT}`,
         borderBottom: `1px solid ${BORDER_SOFT}`,
       }}
     >
-      <div className="mx-auto flex flex-wrap items-center gap-11" style={{ maxWidth: 1180 }}>
+      <div
+        className="mx-auto flex flex-wrap items-center gap-x-6 gap-y-3 sm:gap-x-11 sm:gap-y-4"
+        style={{ maxWidth: 1180 }}
+      >
         <span
           className="font-mono text-[11px] font-medium uppercase"
           style={{ letterSpacing: "0.12em", color: MUTED_2 }}
@@ -281,7 +276,7 @@ function TrustedBy({ trustedBy }: { trustedBy: LandingTrustedBy & { heading: str
         {trustedBy.studios.map((s) => {
           const label = (
             <span
-              className="text-[15px] font-bold"
+              className="text-[14px] font-bold sm:text-[15px]"
               style={{ color: MUTED_3, fontFamily: "var(--font-display)" }}
             >
               {s.name}
@@ -326,17 +321,17 @@ function Problem() {
     },
   ];
   return (
-    <section className="px-14 py-[88px]" style={{ background: "#fff" }}>
-      <div
-        className="mx-auto grid gap-16"
-        style={{ maxWidth: 1180, gridTemplateColumns: "1fr 1fr" }}
-      >
+    <section
+      className="px-5 py-14 sm:px-8 sm:py-20 lg:px-14 lg:py-[88px]"
+      style={{ background: "#fff" }}
+    >
+      <div className="mx-auto grid gap-10 md:grid-cols-2 lg:gap-16" style={{ maxWidth: 1180 }}>
         <div>
           <Kicker>The problem</Kicker>
           <H2>Content doesn&apos;t scale with your client count.</H2>
           <p
-            className="m-0 mt-[18px] text-[16px] leading-[1.65]"
-            style={{ color: MUTED, maxWidth: 420 }}
+            className="m-0 mt-[18px] max-w-[420px] text-[15px] leading-[1.65] sm:text-[16px]"
+            style={{ color: MUTED }}
           >
             Every new show means more posts, more platforms, more &ldquo;make it sound like
             them.&rdquo; So you hire VAs, juggle freelancers, and still rewrite everything yourself
@@ -344,18 +339,16 @@ function Problem() {
           </p>
         </div>
         <div
-          className="grid overflow-hidden rounded-[12px]"
+          className="grid grid-cols-1 gap-px overflow-hidden rounded-[12px] sm:grid-cols-3"
           style={{
-            gridTemplateColumns: "repeat(3,1fr)",
-            gap: 1,
             background: BORDER,
             border: `1px solid ${BORDER}`,
           }}
         >
           {stats.map((s) => (
-            <div key={s.value} className="bg-white px-[22px] py-[26px]">
+            <div key={s.value} className="bg-white px-5 py-6 sm:px-[22px] sm:py-[26px]">
               <div
-                className="text-[34px] font-extrabold"
+                className="text-[28px] font-extrabold sm:text-[34px]"
                 style={{ letterSpacing: "-0.02em", color: INK }}
               >
                 {s.value}
@@ -400,16 +393,20 @@ function HowItWorks() {
     },
   ];
   return (
-    <section id="how" className="px-14 pb-[88px]" style={{ background: "#fff" }}>
+    <section
+      id="how"
+      className="px-5 pb-14 sm:px-8 sm:pb-20 lg:px-14 lg:pb-[88px]"
+      style={{ background: "#fff" }}
+    >
       <div className="mx-auto" style={{ maxWidth: 1180 }}>
         <Kicker>How it works</Kicker>
         <H2 maxWidth={560}>From transcript to a full content set in three steps.</H2>
 
-        <div className="mt-10 grid" style={{ gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
+        <div className="mt-8 grid gap-4 sm:grid-cols-2 sm:gap-5 lg:mt-10 lg:grid-cols-3">
           {steps.map((s) => (
             <div
               key={s.num}
-              className="rounded-[12px] p-[26px]"
+              className="rounded-[12px] p-5 sm:p-[26px]"
               style={{
                 border: `1px solid ${BORDER}`,
                 background: s.highlight ? CANVAS : "#fff",
@@ -418,7 +415,10 @@ function HowItWorks() {
               <div className="font-mono text-[12px]" style={{ color: MUTED_2 }}>
                 {s.num}
               </div>
-              <div className="mt-3 mb-2 text-[19px] font-bold" style={{ color: INK }}>
+              <div
+                className="mt-3 mb-2 text-[18px] font-bold sm:text-[19px]"
+                style={{ color: INK }}
+              >
                 {s.title}
               </div>
               <p className="m-0 text-[14px] leading-[1.6]" style={{ color: MUTED }}>
@@ -462,42 +462,49 @@ function VoiceEngine() {
     'Never uses "game-changer"',
   ];
   return (
-    <section id="voice" className="px-14 py-[80px] text-white" style={{ background: INK }}>
+    <section
+      id="voice"
+      className="px-5 py-14 text-white sm:px-8 sm:py-20 lg:px-14 lg:py-[80px]"
+      style={{ background: INK }}
+    >
       <div
-        className="mx-auto grid items-center gap-16"
-        style={{ maxWidth: 1180, gridTemplateColumns: "1fr 1fr" }}
+        className="mx-auto grid items-center gap-10 md:grid-cols-2 lg:gap-16"
+        style={{ maxWidth: 1180 }}
       >
         <div>
           <div
-            className="mb-4 font-mono text-[12px] font-semibold uppercase"
+            className="mb-4 font-mono text-[11px] font-semibold uppercase sm:text-[12px]"
             style={{ letterSpacing: "0.14em", color: "var(--color-accent-soft)" }}
           >
             The voice engine
           </div>
           <div
-            className="text-[38px] font-extrabold"
-            style={{ letterSpacing: "-0.02em", lineHeight: 1.12 }}
+            className="text-[28px] leading-[1.14] font-extrabold sm:text-[32px] sm:leading-[1.13] lg:text-[38px] lg:leading-[1.12]"
+            style={{ letterSpacing: "-0.02em" }}
           >
             It learns each client, one approval at a time.
           </div>
           <p
-            className="m-0 mt-[18px] text-[16px] leading-[1.65]"
-            style={{ color: "#A9B8D4", maxWidth: 440 }}
+            className="m-0 mt-[18px] max-w-[440px] text-[15px] leading-[1.65] sm:text-[16px]"
+            style={{ color: "#A9B8D4" }}
           >
             A separate voice model per client — trained on their words, their cadence, their pet
             phrases. The more you use it, the stronger the match.
           </p>
-          <div className="mt-8 flex items-center gap-7">
+          <div className="mt-7 flex flex-wrap items-center gap-5 sm:mt-8 sm:gap-7">
             <div>
-              <div className="text-[26px] font-extrabold">38</div>
+              <div className="text-[24px] font-extrabold sm:text-[26px]">38</div>
               <div className="mt-1 text-[12.5px]" style={{ color: "#A9B8D4" }}>
                 approved posts in this voice
               </div>
             </div>
-            <div className="h-[36px] w-px" style={{ background: "rgba(255,255,255,0.12)" }} />
+            <div
+              className="hidden h-[36px] w-px sm:block"
+              style={{ background: "rgba(255,255,255,0.12)" }}
+            />
             <div>
               <div
-                className="text-[26px] font-extrabold"
+                className="text-[24px] font-extrabold sm:text-[26px]"
                 style={{ color: "var(--color-accent-soft)" }}
               >
                 Strong
@@ -510,7 +517,7 @@ function VoiceEngine() {
         </div>
 
         <div
-          className="rounded-[14px] p-[22px]"
+          className="rounded-[14px] p-5 sm:p-[22px]"
           style={{
             background: "rgba(255,255,255,0.05)",
             border: "1px solid rgba(255,255,255,0.10)",
@@ -530,7 +537,7 @@ function VoiceEngine() {
                 style={{ color: "#DBE4F5" }}
               >
                 <span
-                  className="h-[6px] w-[6px] rounded-full"
+                  className="h-[6px] w-[6px] flex-shrink-0 rounded-full"
                   style={{ background: "var(--color-accent)" }}
                 />
                 {t}
@@ -564,26 +571,29 @@ function Outputs() {
     { badge: "✉", title: "Newsletter", sub: "email-ready", bg: INK, fg: "#fff" },
   ];
   return (
-    <section className="px-14 py-[88px]" style={{ background: "#fff" }}>
+    <section
+      className="px-5 py-14 sm:px-8 sm:py-20 lg:px-14 lg:py-[88px]"
+      style={{ background: "#fff" }}
+    >
       <div className="mx-auto" style={{ maxWidth: 1180 }}>
-        <div className="flex items-end justify-between gap-6">
+        <div className="flex flex-wrap items-end justify-between gap-4 sm:gap-6">
           <div>
             <Kicker>Every output, every episode</Kicker>
             <H2>One transcript. Seven formats.</H2>
           </div>
-          <div className="pb-1 text-[14px]" style={{ color: MUTED_2 }}>
+          <div className="pb-1 text-[13px] sm:text-[14px]" style={{ color: MUTED_2 }}>
             7× the output, one draft pass
           </div>
         </div>
-        <div className="mt-9 grid" style={{ gridTemplateColumns: "repeat(4,1fr)", gap: 14 }}>
+        <div className="mt-7 grid grid-cols-1 gap-3 sm:mt-9 sm:grid-cols-2 sm:gap-[14px] lg:grid-cols-4">
           {tiles.map((t) => (
             <div
               key={t.title}
-              className="flex items-center gap-3 rounded-[10px] p-[18px]"
+              className="flex items-center gap-3 rounded-[10px] p-4 sm:p-[18px]"
               style={{ border: `1px solid ${BORDER}` }}
             >
               <div
-                className="grid h-[34px] w-[34px] place-items-center rounded-[8px] text-[13px] font-extrabold"
+                className="grid h-[34px] w-[34px] flex-shrink-0 place-items-center rounded-[8px] text-[13px] font-extrabold"
                 style={{ background: t.bg, color: t.fg }}
               >
                 {t.badge}
@@ -599,7 +609,7 @@ function Outputs() {
             </div>
           ))}
           <div
-            className="flex items-center rounded-[10px] p-[18px] text-[14.5px] font-bold"
+            className="flex items-center rounded-[10px] p-4 text-[14.5px] font-bold sm:col-span-2 sm:p-[18px] lg:col-span-1"
             style={{
               background: "var(--color-accent-soft)",
               color: "var(--color-accent)",
@@ -645,34 +655,35 @@ function SocialProof() {
   ];
   return (
     <section
-      className="px-14 py-[72px]"
+      className="px-5 py-14 sm:px-8 sm:py-16 lg:px-14 lg:py-[72px]"
       style={{ background: "#fff", borderTop: `1px solid ${BORDER_SOFT}` }}
     >
       <div className="mx-auto" style={{ maxWidth: 1180 }}>
-        <div className="mb-9" style={{ maxWidth: 620 }}>
+        <div className="mb-7 max-w-[620px] sm:mb-9">
           <Kicker>From the studios using it</Kicker>
           <H2>Built to give contractor hours back.</H2>
         </div>
         <div
-          className="grid overflow-hidden rounded-[14px]"
+          className="grid grid-cols-1 gap-px overflow-hidden rounded-[14px] md:grid-cols-3"
           style={{
-            gridTemplateColumns: "repeat(3,1fr)",
-            gap: 1,
             background: BORDER,
             border: `1px solid ${BORDER}`,
           }}
         >
           {testimonials.map((t) => (
-            <div key={t.name} className="flex flex-col bg-white" style={{ padding: "34px 30px" }}>
+            <div
+              key={t.name}
+              className="flex flex-col bg-white px-6 py-7 sm:px-[30px] sm:py-[34px]"
+            >
               <p
-                className="m-0 mb-[26px] flex-1 text-[16px] leading-[1.6]"
+                className="m-0 mb-6 flex-1 text-[15px] leading-[1.6] sm:mb-[26px] sm:text-[16px]"
                 style={{ color: INK, letterSpacing: "-0.01em" }}
               >
                 &ldquo;{t.quote}&rdquo;
               </p>
               <div className="flex items-center gap-3">
                 <span
-                  className="flex h-[42px] w-[42px] items-center justify-center rounded-full text-[14px] font-semibold text-white"
+                  className="flex h-[42px] w-[42px] flex-shrink-0 items-center justify-center rounded-full text-[14px] font-semibold text-white"
                   style={{ background: INK, fontFamily: "var(--font-display)" }}
                 >
                   {t.initials}
@@ -702,7 +713,7 @@ function Pricing({ isSignedIn }: { isSignedIn: boolean }) {
   return (
     <section
       id="pricing"
-      className="px-14 py-[88px]"
+      className="px-5 py-14 sm:px-8 sm:py-20 lg:px-14 lg:py-[88px]"
       style={{ background: CANVAS, borderTop: `1px solid ${BORDER_SOFT}` }}
     >
       <div className="mx-auto text-center" style={{ maxWidth: 1180 }}>
@@ -710,10 +721,10 @@ function Pricing({ isSignedIn }: { isSignedIn: boolean }) {
         <div className="mx-auto" style={{ maxWidth: 640 }}>
           <H2 centered>Priced per studio, not per post.</H2>
         </div>
-        <p className="mt-3 text-[15px]" style={{ color: MUTED }}>
+        <p className="mt-3 text-[14px] sm:text-[15px]" style={{ color: MUTED }}>
           One episode of saved contractor time usually covers the month.
         </p>
-        <div className="mt-11 text-left">
+        <div className="mt-9 text-left sm:mt-11">
           {/* Signed-in visitors have already consumed their trial gate, so
               we suppress the trial framing to match the /pricing surface. */}
           <PricingPicker kind="public" trialEligible={!isSignedIn} />
@@ -731,11 +742,11 @@ function FAQ() {
   return (
     <section
       id="faq"
-      className="px-14 py-[80px]"
+      className="px-5 py-14 sm:px-8 sm:py-16 lg:px-14 lg:py-[80px]"
       style={{ background: "#fff", borderTop: `1px solid ${BORDER_SOFT}` }}
     >
       <div className="mx-auto" style={{ maxWidth: 820 }}>
-        <div className="mb-9" style={{ textAlign: "center" }}>
+        <div className="mb-7 text-center sm:mb-9">
           <Kicker centered>Questions</Kicker>
           <H2 centered>Everything you need to know.</H2>
         </div>
@@ -763,13 +774,16 @@ const WAVE_SEED = [
 
 function FinalCTA({ isSignedIn }: { isSignedIn: boolean }) {
   return (
-    <section className="relative overflow-hidden px-14 py-9 text-white" style={{ background: INK }}>
+    <section
+      className="relative overflow-hidden px-5 py-8 text-white sm:px-8 sm:py-9 lg:px-14"
+      style={{ background: INK }}
+    >
       {/* Animated equalizer wave sitting behind the CTA copy — brings
           the old FinalCTA's motion back after the 1a revamp compressed
           the whole strip. `pointer-events-none` + low opacity so the
           bars never fight the copy for attention. */}
       <div
-        className="pointer-events-none absolute inset-0 flex items-center gap-[5px] px-14"
+        className="pointer-events-none absolute inset-0 flex items-center gap-[3px] px-5 sm:gap-[5px] sm:px-8 lg:px-14"
         style={{ opacity: 0.1 }}
         aria-hidden
       >
@@ -789,14 +803,17 @@ function FinalCTA({ isSignedIn }: { isSignedIn: boolean }) {
         ))}
       </div>
 
-      <div className="relative flex flex-wrap items-center justify-between gap-6">
-        <div className="text-[22px] font-extrabold" style={{ letterSpacing: "-0.02em" }}>
+      <div className="relative flex flex-wrap items-center justify-between gap-5 sm:gap-6">
+        <div
+          className="text-[18px] font-extrabold sm:text-[22px]"
+          style={{ letterSpacing: "-0.02em" }}
+        >
           Give your contractor hours back.
         </div>
         <Link
           href={isSignedIn ? "/after-sign-in" : "/pricing"}
-          className="rounded-[9px] text-[15px] font-semibold text-white no-underline transition-[filter] hover:brightness-110"
-          style={{ background: "var(--color-accent)", padding: "12px 22px" }}
+          className="rounded-[9px] px-5 py-3 text-[14px] font-semibold text-white no-underline transition-[filter] hover:brightness-110 sm:px-[22px] sm:py-3 sm:text-[15px]"
+          style={{ background: "var(--color-accent)" }}
         >
           {isSignedIn ? "Continue" : "Get started free"}
         </Link>
@@ -831,11 +848,9 @@ function H2({
 }) {
   return (
     <div
-      className={centered ? "text-center" : ""}
+      className={`text-[26px] leading-[1.16] sm:text-[32px] sm:leading-[1.14] lg:text-[38px] lg:leading-[1.12] ${centered ? "text-center" : ""}`}
       style={{
         fontFamily: "var(--font-display)",
-        fontSize: 38,
-        lineHeight: 1.12,
         fontWeight: 800,
         letterSpacing: "-0.02em",
         color: INK,
