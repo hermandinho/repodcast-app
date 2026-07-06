@@ -295,13 +295,12 @@ function PlanCard({
 
   return (
     <div
-      className="relative flex flex-col"
+      className="relative flex flex-col p-[22px] sm:p-[26px] md:p-[28px]"
       style={{
         background: cardBg,
         border: cardBorder,
         boxShadow: cardShadow,
         borderRadius: 14,
-        padding: 28,
       }}
     >
       {highlighted ? (
@@ -331,8 +330,8 @@ function PlanCard({
 
       <div style={{ marginTop: 20 }}>
         <span
+          className="text-[34px] sm:text-[38px] md:text-[40px]"
           style={{
-            fontSize: 40,
             fontWeight: 800,
             letterSpacing: "-0.02em",
             color: priceColor,

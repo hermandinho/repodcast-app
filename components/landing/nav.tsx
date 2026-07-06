@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
 
 export function BrandMark({ darkBg = false }: { darkBg?: boolean }) {
   return (
@@ -29,6 +32,10 @@ export function BrandMark({ darkBg = false }: { darkBg?: boolean }) {
  * signed-in visitors always see a working "Continue" affordance and
  * everyone else sees the same "Sign in / Get started" pair.
  *
+ * Below `md` (768px) the four anchor links + the secondary "Sign in"
+ * collapse into a burger drawer — the top bar keeps the primary CTA
+ * (Get started / Continue) so the "act on this" button never disappears.
+ *
  * `hashLinks` controls how the menu items ("How it works", "Voice
  * Engine", "FAQ") resolve:
  *   - `false` (default) — absolute `/#section` targets. Every non-landing
@@ -44,6 +51,26 @@ export function LandingNav({
   hashLinks?: boolean;
 }) {
   const anchor = (id: string) => (hashLinks ? `#${id}` : `/#${id}`);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // Close on Escape so the drawer respects the same dismissal pattern
+  // every keyboard user expects from an overlay.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
+
+  const navLinks: { label: string; href: string; internal: boolean }[] = [
+    { label: "How it works", href: anchor("how"), internal: false },
+    { label: "Voice Engine", href: anchor("voice"), internal: false },
+    { label: "Pricing", href: "/pricing", internal: true },
+    { label: "FAQ", href: anchor("faq"), internal: false },
+  ];
+
   return (
     <header
       className="sticky top-0 z-50"
@@ -59,41 +86,34 @@ export function LandingNav({
         style={{ maxWidth: 1180 }}
       >
         <div className="flex items-center gap-6 md:gap-[38px]">
-          <Link href="/" className="no-underline">
+          <Link href="/" className="no-underline" onClick={() => setMenuOpen(false)}>
             <BrandMark />
           </Link>
           <div
             className="hidden items-center gap-[26px] text-[14px] font-normal md:flex"
             style={{ color: "#5A6473" }}
           >
-            <a
-              href={anchor("how")}
-              className="no-underline transition-colors hover:text-[#1A2A4A]"
-              style={{ color: "inherit" }}
-            >
-              How it works
-            </a>
-            <a
-              href={anchor("voice")}
-              className="no-underline transition-colors hover:text-[#1A2A4A]"
-              style={{ color: "inherit" }}
-            >
-              Voice Engine
-            </a>
-            <Link
-              href="/pricing"
-              className="no-underline transition-colors hover:text-[#1A2A4A]"
-              style={{ color: "inherit" }}
-            >
-              Pricing
-            </Link>
-            <a
-              href={anchor("faq")}
-              className="no-underline transition-colors hover:text-[#1A2A4A]"
-              style={{ color: "inherit" }}
-            >
-              FAQ
-            </a>
+            {navLinks.map((l) =>
+              l.internal ? (
+                <Link
+                  key={l.label}
+                  href={l.href}
+                  className="no-underline transition-colors hover:text-[#1A2A4A]"
+                  style={{ color: "inherit" }}
+                >
+                  {l.label}
+                </Link>
+              ) : (
+                <a
+                  key={l.label}
+                  href={l.href}
+                  className="no-underline transition-colors hover:text-[#1A2A4A]"
+                  style={{ color: "inherit" }}
+                >
+                  {l.label}
+                </a>
+              ),
+            )}
           </div>
         </div>
         <div className="flex items-center gap-3 sm:gap-[18px]">
@@ -110,9 +130,12 @@ export function LandingNav({
             </Link>
           ) : (
             <>
+              {/* Sign in hides on mobile — it's the secondary CTA and
+                  lives inside the burger drawer to keep the top bar
+                  from crowding the brand mark on narrow phones. */}
               <Link
                 href="/sign-in"
-                className="text-[13.5px] font-medium no-underline sm:text-[14px]"
+                className="hidden text-[13.5px] font-medium no-underline sm:inline sm:text-[14px]"
                 style={{ color: "#1A2A4A" }}
               >
                 Sign in
@@ -129,8 +152,108 @@ export function LandingNav({
               </Link>
             </>
           )}
+
+          {/* Burger — visible below `md`. Toggles the drawer that carries
+              the anchor links (+ Sign in for signed-out visitors). */}
+          <button
+            type="button"
+            aria-label={menuOpen ? "Close menu" : "Open menu"}
+            aria-expanded={menuOpen}
+            aria-controls="landing-mobile-menu"
+            onClick={() => setMenuOpen((v) => !v)}
+            className="flex h-[38px] w-[38px] flex-shrink-0 items-center justify-center rounded-lg border transition-colors md:hidden"
+            style={{
+              borderColor: "#E4E9F1",
+              background: menuOpen ? "#F6F8FC" : "#fff",
+              color: "#1A2A4A",
+            }}
+          >
+            {menuOpen ? (
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                aria-hidden
+              >
+                <path d="M3 3l10 10M13 3L3 13" />
+              </svg>
+            ) : (
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 18 18"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.9"
+                strokeLinecap="round"
+                aria-hidden
+              >
+                <path d="M3 5h12M3 9h12M3 13h12" />
+              </svg>
+            )}
+          </button>
         </div>
       </nav>
+
+      {/* Mobile drawer — full-width panel that drops below the nav bar
+          on <md. Kept inside the sticky <header> so it slides with the
+          bar and inherits its blurred background style. */}
+      {menuOpen && (
+        <div
+          id="landing-mobile-menu"
+          className="border-t md:hidden"
+          style={{
+            background: "rgba(255,255,255,0.96)",
+            backdropFilter: "saturate(180%) blur(16px)",
+            WebkitBackdropFilter: "saturate(180%) blur(16px)",
+            borderColor: "#ECEEF3",
+          }}
+        >
+          <div className="mx-auto px-4 py-3 sm:px-7" style={{ maxWidth: 1180 }}>
+            <ul className="flex flex-col">
+              {navLinks.map((l) => (
+                <li key={l.label} className="border-b" style={{ borderColor: "#F1F4F9" }}>
+                  {l.internal ? (
+                    <Link
+                      href={l.href}
+                      onClick={() => setMenuOpen(false)}
+                      className="block py-[13px] text-[15px] font-medium no-underline"
+                      style={{ color: "#1A2A4A" }}
+                    >
+                      {l.label}
+                    </Link>
+                  ) : (
+                    <a
+                      href={l.href}
+                      onClick={() => setMenuOpen(false)}
+                      className="block py-[13px] text-[15px] font-medium no-underline"
+                      style={{ color: "#1A2A4A" }}
+                    >
+                      {l.label}
+                    </a>
+                  )}
+                </li>
+              ))}
+              {!isSignedIn && (
+                <li>
+                  <Link
+                    href="/sign-in"
+                    onClick={() => setMenuOpen(false)}
+                    className="block py-[13px] text-[15px] font-medium no-underline"
+                    style={{ color: "#1A2A4A" }}
+                  >
+                    Sign in
+                  </Link>
+                </li>
+              )}
+            </ul>
+          </div>
+        </div>
+      )}
     </header>
   );
 }

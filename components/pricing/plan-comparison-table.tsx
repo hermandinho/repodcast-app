@@ -104,16 +104,15 @@ export function PlanComparisonTable({ compact = false }: { compact?: boolean } =
   return (
     <section
       id="compare"
-      className="scroll-mt-20"
+      className="scroll-mt-20 px-5 py-14 sm:px-6 sm:py-16 md:px-6 md:py-[76px]"
       style={{
         background: "#f6f8fc",
         borderTop: `1px solid ${OUTLINE}`,
-        padding: "76px 24px",
         fontFamily: "var(--font-revamp-sans)",
       }}
     >
       <div className="mx-auto" style={{ maxWidth: 1080 }}>
-        <div className="text-center" style={{ marginBottom: 32 }}>
+        <div className="mb-7 text-center sm:mb-8">
           <div
             style={{
               fontFamily: "var(--font-revamp-mono)",
@@ -126,11 +125,10 @@ export function PlanComparisonTable({ compact = false }: { compact?: boolean } =
             COMPARE PLANS
           </div>
           <h2
+            className="mt-[10px] text-[24px] leading-[1.18] sm:text-[28px] sm:leading-[1.16] md:text-[32px] md:leading-[1.15]"
             style={{
               fontFamily: "var(--font-revamp-sans)",
               fontWeight: 800,
-              fontSize: 32,
-              lineHeight: 1.15,
               letterSpacing: "-0.03em",
               color: INK,
               margin: "10px 0 0",
@@ -139,7 +137,12 @@ export function PlanComparisonTable({ compact = false }: { compact?: boolean } =
             What&apos;s included in each plan.
           </h2>
         </div>
-        {table}
+        {/* 4-column grid needs ~640px to stay legible — horizontal scroll
+            below that keeps rows aligned instead of column-wrapping into
+            an unreadable mess. Same fallback the compact variant uses. */}
+        <div className="-mx-5 overflow-x-auto px-5 sm:-mx-6 sm:overflow-x-visible sm:px-0">
+          <div style={{ minWidth: 640 }}>{table}</div>
+        </div>
       </div>
     </section>
   );

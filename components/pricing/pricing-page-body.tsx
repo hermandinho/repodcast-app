@@ -56,12 +56,9 @@ function PricingHero() {
           opacity: 0.035,
         }}
       />
-      <div
-        className="relative mx-auto px-7 text-center"
-        style={{ maxWidth: 780, paddingTop: 72, paddingBottom: 32 }}
-      >
+      <div className="relative mx-auto max-w-[780px] px-5 pt-12 pb-8 text-center sm:px-7 sm:pt-16 sm:pb-9 md:pt-[72px] md:pb-8">
         <div
-          className="mb-[18px] text-[12px] font-medium uppercase"
+          className="mb-[14px] text-[11px] font-medium uppercase sm:mb-[18px] sm:text-[12px]"
           style={{
             fontFamily: "var(--font-mono)",
             letterSpacing: "0.14em",
@@ -71,15 +68,12 @@ function PricingHero() {
           Simple pricing
         </div>
         <h1
-          className="m-0"
+          className="m-0 mb-[14px] text-[32px] leading-[1.08] sm:mb-[18px] sm:text-[40px] sm:leading-[1.07] md:text-[52px] md:leading-[1.06]"
           style={{
             fontFamily: "var(--font-display)",
             fontWeight: 700,
-            fontSize: 52,
-            lineHeight: 1.06,
             letterSpacing: "-0.035em",
             color: "#1A2A4A",
-            marginBottom: 18,
           }}
         >
           Priced per studio,
@@ -87,13 +81,8 @@ function PricingHero() {
           not per post.
         </h1>
         <p
-          className="m-0 mx-auto"
-          style={{
-            fontSize: "17px",
-            lineHeight: 1.6,
-            color: "#5A6473",
-            maxWidth: 560,
-          }}
+          className="m-0 mx-auto max-w-[560px] text-[15px] leading-[1.6] sm:text-[17px]"
+          style={{ color: "#5A6473" }}
         >
           Pick a plan that fits your studio. Toggle annual to save two months. Everything switches
           or cancels from Settings — no calls, no forms.
@@ -110,7 +99,7 @@ function PricingHero() {
 function PricingPickerSection() {
   return (
     <section
-      className="relative overflow-hidden px-7 py-[52px]"
+      className="relative overflow-hidden px-5 py-10 sm:px-7 sm:py-14 md:py-[52px]"
       style={{ background: "#FBFCFE", borderBottom: "1px solid #ECEEF3" }}
     >
       <div className="relative mx-auto" style={{ maxWidth: 1180 }}>
@@ -142,36 +131,38 @@ function GuaranteeStrip() {
 
   return (
     <section
-      className="px-7 py-[68px]"
+      className="px-5 py-14 sm:px-7 sm:py-16 md:py-[68px]"
       style={{ background: "#FBFCFE", borderBottom: "1px solid #ECEEF3" }}
     >
       <div className="mx-auto" style={{ maxWidth: 1180 }}>
         <div
-          className="grid overflow-hidden"
+          className="grid grid-cols-1 gap-px overflow-hidden rounded-[14px] md:grid-cols-3"
           style={{
-            gridTemplateColumns: "repeat(3,1fr)",
-            gap: 1,
             background: "#E8EBF1",
             border: "1px solid #E8EBF1",
-            borderRadius: 14,
           }}
         >
           {items.map((it) => (
-            <div key={it.title} style={{ background: "#FFFFFF", padding: "30px 28px" }}>
+            <div
+              key={it.title}
+              className="px-6 py-6 sm:px-7 sm:py-7 md:px-[28px] md:py-[30px]"
+              style={{ background: "#FFFFFF" }}
+            >
               <h3
-                className="m-0"
+                className="m-0 mb-2 text-[16px] sm:text-[17px]"
                 style={{
                   fontFamily: "var(--font-display)",
                   fontWeight: 600,
-                  fontSize: 17,
                   color: "#1A2A4A",
-                  marginBottom: 8,
                   letterSpacing: "-0.015em",
                 }}
               >
                 {it.title}
               </h3>
-              <p className="m-0" style={{ fontSize: 14, lineHeight: 1.62, color: "#5A6473" }}>
+              <p
+                className="m-0 text-[13.5px] leading-[1.62] sm:text-[14px]"
+                style={{ color: "#5A6473" }}
+              >
                 {it.body}
               </p>
             </div>
@@ -189,16 +180,16 @@ function GuaranteeStrip() {
 function PricingFAQ() {
   return (
     <section
-      className="px-7 py-[76px]"
+      className="px-5 py-14 sm:px-7 sm:py-16 md:py-[76px]"
       style={{ background: "#FFFFFF", borderBottom: "1px solid #ECEEF3" }}
     >
       <div
-        className="mx-auto grid items-start gap-14"
-        style={{ maxWidth: 940, gridTemplateColumns: "0.7fr 1.3fr" }}
+        className="mx-auto grid grid-cols-1 items-start gap-8 md:grid-cols-[0.7fr_1.3fr] md:gap-14"
+        style={{ maxWidth: 940 }}
       >
         <div>
           <div
-            className="mb-5 text-[12px] font-medium uppercase"
+            className="mb-4 text-[11px] font-medium uppercase sm:mb-5 sm:text-[12px]"
             style={{
               fontFamily: "var(--font-mono)",
               letterSpacing: "0.14em",
@@ -208,12 +199,10 @@ function PricingFAQ() {
             FAQ
           </div>
           <h2
-            className="m-0"
+            className="m-0 text-[26px] leading-[1.14] sm:text-[28px] sm:leading-[1.13] md:text-[32px] md:leading-[1.12]"
             style={{
               fontFamily: "var(--font-display)",
               fontWeight: 700,
-              fontSize: 32,
-              lineHeight: 1.12,
               letterSpacing: "-0.03em",
               color: "#1A2A4A",
             }}
@@ -233,34 +222,26 @@ function PricingFAQ() {
 
 function PricingFinalCTA({ isSignedIn }: { isSignedIn: boolean }) {
   return (
-    <section className="px-7 py-[68px]" style={{ background: "#1A2A4A" }}>
+    <section className="px-5 py-14 sm:px-7 sm:py-16 md:py-[68px]" style={{ background: "#1A2A4A" }}>
       <div
-        className="mx-auto grid items-center gap-10"
-        style={{ maxWidth: 1180, gridTemplateColumns: "1fr auto" }}
+        className="mx-auto grid grid-cols-1 items-center gap-6 md:grid-cols-[1fr_auto] md:gap-10"
+        style={{ maxWidth: 1180 }}
       >
         <div>
           <h2
-            className="m-0"
+            className="m-0 mb-3 text-[26px] leading-[1.12] sm:mb-[14px] sm:text-[30px] sm:leading-[1.11] md:text-[36px] md:leading-[1.1]"
             style={{
               fontFamily: "var(--font-display)",
               fontWeight: 700,
-              fontSize: 36,
-              lineHeight: 1.1,
               letterSpacing: "-0.03em",
               color: "#FFFFFF",
-              marginBottom: 14,
             }}
           >
             One transcript. A week of content.
           </h2>
           <p
-            className="m-0"
-            style={{
-              fontSize: 16,
-              color: "#A9B6D4",
-              maxWidth: 560,
-              lineHeight: 1.6,
-            }}
+            className="m-0 max-w-[560px] text-[15px] leading-[1.6] sm:text-[16px]"
+            style={{ color: "#A9B6D4" }}
           >
             Pick a plan above and be generating in your client&apos;s voice within a couple of
             minutes. Every plan carries the same 7 formats, per-client voice engine, and approval
@@ -271,16 +252,16 @@ function PricingFinalCTA({ isSignedIn }: { isSignedIn: boolean }) {
           {isSignedIn ? (
             <Link
               href="/after-sign-in"
-              className="rounded-[9px] text-[15px] font-medium whitespace-nowrap no-underline"
-              style={{ background: "#FFFFFF", color: "#1A2A4A", padding: "14px 26px" }}
+              className="rounded-[9px] px-5 py-3 text-[14px] font-medium whitespace-nowrap no-underline sm:px-[26px] sm:py-[14px] sm:text-[15px]"
+              style={{ background: "#FFFFFF", color: "#1A2A4A" }}
             >
               Continue
             </Link>
           ) : (
             <Link
               href="/sign-up"
-              className="rounded-[9px] text-[15px] font-medium whitespace-nowrap no-underline"
-              style={{ background: "#FFFFFF", color: "#1A2A4A", padding: "14px 26px" }}
+              className="rounded-[9px] px-5 py-3 text-[14px] font-medium whitespace-nowrap no-underline sm:px-[26px] sm:py-[14px] sm:text-[15px]"
+              style={{ background: "#FFFFFF", color: "#1A2A4A" }}
             >
               Create account
             </Link>
