@@ -36,7 +36,9 @@ export function LandingPage({
 }) {
   return (
     <div className="w-full overflow-x-hidden bg-white">
-      <LandingNav isSignedIn={isSignedIn} />
+      {/* Only surface with the #how / #voice / #faq anchors in the DOM,
+          so this is the sole caller that opts into bare in-page hashes. */}
+      <LandingNav isSignedIn={isSignedIn} hashLinks />
       <Hero isSignedIn={isSignedIn} />
       <TrustedBy trustedBy={trustedBy} />
       <Problem />

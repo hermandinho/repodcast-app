@@ -25,16 +25,20 @@ export function BrandMark({ darkBg = false }: { darkBg?: boolean }) {
 
 /**
  * Marketing-surface nav. Sticky, glass-blurred top bar shared by the
- * landing page + /pricing so signed-in visitors always see a working
- * "Continue" affordance and everyone else sees the same "Sign in / Get
- * started" pair.
+ * landing page, /pricing, /about, /contact, and the legal surfaces so
+ * signed-in visitors always see a working "Continue" affordance and
+ * everyone else sees the same "Sign in / Get started" pair.
  *
- * `hashLinks=false` swaps the in-page anchors for absolute `/#section`
- * targets so /pricing can still route the menu items back to the landing.
+ * `hashLinks` controls how the menu items ("How it works", "Voice
+ * Engine", "FAQ") resolve:
+ *   - `false` (default) — absolute `/#section` targets. Every non-landing
+ *     surface uses this; a bare `#how` on `/pricing` scrolls to nothing.
+ *   - `true` — bare `#section` anchors. Landing page only, since that's
+ *     the surface where those IDs actually live in the DOM.
  */
 export function LandingNav({
   isSignedIn,
-  hashLinks = true,
+  hashLinks = false,
 }: {
   isSignedIn: boolean;
   hashLinks?: boolean;
