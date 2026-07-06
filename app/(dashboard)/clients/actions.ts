@@ -56,7 +56,10 @@ export async function createClientAction(
   });
 
   const client = await repoCreateClient(tenant, parsed.data);
-  revalidatePath("/clients");
+  // "/" layout so the (dashboard) layout — where the Topbar's ClientSwitcher
+  // lives — re-renders. `revalidatePath("/clients", ...)` only reaches
+  // segments AT OR BELOW `/clients`, missing the ancestor layout.
+  revalidatePath("/", "layout");
 
   if (priorClientCount === 0) {
     await trackServer(
@@ -90,7 +93,10 @@ export async function updateClientAction(
 
   const tenant = await resolveTenantContext();
   await repoUpdateClient(tenant, clientId, patch);
-  revalidatePath("/clients", "layout");
+  // Root-layout revalidation so the Topbar's ClientSwitcher picks up the
+  // new name/artwork — it reads clients in the (dashboard) layout, which
+  // is an ancestor of `/clients` and would otherwise stay cached.
+  revalidatePath("/", "layout");
   return { ok: true, data: { clientId } };
 }
 
@@ -117,10 +123,10 @@ export async function updateClientWorkflowAction(
 
   const tenant = await resolveTenantContext();
   await repoUpdateClientWorkflow(tenant, clientId, patch);
-  // Layout-level revalidation covers the client detail chrome + any
-  // outputs-view pages downstream that read `validationMode`.
-  revalidatePath("/clients", "layout");
-  revalidatePath("/episodes", "layout");
+  // Root-layout revalidation covers the client detail chrome, any
+  // outputs-view pages downstream that read `validationMode`, and the
+  // Topbar's ClientSwitcher (which lives above `/clients`).
+  revalidatePath("/", "layout");
   return { ok: true, data: { clientId } };
 }
 
@@ -146,9 +152,8 @@ export async function deleteClientAction(
   const tenant = await resolveTenantContext();
   await repoDeleteClient(tenant, clientId);
   // Cascade deletes (Episode, VoiceSample, ClientPlatformInstruction)
-  // mean every page surface needs a refetch.
-  revalidatePath("/clients", "layout");
-  revalidatePath("/episodes", "layout");
-  revalidatePath("/voice", "layout");
+  // mean every page surface needs a refetch — including the Topbar's
+  // ClientSwitcher in the (dashboard) layout above `/clients`.
+  revalidatePath("/", "layout");
   return { ok: true, data: { clientId } };
 }

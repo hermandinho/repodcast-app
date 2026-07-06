@@ -30,6 +30,8 @@ type Selected = {
   client: ClientWithCounts | null;
   initial: string;
   initialBg: string;
+  /** Client artwork URL — when non-empty the trigger renders the image instead of initials. */
+  artworkUrl: string;
   name: string;
   badge: string;
   badgeBg: string;
@@ -60,6 +62,7 @@ function selectedForPath(
           client,
           initial: client.initial,
           initialBg: client.avatarBg,
+          artworkUrl: client.artworkUrl,
           name: client.name,
           badge: badgeFor(client),
           badgeBg: "#EEF2FB",
@@ -74,6 +77,7 @@ function selectedForPath(
     client: null,
     initial: "·",
     initialBg: "#1A2A4A",
+    artworkUrl: "",
     name: clients.length === 0 ? "No clients yet" : "All clients",
     badge:
       clients.length === 0
@@ -161,12 +165,21 @@ export function ClientSwitcher({
         aria-expanded={open}
         className="border-border bg-surface-3 text-ink hover:border-border-2 hover:bg-accent-soft flex items-center gap-[10px] rounded-[10px] border py-[6px] pr-[11px] pl-2 transition-colors"
       >
-        <span
-          className="font-display flex h-6 w-6 items-center justify-center rounded-[7px] text-[11px] font-bold text-white"
-          style={{ background: s.initialBg }}
-        >
-          {s.initial}
-        </span>
+        {s.artworkUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element -- artwork URLs are external R2 hosts; skipping next/image avoids a remotePatterns config per tenant.
+          <img
+            src={s.artworkUrl}
+            alt=""
+            className="h-6 w-6 flex-shrink-0 rounded-[7px] object-cover"
+          />
+        ) : (
+          <span
+            className="font-display flex h-6 w-6 items-center justify-center rounded-[7px] text-[11px] font-bold text-white"
+            style={{ background: s.initialBg }}
+          >
+            {s.initial}
+          </span>
+        )}
         <span className="max-w-[200px] truncate text-[13.5px] font-medium">{s.name}</span>
         <span
           className="rounded-pill inline-flex items-center gap-[5px] px-[7px] py-[2px] font-sans text-[10.5px] font-semibold"
@@ -227,12 +240,21 @@ export function ClientSwitcher({
                       className="hover:bg-canvas flex w-full items-center gap-[10px] px-[12px] py-[9px] text-left transition-colors"
                       style={{ background: active ? "var(--color-accent-soft)" : undefined }}
                     >
-                      <span
-                        className="font-display flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-[8px] text-[12px] font-bold text-white"
-                        style={{ background: client.avatarBg }}
-                      >
-                        {client.initial}
-                      </span>
+                      {client.artworkUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- see trigger avatar above.
+                        <img
+                          src={client.artworkUrl}
+                          alt=""
+                          className="h-7 w-7 flex-shrink-0 rounded-[8px] object-cover"
+                        />
+                      ) : (
+                        <span
+                          className="font-display flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-[8px] text-[12px] font-bold text-white"
+                          style={{ background: client.avatarBg }}
+                        >
+                          {client.initial}
+                        </span>
+                      )}
                       <span className="min-w-0 flex-1">
                         <span className="text-ink block truncate text-[13px] font-semibold">
                           {client.name}
