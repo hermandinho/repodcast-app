@@ -63,8 +63,9 @@ export function GenerateStatementForm({
       <div className="min-w-0 flex-1">
         <div className="font-display text-ink text-[15px] font-semibold">Generate statement</div>
         <div className="text-muted-2 mt-[3px] text-[12.5px]">
-          Snapshots episode + output counts, approval rate, and cost-to-serve for the window. The
-          numbers stay locked even if the underlying outputs are later edited or regenerated.
+          Snapshots episode + output counts and approval rate, then seeds billable line items from
+          this client&apos;s billing profile. Delivery totals stay locked; edit the line items to
+          match what you&apos;re actually charging.
         </div>
       </div>
 

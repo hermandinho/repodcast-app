@@ -218,7 +218,13 @@ export async function weeklyOutputVolume(
     const bucket = buckets.get(wkIso);
     if (!bucket) continue;
     bucket.generated += 1;
-    if (row.status === OutputStatus.APPROVED) bucket.approved += 1;
+    // "Approved" for the chart = past-approval statuses. Filtering by
+    // the momentary APPROVED alone dropped everything the agency had
+    // already scheduled or published, mis-reading the chart as if
+    // approvals stopped.
+    if (PAST_APPROVAL_STATUSES.includes(row.status as (typeof PAST_APPROVAL_STATUSES)[number])) {
+      bucket.approved += 1;
+    }
   }
 
   return Array.from(buckets.entries()).map(([weekStartIso, v]) => ({

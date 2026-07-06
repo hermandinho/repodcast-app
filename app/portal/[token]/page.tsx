@@ -68,6 +68,23 @@ const DATE_FMT = new Intl.DateTimeFormat("en-US", {
   year: "numeric",
 });
 
+/**
+ * Format a statement total for the portal row. Falls back to a plain
+ * "amount + code" string if the currency isn't recognised so a bad DB
+ * value can't blow up the whole portal render.
+ */
+function formatPortalMoney(cents: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+    }).format(cents / 100);
+  } catch {
+    return `${(cents / 100).toFixed(2)} ${currency}`;
+  }
+}
+
 export default async function PortalPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   const link = await getPortalLinkByToken(token);
@@ -351,6 +368,12 @@ function StatementsSection({
                 {s.outputCount === 1 ? "" : "s"} · {s.approvalRatePct}% approval rate
               </div>
             </div>
+            <span
+              className="text-ink font-sans text-[13px] font-semibold tabular-nums"
+              title="Amount due for this period"
+            >
+              {formatPortalMoney(s.totalCents, s.currency)}
+            </span>
             <a
               href={`/api/portal/${token}/statements/${s.id}/pdf`}
               className="font-sans text-[12.5px] font-semibold no-underline"

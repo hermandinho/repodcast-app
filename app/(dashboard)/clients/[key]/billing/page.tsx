@@ -11,7 +11,7 @@ import {
 import { headers } from "next/headers";
 import { ClientBillingForm } from "@/components/clients/client-billing-form";
 import type { ClientBillingFormInitial } from "@/components/clients/client-billing-form";
-import { CostToServeCard } from "@/components/clients/cost-to-serve-card";
+import { PeriodBillingCard } from "@/components/clients/period-billing-card";
 import { DeliverableLedgerFilters } from "@/components/clients/deliverable-ledger-filters";
 import {
   PortalFeedbackCard,
@@ -21,9 +21,8 @@ import { PortalLinksCard, type PortalLinkRow } from "@/components/clients/portal
 import { PlatformBadge } from "@/components/ui/platform-badge";
 import { platforms } from "@/lib/sample-data/platforms";
 import { getAgencyPlan } from "@/server/billing/limits";
-import { getClientBillingProfile } from "@/server/db/client-billing";
+import { episodesForClientThisMonth, getClientBillingProfile } from "@/server/db/client-billing";
 import { listPortalFeedbackForClient, listPortalLinks } from "@/server/db/client-portal";
-import { costForClient } from "@/server/db/client-cost";
 import { listDeliverablesForClient, type DeliverableRow } from "@/server/db/deliverables";
 import { listShowsForClient } from "@/server/db/shows";
 import { getClientForUI, isLiveDb } from "@/server/data/source";
@@ -136,10 +135,11 @@ export default async function ClientBillingPage({
   const profile =
     isLiveDb() && isAdminOrOwner ? await getClientBillingProfile(tenant, client.key) : null;
 
-  // Cost-to-serve for this calendar month — admin-only (financial data).
-  // Sample-data mode skips the query; the card no-ops on null.
-  const costThisMonth =
-    isLiveDb() && isAdminOrOwner ? await costForClient(tenant, client.key) : null;
+  // Episodes this month for the "This period" card — no cost figures on
+  // this surface, cost-to-serve moved to /root. Cheap count query;
+  // OWNER/ADMIN only, matching the profile read.
+  const episodesThisMonth =
+    isLiveDb() && isAdminOrOwner ? await episodesForClientThisMonth(tenant, client.key) : null;
 
   // Portal links for this client — visible to every role; mint/revoke
   // gated on OWNER/ADMIN inside the card itself.
@@ -276,12 +276,14 @@ export default async function ClientBillingPage({
     <div className="flex flex-col gap-5">
       {isAdminOrOwner && <ClientBillingForm clientId={client.key} initial={initial} />}
 
-      {/* Cost-to-serve card (2.13.5). Admin-only — financial data. */}
+      {/* "This period" — what the client owes for the current calendar
+          month, based on the billing profile. Cost-to-serve intentionally
+          removed from the agency surface; /root sees that separately. */}
       {isAdminOrOwner && (
-        <CostToServeCard
-          cost={costThisMonth}
+        <PeriodBillingCard
           retainerCents={profile?.retainerCents ?? null}
           ratePerEpisodeCents={profile?.ratePerEpisodeCents ?? null}
+          episodesThisMonth={episodesThisMonth}
           currency={profile?.currency ?? "USD"}
         />
       )}

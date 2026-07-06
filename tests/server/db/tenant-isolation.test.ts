@@ -1412,7 +1412,7 @@ describe("client-statements repo — tenant filter + aggregate shape", () => {
     ).rejects.toBeInstanceOf(NotFoundError);
   });
 
-  it("generateClientStatement runs four parallel aggregations and persists the snapshot row", async () => {
+  it("generateClientStatement runs the aggregations + profile lookup and persists the snapshot row", async () => {
     mocks.prisma.client.findFirst.mockResolvedValueOnce({ id: "c1" });
     // Four counts + one aggregate, in the order computeAggregates fires
     // them (episode, output, approved, eligible).
@@ -1424,6 +1424,9 @@ describe("client-statements repo — tenant filter + aggregate shape", () => {
     mocks.prisma.usageLog.aggregate.mockResolvedValueOnce({
       _sum: { costCents: 12345 },
     });
+    // Billing profile lookup — freezes currency + seeds line items. No
+    // profile here so no items are seeded; USD is the default currency.
+    mocks.prisma.clientBillingProfile.findFirst.mockResolvedValueOnce(null);
     mocks.prisma.clientStatement.create.mockResolvedValueOnce({
       id: "s_new",
     });
@@ -1444,9 +1447,44 @@ describe("client-statements repo — tenant filter + aggregate shape", () => {
     // approved / eligible = 30 / 40 = 0.75 → 75%
     expect(createArgs.data.approvalRatePct).toBe(75);
     expect(createArgs.data.costCents).toBe(12345);
+    expect(createArgs.data.currency).toBe("USD"); // no profile → USD fallback
+    expect(createArgs.data.items).toBeUndefined(); // no items seeded
     expect(createArgs.data.generatedByMemberId).toBe("m_actor");
     // periodEnd is widened to end-of-day local time.
     expect(createArgs.data.periodEnd.getTime()).toBeGreaterThanOrEqual(periodEnd.getTime());
+  });
+
+  it("generateClientStatement seeds retainer + per-episode items from the billing profile", async () => {
+    mocks.prisma.client.findFirst.mockResolvedValueOnce({ id: "c1" });
+    mocks.prisma.episode.count.mockResolvedValueOnce(3); // 3 episodes in window
+    mocks.prisma.generatedOutput.count
+      .mockResolvedValueOnce(21)
+      .mockResolvedValueOnce(21)
+      .mockResolvedValueOnce(21);
+    mocks.prisma.usageLog.aggregate.mockResolvedValueOnce({ _sum: { costCents: 5000 } });
+    // Profile with BOTH a retainer and a per-episode rate — both should
+    // land as line items so the agency can delete either.
+    mocks.prisma.clientBillingProfile.findFirst.mockResolvedValueOnce({
+      currency: "EUR",
+      retainerCents: 500_00,
+      ratePerEpisodeCents: 75_00,
+    });
+    mocks.prisma.clientStatement.create.mockResolvedValueOnce({ id: "s_new" });
+
+    await clientStatementsRepo.generateClientStatement(owner(A1), "c1", "m1", {
+      periodStart: new Date("2026-06-01T00:00:00.000Z"),
+      periodEnd: new Date("2026-06-30T00:00:00.000Z"),
+    });
+
+    const createArgs = mocks.prisma.clientStatement.create.mock.calls[0]![0];
+    expect(createArgs.data.currency).toBe("EUR");
+    // Two seeded rows: retainer (qty 1) + 3 × per-episode.
+    expect(createArgs.data.items?.create).toHaveLength(2);
+    const [retainer, perEpisode] = createArgs.data.items!.create;
+    expect(retainer.unitAmountCents).toBe(500_00);
+    expect(retainer.amountCents).toBe(500_00);
+    expect(perEpisode.unitAmountCents).toBe(75_00);
+    expect(perEpisode.amountCents).toBe(3 * 75_00);
   });
 
   it("generateClientStatement rejects cross-tenant client + cap-rejects EDITOR before any aggregate", async () => {
@@ -1479,6 +1517,7 @@ describe("client-statements repo — tenant filter + aggregate shape", () => {
     mocks.prisma.usageLog.aggregate.mockResolvedValueOnce({
       _sum: { costCents: null },
     });
+    mocks.prisma.clientBillingProfile.findFirst.mockResolvedValueOnce(null);
     mocks.prisma.clientStatement.create.mockResolvedValueOnce({ id: "s_new" });
 
     await clientStatementsRepo.generateClientStatement(owner(A1), "c1", "m1", {

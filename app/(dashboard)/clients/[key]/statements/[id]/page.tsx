@@ -2,7 +2,12 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { MemberRole } from "@prisma/client";
 import { shareStatementAction } from "../actions";
-import { getClientStatement } from "@/server/db/client-statements";
+import {
+  StatementItemsEditor,
+  type StatementItemRow,
+} from "@/components/statements/statement-items-editor";
+import { computeStatementAggregates, getClientStatement } from "@/server/db/client-statements";
+import { listStatementItems } from "@/server/db/client-statement-items";
 import { getClientForUI, isLiveDb } from "@/server/data/source";
 import { resolveTenantContext } from "@/server/data/tenant";
 import { prisma } from "@/server/db/client";
@@ -26,12 +31,16 @@ function formatShortDate(d: Date): string {
   }).format(d);
 }
 
-function formatCurrencyUsd(cents: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-  }).format(cents / 100);
+function formatCurrency(cents: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+    }).format(cents / 100);
+  } catch {
+    return `${(cents / 100).toFixed(2)} ${currency}`;
+  }
 }
 
 async function hasActivePortalLink(clientId: string): Promise<boolean> {
@@ -77,6 +86,29 @@ export default async function ClientStatementDetailPage({
   }
 
   if (statement.client.id !== client.key) notFound();
+
+  // Delivery counts are recomputed live from current output state so pre-
+  // fix rows (which persisted `approvedCount = 0` because the old query
+  // filtered by `status === APPROVED` only) show the correct numbers
+  // without a manual regenerate. Persisted columns on the row stay for
+  // the list page's bulk read.
+  const [items, liveAggregates] = await Promise.all([
+    listStatementItems(tenant, statement.id),
+    computeStatementAggregates(
+      tenant,
+      statement.client.id,
+      statement.periodStart,
+      statement.periodEnd,
+    ),
+  ]);
+  const itemRows: StatementItemRow[] = items.map((it) => ({
+    id: it.id,
+    description: it.description,
+    quantity: Number(it.quantity),
+    unitAmountCents: it.unitAmountCents,
+    amountCents: it.amountCents,
+  }));
+  const totalCents = itemRows.reduce((sum, r) => sum + r.amountCents, 0);
 
   const generatedBy = statement.generatedByMember
     ? statement.generatedByMember.name?.trim() || statement.generatedByMember.email
@@ -154,23 +186,31 @@ export default async function ClientStatementDetailPage({
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatBlock label="Episodes" value={statement.episodeCount} />
-        <StatBlock label="Outputs" value={statement.outputCount} />
+        <StatBlock label="Episodes" value={liveAggregates.episodeCount} />
+        <StatBlock label="Outputs" value={liveAggregates.outputCount} />
         <StatBlock
           label="Approved"
-          value={`${statement.approvedCount} (${statement.approvalRatePct}%)`}
+          value={`${liveAggregates.approvedCount} (${liveAggregates.approvalRatePct}%)`}
         />
-        <StatBlock label="Cost to serve" value={formatCurrencyUsd(statement.costCents)} />
+        <StatBlock label="Client owes" value={formatCurrency(totalCents, statement.currency)} />
       </section>
+
+      <StatementItemsEditor
+        clientKey={client.key}
+        statementId={statement.id}
+        currency={statement.currency}
+        initialItems={itemRows}
+      />
 
       <section className="border-border bg-surface rounded-3xl border p-5">
         <div className="font-display text-ink text-[14px] font-semibold">About this statement</div>
         <div className="text-muted mt-2 text-[12.5px] leading-[1.55]">
-          Totals are snapshotted at generation time and won&apos;t change if underlying outputs are
-          later regenerated or edited. Use the CSV export to attach the period summary to your own
-          invoice, or the PDF for a client-ready deliverable. Sharing to the client portal makes
-          this statement visible under the client&apos;s existing portal link — you can unshare at
-          any time to pull it back.
+          Delivery counts above reflect the current state of outputs in this window — regenerated or
+          newly-approved items are picked up on every load. Line items are editable and represent
+          what you&apos;re billing the client for the period. Use the CSV export to attach the
+          summary to your own invoice, or the PDF for a client-ready deliverable. Sharing to the
+          client portal makes this statement visible under the client&apos;s existing portal link —
+          you can unshare at any time.
         </div>
       </section>
     </div>

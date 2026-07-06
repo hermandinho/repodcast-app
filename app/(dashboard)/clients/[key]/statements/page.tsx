@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { MemberRole, type ClientStatement } from "@prisma/client";
 import { GenerateStatementForm } from "@/components/clients/generate-statement-form";
 import { listClientStatements } from "@/server/db/client-statements";
+import { sumStatementItemsForMany } from "@/server/db/client-statement-items";
 import { getClientForUI, isLiveDb } from "@/server/data/source";
 import { resolveTenantContext } from "@/server/data/tenant";
 
@@ -32,12 +33,16 @@ function formatShortDate(d: Date): string {
   }).format(d);
 }
 
-function formatCurrencyUsd(cents: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-  }).format(cents / 100);
+function formatCurrency(cents: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+    }).format(cents / 100);
+  } catch {
+    return `${(cents / 100).toFixed(2)} ${currency}`;
+  }
 }
 
 function currentMonthBoundaries(): { start: string; end: string } {
@@ -73,6 +78,12 @@ export default async function ClientStatementsListPage({
         skip: (page - 1) * PAGE_SIZE,
       })
     : { rows: [] as ClientStatement[], total: 0 };
+
+  // One aggregate query for the whole page — avoids N+1 sums on the
+  // items relation. Missing key ⇒ 0 (no items yet on a fresh statement).
+  const totalsByStatement = isLiveDb()
+    ? await sumStatementItemsForMany(list.rows.map((s) => s.id))
+    : new Map<string, number>();
 
   const totalPages = Math.max(1, Math.ceil(list.total / PAGE_SIZE));
   const startN = list.total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
@@ -134,7 +145,7 @@ export default async function ClientStatementsListPage({
                     </div>
                   </div>
                   <span className="text-ink font-sans text-[13px] font-semibold">
-                    {formatCurrencyUsd(s.costCents)}
+                    {formatCurrency(totalsByStatement.get(s.id) ?? 0, s.currency)}
                   </span>
                   <span className="text-muted-2 text-[11.5px]">
                     Generated {formatShortDate(s.generatedAt)}

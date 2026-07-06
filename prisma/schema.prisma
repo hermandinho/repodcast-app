@@ -769,8 +769,15 @@ model ClientStatement {
   /// payload the deliverables webhook ships.
   approvalRatePct     Int
   /// Cost-to-serve in USD cents — sum of `UsageLog.costCents` joined via
-  /// Episode → Show → Client across the window.
+  /// Episode → Show → Client across the window. Internal, `/root`-only:
+  /// the agency-facing surfaces stopped rendering this field with the
+  /// statement-line-items rebuild; only platform admins still see it.
   costCents           Int
+  /// ISO-4217 currency of this statement's line items. Frozen from the
+  /// billing profile at generation time so a later profile currency
+  /// change doesn't retroactively alter historical statement rendering.
+  /// Defaults to USD so pre-existing rows have a sensible fallback.
+  currency            String    @default("USD")
   generatedAt         DateTime  @default(now())
   generatedByMemberId String?
   /// R2 object key for the rendered PDF; null until the renderer finishes.
@@ -790,9 +797,10 @@ model ClientStatement {
   sharedWithPortalAt  DateTime?
   sharedByMemberId    String?
 
-  client            Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  generatedByMember Member? @relation("StatementAuthor", fields: [generatedByMemberId], references: [id], onDelete: SetNull)
-  sharedByMember    Member? @relation("StatementPortalPublisher", fields: [sharedByMemberId], references: [id], onDelete: SetNull)
+  client            Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  generatedByMember Member?               @relation("StatementAuthor", fields: [generatedByMemberId], references: [id], onDelete: SetNull)
+  sharedByMember    Member?               @relation("StatementPortalPublisher", fields: [sharedByMemberId], references: [id], onDelete: SetNull)
+  items             ClientStatementItem[]
 
   @@index([clientId, periodStart(sort: Desc)])
   @@index([clientId, generatedAt(sort: Desc)])
@@ -801,6 +809,39 @@ model ClientStatement {
   /// ordered by period. Composite index keeps that pattern seek-only.
   @@index([clientId, sharedWithPortalAt(sort: Desc)])
   @@index([sharedByMemberId])
+}
+
+/// Billable line item on a `ClientStatement`. Statements ship with items
+/// auto-seeded from the billing profile (retainer and/or rate × episodes);
+/// the agency can add, edit, or delete rows to build the invoice they
+/// send the client. The sum of `amountCents` is the statement total —
+/// what the client owes the agency for the period.
+model ClientStatementItem {
+  id              String   @id @default(cuid())
+  statementId     String
+  /// Human-readable line label — e.g. "Monthly retainer", "12 episodes
+  /// @ $75", "Extra editing hours". Trimmed to 200 chars at the input.
+  description     String
+  /// Quantity as a decimal so fractional units (e.g. 0.5 episodes, 2.5
+  /// hours) round-trip cleanly. The UI converts to Number on read.
+  quantity        Decimal  @db.Decimal(10, 2)
+  /// Unit price in the statement's `currency`, in cents. Combined with
+  /// `quantity` to derive the row total; stored so the aggregate query
+  /// stays a single sum without a Decimal multiplication.
+  unitAmountCents Int
+  /// Cached `round(quantity × unitAmountCents)`. Written by the server
+  /// action every time the row changes so downstream sums stay a single
+  /// integer aggregate.
+  amountCents     Int
+  /// Ascending display order. Ties broken by `createdAt` so a re-order
+  /// with duplicate `sortOrder` values still renders deterministically.
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  statement ClientStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+
+  @@index([statementId, sortOrder])
 }
 
 /// Tokenized read-only access to the client portal. Pattern mirrors the

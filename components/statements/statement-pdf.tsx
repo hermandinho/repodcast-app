@@ -23,13 +23,26 @@ export type StatementPdfData = {
   periodEndIso: string;
   generatedAtIso: string;
   generatedByLabel: string;
+  /** Statement currency, pre-formatted here as the total string; the
+   *  ISO code is passed in so the items table can format each row. */
+  currency: string;
   totals: {
     episodeCount: number;
     outputCount: number;
     approvedCount: number;
     approvalRatePct: number;
-    costUsd: string;
+    /** Pre-formatted total (sum of item amounts) in the statement's currency. */
+    totalFormatted: string;
   };
+  /** Billable line items — what the client owes the agency for the period. */
+  items: Array<{
+    description: string;
+    /** Formatted quantity (e.g. "12", "0.5"). */
+    quantityLabel: string;
+    /** Pre-formatted unit price + amount, in the statement's currency. */
+    unitLabel: string;
+    amountLabel: string;
+  }>;
   breakdown: Array<{ platform: Platform; total: number; approved: number }>;
 };
 
@@ -124,13 +137,13 @@ const styles = StyleSheet.create({
     color: INK,
     letterSpacing: -0.3,
   },
-  costCard: {
+  totalCard: {
     flex: 1.4,
     borderWidth: 1,
     borderRadius: 6,
     padding: 12,
   },
-  costValue: {
+  totalValue: {
     fontFamily: "Helvetica-Bold",
     fontSize: 20,
     letterSpacing: -0.3,
@@ -160,6 +173,53 @@ const styles = StyleSheet.create({
   tableCell: { fontSize: 10, color: INK },
   tablePlatformCol: { flex: 2 },
   tableNumCol: { flex: 1, textAlign: "right" },
+  itemsHeader: {
+    flexDirection: "row",
+    backgroundColor: "#F4F6FA",
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
+  },
+  itemDescriptionCol: { flex: 3 },
+  itemQtyCol: { flex: 0.7, textAlign: "right" },
+  itemUnitCol: { flex: 1, textAlign: "right" },
+  itemAmountCol: { flex: 1.1, textAlign: "right" },
+  itemsTotalRow: {
+    flexDirection: "row",
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
+    marginTop: 4,
+  },
+  itemsTotalLabel: {
+    fontFamily: "Helvetica-Bold",
+    fontSize: 10,
+    color: MUTED,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    flex: 4.7,
+    textAlign: "right",
+    paddingRight: 10,
+  },
+  itemsTotalValue: {
+    fontFamily: "Helvetica-Bold",
+    fontSize: 12,
+    color: INK,
+    flex: 1.1,
+    textAlign: "right",
+  },
+  emptyItems: {
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderStyle: "dashed",
+    borderRadius: 6,
+    paddingVertical: 20,
+    textAlign: "center",
+    fontSize: 10,
+    color: MUTED_2,
+  },
   footer: {
     position: "absolute",
     bottom: 32,
@@ -231,7 +291,7 @@ export function StatementPdf({ data }: { data: StatementPdfData }) {
 
         <View style={styles.hr} />
 
-        <Text style={styles.sectionLabel}>Snapshot totals</Text>
+        <Text style={styles.sectionLabel}>Delivery snapshot</Text>
         <View style={styles.metricsRow}>
           <MetricCard label="Episodes" value={data.totals.episodeCount.toLocaleString()} />
           <MetricCard label="Outputs" value={data.totals.outputCount.toLocaleString()} />
@@ -239,13 +299,39 @@ export function StatementPdf({ data }: { data: StatementPdfData }) {
             label="Approved"
             value={`${data.totals.approvedCount.toLocaleString()} · ${data.totals.approvalRatePct}%`}
           />
-          <View style={[styles.costCard, { borderColor: accent, backgroundColor: `${accent}12` }]}>
-            <Text style={styles.metricLabel}>Cost to serve</Text>
-            <Text style={[styles.costValue, { color: accent }]}>{data.totals.costUsd}</Text>
+          <View style={[styles.totalCard, { borderColor: accent, backgroundColor: `${accent}12` }]}>
+            <Text style={styles.metricLabel}>Amount due</Text>
+            <Text style={[styles.totalValue, { color: accent }]}>{data.totals.totalFormatted}</Text>
           </View>
         </View>
 
-        <Text style={styles.sectionLabel}>Per-platform breakdown</Text>
+        <Text style={styles.sectionLabel}>Billable items</Text>
+        {data.items.length === 0 ? (
+          <Text style={styles.emptyItems}>No line items on this statement.</Text>
+        ) : (
+          <>
+            <View style={styles.itemsHeader}>
+              <Text style={[styles.tableHeaderCell, styles.itemDescriptionCol]}>Description</Text>
+              <Text style={[styles.tableHeaderCell, styles.itemQtyCol]}>Qty</Text>
+              <Text style={[styles.tableHeaderCell, styles.itemUnitCol]}>Unit</Text>
+              <Text style={[styles.tableHeaderCell, styles.itemAmountCol]}>Amount</Text>
+            </View>
+            {data.items.map((row, i) => (
+              <View key={i} style={styles.tableRow}>
+                <Text style={[styles.tableCell, styles.itemDescriptionCol]}>{row.description}</Text>
+                <Text style={[styles.tableCell, styles.itemQtyCol]}>{row.quantityLabel}</Text>
+                <Text style={[styles.tableCell, styles.itemUnitCol]}>{row.unitLabel}</Text>
+                <Text style={[styles.tableCell, styles.itemAmountCol]}>{row.amountLabel}</Text>
+              </View>
+            ))}
+            <View style={styles.itemsTotalRow}>
+              <Text style={styles.itemsTotalLabel}>Total</Text>
+              <Text style={styles.itemsTotalValue}>{data.totals.totalFormatted}</Text>
+            </View>
+          </>
+        )}
+
+        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Per-platform breakdown</Text>
         <View style={styles.tableHeader}>
           <Text style={[styles.tableHeaderCell, styles.tablePlatformCol]}>Platform</Text>
           <Text style={[styles.tableHeaderCell, styles.tableNumCol]}>Total outputs</Text>

@@ -135,6 +135,29 @@ export async function getClientBillingProfile(
   });
 }
 
+/**
+ * Count episodes created for this client in the current calendar month.
+ * Feeds the "This period" card on the billing tab so the agency can see
+ * rate × episodes without touching the internal cost surface. Tenant-
+ * gated the same way as the profile read — a cross-agency clientId
+ * returns 0 rather than a leak.
+ */
+export async function episodesForClientThisMonth(
+  ctx: TenantContext,
+  clientId: string,
+): Promise<number> {
+  requireRole(ctx, ADMIN_ROLES);
+  const now = new Date();
+  const from = new Date(now.getFullYear(), now.getMonth(), 1);
+  const to = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  return prisma.episode.count({
+    where: {
+      show: { client: { id: clientId, agencyId: ctx.agencyId } },
+      createdAt: { gte: from, lt: to },
+    },
+  });
+}
+
 // ============================================================
 // Writes
 // ============================================================

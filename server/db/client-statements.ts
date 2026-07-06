@@ -1,16 +1,11 @@
 import "server-only";
 
-import {
-  MemberRole,
-  OutputStatus,
-  Platform,
-  type ClientStatement,
-  type Prisma,
-} from "@prisma/client";
+import { MemberRole, OutputStatus, Platform, Prisma, type ClientStatement } from "@prisma/client";
 import { z } from "zod";
 import { NotFoundError, ValidationError } from "@/server/auth/errors";
 import { requireRole, type TenantContext } from "@/server/auth/tenant";
 import { prisma } from "./client";
+import { computeItemAmountCents } from "./client-statement-items";
 
 /**
  * Phase 2.13.4 — Client statements.
@@ -251,7 +246,11 @@ export type PortalStatementRow = {
   outputCount: number;
   approvedCount: number;
   approvalRatePct: number;
-  costCents: number;
+  /// Total across `ClientStatementItem.amountCents` — what the client
+  /// owes the agency for the period. Cost-to-serve is intentionally
+  /// omitted from portal-facing types: it's internal, `/root`-only.
+  totalCents: number;
+  currency: string;
 };
 
 /**
@@ -276,14 +275,25 @@ export async function listSharedStatementsForClient(
       outputCount: true,
       approvedCount: true,
       approvalRatePct: true,
-      costCents: true,
+      currency: true,
+      items: { select: { amountCents: true } },
     },
   });
   // Prisma types sharedWithPortalAt as nullable even with the not-null
-  // filter — narrow here so the row type is truthful.
+  // filter — narrow here so the row type is truthful. Sum items in JS
+  // rather than a groupBy so we keep the single query.
   return rows.map((r) => ({
-    ...r,
+    id: r.id,
+    periodStart: r.periodStart,
+    periodEnd: r.periodEnd,
+    generatedAt: r.generatedAt,
     sharedWithPortalAt: r.sharedWithPortalAt!,
+    episodeCount: r.episodeCount,
+    outputCount: r.outputCount,
+    approvedCount: r.approvedCount,
+    approvalRatePct: r.approvalRatePct,
+    currency: r.currency,
+    totalCents: r.items.reduce((sum, it) => sum + it.amountCents, 0),
   }));
 }
 
@@ -363,13 +373,23 @@ export async function computeStatementPlatformBreakdown(params: {
     _count: { _all: true },
   });
 
+  // Same "past-approval" set as `computeStatementAggregates`: an output that was
+  // approved and then scheduled or published is still an approval — the
+  // status column moved on, `approvedAt` didn't. Filtering by only
+  // `status === APPROVED` under-reported every platform.
+  const APPROVED_STATUSES = new Set<OutputStatus>([
+    OutputStatus.APPROVED,
+    OutputStatus.SCHEDULED,
+    OutputStatus.PUBLISHED,
+  ]);
+
   const byPlatform = new Map<Platform, { total: number; approved: number }>();
   for (const p of BREAKDOWN_PLATFORMS) byPlatform.set(p, { total: 0, approved: 0 });
   for (const g of groups) {
     const slot = byPlatform.get(g.platform);
     if (!slot) continue;
     slot.total += g._count._all;
-    if (g.status === OutputStatus.APPROVED) slot.approved += g._count._all;
+    if (APPROVED_STATUSES.has(g.status)) slot.approved += g._count._all;
   }
   return BREAKDOWN_PLATFORMS.map((p) => ({ platform: p, ...byPlatform.get(p)! }));
 }
@@ -378,7 +398,7 @@ export async function computeStatementPlatformBreakdown(params: {
 // Generation
 // ============================================================
 
-type Aggregates = {
+export type StatementAggregates = {
   episodeCount: number;
   outputCount: number;
   approvedCount: number;
@@ -392,13 +412,19 @@ type Aggregates = {
  * correctness because the writes are idempotent (the persisted statement
  * row reflects the aggregate at `generatedAt`; a subsequent generate
  * recomputes from scratch).
+ *
+ * Exported so the detail page + PDF routes can recompute live for display.
+ * The persisted columns still exist for the list page (fast bulk read) and
+ * for auditing what the numbers were at generation time; the detail view
+ * always shows current values so pre-fix statements auto-heal without a
+ * data migration.
  */
-async function computeAggregates(
+export async function computeStatementAggregates(
   ctx: TenantContext,
   clientId: string,
   periodStart: Date,
   periodEndExclusive: Date,
-): Promise<Aggregates> {
+): Promise<StatementAggregates> {
   // Tenant + client + window — kept in one factory so each count uses the
   // same shape. Episodes range on `Episode.createdAt`; outputs on the
   // GeneratedOutput's `createdAt` (the user-visible "generated on" date).
@@ -412,20 +438,39 @@ async function computeAggregates(
     createdAt: { gte: periodStart, lte: periodEndExclusive },
   };
 
+  // "Past-approval" = approved AND all forward states. Counting only
+  // `status = APPROVED` was a real bug: outputs that got approved and
+  // then scheduled or published leave the APPROVED bucket, so the
+  // snapshot silently reported approved-count = 0 whenever an agency
+  // stayed on top of scheduling. Matches the dashboard's definition
+  // (`server/db/dashboard.ts`) — kept as a local constant so this
+  // module doesn't reach across the read-side.
+  const PAST_APPROVAL_STATUSES = [
+    OutputStatus.APPROVED,
+    OutputStatus.SCHEDULED,
+    OutputStatus.PUBLISHED,
+  ] as const;
+
   const [episodeCount, outputCount, approvedCount, eligibleForApproval, usage] = await Promise.all([
     prisma.episode.count({ where: episodeWindow }),
     prisma.generatedOutput.count({ where: outputWindow }),
     prisma.generatedOutput.count({
-      where: { ...outputWindow, status: OutputStatus.APPROVED },
+      where: { ...outputWindow, status: { in: [...PAST_APPROVAL_STATUSES] } },
     }),
-    // Approval-rate denominator: same as the dashboard's definition
-    // (`approved / (approved + ready + in_review)`). Generating + failed
-    // don't count toward the editor's headline rate.
+    // Approval-rate denominator: every output that reached a reviewable
+    // state — past-approval statuses plus the still-in-flight ones.
+    // `GENERATING` + `FAILED` deliberately excluded (nothing to approve
+    // yet, or model errored before human touch).
     prisma.generatedOutput.count({
       where: {
         ...outputWindow,
         status: {
-          in: [OutputStatus.APPROVED, OutputStatus.READY, OutputStatus.IN_REVIEW],
+          in: [
+            ...PAST_APPROVAL_STATUSES,
+            OutputStatus.READY,
+            OutputStatus.IN_REVIEW,
+            OutputStatus.AWAITING_CLIENT_APPROVAL,
+          ],
         },
       },
     }),
@@ -475,7 +520,31 @@ export async function generateClientStatement(
   }
 
   const periodEndExclusive = endOfDay(input.periodEnd);
-  const aggregates = await computeAggregates(ctx, clientId, input.periodStart, periodEndExclusive);
+
+  // Freeze currency + billing seeds from the profile at generation time
+  // so a later profile change doesn't retroactively alter historical
+  // statements. `findFirst` returns null when no profile exists yet;
+  // seeded items default to USD in that case.
+  const [aggregates, profile] = await Promise.all([
+    computeStatementAggregates(ctx, clientId, input.periodStart, periodEndExclusive),
+    prisma.clientBillingProfile.findFirst({
+      where: { clientId, client: { agencyId: ctx.agencyId } },
+      select: {
+        currency: true,
+        retainerCents: true,
+        ratePerEpisodeCents: true,
+      },
+    }),
+  ]);
+
+  const currency = profile?.currency ?? "USD";
+  const seededItems = buildSeededItems({
+    retainerCents: profile?.retainerCents ?? null,
+    ratePerEpisodeCents: profile?.ratePerEpisodeCents ?? null,
+    episodeCount: aggregates.episodeCount,
+    periodStart: input.periodStart,
+    periodEnd: input.periodEnd,
+  });
 
   return prisma.clientStatement.create({
     data: {
@@ -487,7 +556,81 @@ export async function generateClientStatement(
       approvedCount: aggregates.approvedCount,
       approvalRatePct: aggregates.approvalRatePct,
       costCents: aggregates.costCents,
+      currency,
       generatedByMemberId: byMemberId,
+      items: seededItems.length > 0 ? { create: seededItems } : undefined,
     },
   });
+}
+
+/**
+ * Auto-seed the first line items on a new statement so the agency
+ * doesn't stare at a blank form: a retainer row (when set), a
+ * per-episode row (when a rate is set and any episodes shipped), or
+ * nothing (empty statement — the agency fills it in manually).
+ *
+ * Kept module-local because the input shape is specific to
+ * `generateClientStatement` and its caller doesn't need to know the
+ * seeding rules.
+ */
+function buildSeededItems(params: {
+  retainerCents: number | null;
+  ratePerEpisodeCents: number | null;
+  episodeCount: number;
+  periodStart: Date;
+  periodEnd: Date;
+}): Array<{
+  description: string;
+  quantity: Prisma.Decimal;
+  unitAmountCents: number;
+  amountCents: number;
+  sortOrder: number;
+}> {
+  const items: Array<{
+    description: string;
+    quantity: Prisma.Decimal;
+    unitAmountCents: number;
+    amountCents: number;
+    sortOrder: number;
+  }> = [];
+
+  // Format the period as "Jul 2026" when it lines up with a single
+  // month, otherwise "Jul 1 – Jul 31, 2026". Purely cosmetic — the
+  // agency can edit the description freely.
+  const periodLabel = formatPeriodLabel(params.periodStart, params.periodEnd);
+
+  if (params.retainerCents != null && params.retainerCents > 0) {
+    items.push({
+      description: `Retainer — ${periodLabel}`,
+      quantity: new Prisma.Decimal(1),
+      unitAmountCents: params.retainerCents,
+      amountCents: params.retainerCents,
+      sortOrder: 0,
+    });
+  }
+
+  if (
+    params.ratePerEpisodeCents != null &&
+    params.ratePerEpisodeCents > 0 &&
+    params.episodeCount > 0
+  ) {
+    items.push({
+      description: `${params.episodeCount} episode${params.episodeCount === 1 ? "" : "s"} produced — ${periodLabel}`,
+      quantity: new Prisma.Decimal(params.episodeCount),
+      unitAmountCents: params.ratePerEpisodeCents,
+      amountCents: computeItemAmountCents(params.episodeCount, params.ratePerEpisodeCents),
+      sortOrder: items.length,
+    });
+  }
+
+  return items;
+}
+
+function formatPeriodLabel(start: Date, end: Date): string {
+  const fmtShort = new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric" });
+  const sameMonth =
+    start.getUTCFullYear() === end.getUTCFullYear() && start.getUTCMonth() === end.getUTCMonth();
+  if (sameMonth) return fmtShort.format(start);
+  const fmtRange = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
+  return `${fmtRange.format(start)} – ${fmtRange.format(end)}, ${end.getUTCFullYear()}`;
 }
