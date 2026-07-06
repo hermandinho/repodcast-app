@@ -4,6 +4,8 @@ import { CLAUDE_MODEL, requireClaudeClient } from "@/server/ai/claude";
 import { extractKeyMoments } from "@/server/ai/key-moments";
 import { buildMessages, extractText, type VoiceContext } from "@/server/ai/prompt-builder";
 import { scoreOutput } from "@/server/ai/quality-score";
+import { checkRuleAdherence } from "@/server/ai/rule-adherence";
+import { parseVoiceRules } from "@/server/ai/rule-parser";
 import { planLimitsFor } from "@/lib/plans";
 import { prisma } from "@/server/db/client";
 import { sendGenerationCompleteEmail } from "@/server/email/send";
@@ -210,6 +212,7 @@ export const generateEpisode = inngest.createFunction(
       where: { showId: episode.showId },
       orderBy: { createdAt: "desc" },
       take: 20,
+      include: { generatedOutput: { select: { editDistance: true } } },
     });
     const voice: VoiceContext = {
       clientName: episode.show.name,
@@ -219,7 +222,11 @@ export const generateEpisode = inngest.createFunction(
       perPlatformInstructions: Object.fromEntries(
         episode.show.platformInstructions.map((p) => [p.platform, p.rule]),
       ) as Partial<Record<Platform, string>>,
-      samples: samples.map((s) => ({ platform: s.platform, content: s.content })),
+      samples: samples.map((s) => ({
+        platform: s.platform,
+        content: s.content,
+        editDistance: s.generatedOutput?.editDistance,
+      })),
     };
 
     // ---- 6. Fan out — parallel generation per platform ----
@@ -285,10 +292,25 @@ export const generateEpisode = inngest.createFunction(
     // can't fan one create's output into a second create's input).
     // FAILED rows are persisted alongside successes so the UI grid always
     // shows every requested platform — silent absence was the bug 1.7 fixed.
+    // Pre-compute parseable constraints per platform once; the same
+    // rule strings are reused for every output within this episode
+    // (they come from Show-level state, not per-output). Global rules
+    // apply everywhere; per-platform rules only where they land.
+    const globalConstraints = parseVoiceRules(episode.show.globalInstructions);
+    const perPlatformConstraints = new Map<Platform, ReturnType<typeof parseVoiceRules>>();
+    for (const p of episode.show.platformInstructions) {
+      perPlatformConstraints.set(p.platform, parseVoiceRules(p.rule));
+    }
+
     if (successful.length > 0 || failed.length > 0) {
       await step.run("persist-outputs", () =>
         prisma.$transaction(async (tx) => {
           for (const g of successful) {
+            const constraints = [
+              ...globalConstraints,
+              ...(perPlatformConstraints.get(g.platform) ?? []),
+            ];
+            const ruleViolations = checkRuleAdherence(g.content, constraints);
             const created = await tx.generatedOutput.create({
               data: {
                 episodeId,
@@ -296,6 +318,7 @@ export const generateEpisode = inngest.createFunction(
                 content: g.content,
                 status: OutputStatus.READY,
                 quality: scoreOutput(g.platform, g.content),
+                ruleViolations,
               },
             });
             await tx.outputTransition.create({

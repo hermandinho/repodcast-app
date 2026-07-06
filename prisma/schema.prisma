@@ -385,8 +385,20 @@ model Show {
   artworkUrl         String?
   rssUrl             String?
   /// AI-generated narrative of the show's voice. Refreshed when sample count
-  /// crosses a strength threshold (Phase 2.1).
+  /// crosses a strength threshold (Phase 2.1) or drift is detected.
   voiceDescription   String?
+  /// Sample count at the moment `voiceDescription` was last regenerated.
+  /// Used by the drift-aware refresh gate to fire periodic re-writes past
+  /// the fixed strength thresholds, and to throttle drift-triggered
+  /// refreshes so a heavy-edit streak can't thrash Claude.
+  voiceDescriptionSampleCount Int @default(0)
+  /// Operator's verdict on the current `voiceDescription`. `null` = not
+  /// rated yet (the default whenever the description gets re-written);
+  /// `true` = "this reads like our voice"; `false` = "no, regenerate". A
+  /// `false` verdict fires a refresh event and stays `false` until the
+  /// refresh completes, at which point it resets to `null` for the fresh
+  /// description to be rated on its own merit.
+  voiceDescriptionApproved Boolean?
   /// Global custom-instruction rules the prompt builder always injects.
   globalInstructions String?
   createdAt          DateTime @default(now())
@@ -496,6 +508,15 @@ model GeneratedOutput {
   flagReason          String?
   flaggedByMemberId   String?
   flaggedAt           DateTime?
+  /// Rule-adherence flags — human-readable strings describing which of
+  /// the show's parseable voice rules this output broke. Populated at
+  /// generation + regeneration time by `checkRuleAdherence` against the
+  /// constraints extracted from `Show.globalInstructions` +
+  /// `ShowPlatformInstruction.rule`. Empty = every parseable rule was
+  /// followed (or the show has no parseable rules). The UI surfaces
+  /// this as a small warning badge so the operator sees which rules
+  /// were ignored without re-running the check client-side.
+  ruleViolations      String[]           @default([])
   /// Phase 3.3 — scheduling surface. All four are populated together when
   /// APPROVED → SCHEDULED, cleared on unschedule, and `publishedAt` stamps
   /// on the terminal transition to PUBLISHED. `externalPostId` is Buffer's

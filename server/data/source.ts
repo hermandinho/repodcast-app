@@ -632,6 +632,7 @@ export async function getEpisodeForUI(
         clientApprovedAtIso: o.clientApprovedAt?.toISOString() ?? null,
         clientRevisionRequestedAtIso: revision?.at ?? null,
         clientRevisionNote: revision?.note ?? null,
+        ruleViolations: o.ruleViolations,
       };
     }),
   };
@@ -698,6 +699,7 @@ export async function getVoiceProfileForUI(
   const profile: VoiceProfile = {
     clientKey: showUI.key,
     description: show.voiceDescription ?? "",
+    descriptionApproved: show.voiceDescriptionApproved ?? null,
     tags: [],
     samples: samples.map((s: VoiceSample) => ({
       platform: PLATFORM_TO_KEY[s.platform],

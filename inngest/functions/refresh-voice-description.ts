@@ -63,11 +63,30 @@ export const refreshVoiceDescription = inngest.createFunction(
       });
     });
 
+    // Total approved-sample count at the moment we're locking in this
+    // description. `shouldRefreshVoiceDescription` compares against this
+    // to fire the next periodic refresh (post-30) and to throttle
+    // drift-triggered refreshes. Read after `summariseVoice` so any
+    // approvals landing during the Claude call are counted against this
+    // snapshot (avoids a stuck drift trigger when refreshes overlap
+    // with a fast approval stream).
+    const sampleCountAtRefresh = await prisma.voiceSample.count({
+      where: { showId: show.id },
+    });
+
     await step.run("persist-description", () =>
       prisma.$transaction([
         prisma.show.update({
           where: { id: show.id },
-          data: { voiceDescription: result.description },
+          data: {
+            voiceDescription: result.description,
+            voiceDescriptionSampleCount: sampleCountAtRefresh,
+            // Reset the operator's rating so the freshly-written
+            // description can be rated on its own merit — including
+            // when the trigger for this refresh was the operator
+            // explicitly saying "not my voice" on the previous one.
+            voiceDescriptionApproved: null,
+          },
         }),
         prisma.usageLog.create({
           data: {

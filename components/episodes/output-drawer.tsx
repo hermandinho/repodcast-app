@@ -151,6 +151,7 @@ export function OutputDrawer({
   }, [state.id, state.versionCount, hasHistory]);
   const displayedContent = viewing?.content ?? state.content;
   const displayedVersion = viewing?.version ?? state.version;
+  const displayedQuality = viewing ? (viewing.quality ?? 0) : state.quality;
   const viewingOlder = viewing !== null;
 
   // Schedule form state — same pattern as prior card, hoisted here.
@@ -351,22 +352,49 @@ export function OutputDrawer({
         {!isGen && (
           <div className="grid grid-cols-2 gap-[12px] border-b border-zinc-100 bg-[#FAFBFD] px-6 py-[18px]">
             <SignalCard label="Quality score">
-              <QualityCircle score={state.quality} />
+              <QualityCircle score={displayedQuality} />
               <span className="text-[12.5px] leading-[1.4] font-medium text-[#5A6473]">
-                {qualityNoteFor(state.quality)}
+                {qualityNoteFor(displayedQuality)}
               </span>
             </SignalCard>
             <SignalCard label="Voice match">
-              <VoiceBarsLarge quality={state.quality} />
+              <VoiceBarsLarge quality={displayedQuality} />
               <span
                 className="text-[13px] font-semibold"
-                style={{ color: voiceColorFor(state.quality) }}
+                style={{ color: voiceColorFor(displayedQuality) }}
               >
-                {voiceLabelFor(state.quality)}
+                {voiceLabelFor(displayedQuality)}
               </span>
             </SignalCard>
           </div>
         )}
+
+        {/* Rule-adherence flags — surfaces when the model broke one of
+            the show's parseable voice rules (no hashtags, banned phrase,
+            length limit, etc.). Not blocking; the reviewer decides
+            whether to regenerate. Hidden while the row is generating or
+            has been client-approved (frozen, nothing to act on). */}
+        {!isGen &&
+          state.ruleViolations &&
+          state.ruleViolations.length > 0 &&
+          !state.clientApprovedAtIso && (
+            <div className="border-b border-[#F1DDBB] bg-[#FBF3E0] px-6 py-[12px]">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-[12px] font-semibold text-[#A06D12]">
+                  Broke {state.ruleViolations.length} voice rule
+                  {state.ruleViolations.length === 1 ? "" : "s"}
+                </span>
+                <span className="font-mono text-[10.5px] tracking-[0.05em] text-[#8A97AD] uppercase">
+                  Regenerate to retry
+                </span>
+              </div>
+              <ul className="mt-[6px] flex flex-col gap-[3px] text-[12px] text-[#7A5514]">
+                {state.ruleViolations.map((v, i) => (
+                  <li key={i}>· {v}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
         {/* Metadata strip — lifecycle chips (scheduled/published/via) */}
         {(isScheduled || isPublished) && (

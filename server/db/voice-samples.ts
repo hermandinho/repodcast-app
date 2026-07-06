@@ -1,9 +1,24 @@
 import "server-only";
 
 import { MemberRole, Platform, type VoiceSample } from "@prisma/client";
+import { scoreOutput } from "@/server/ai/quality-score";
 import { NotFoundError } from "@/server/auth/errors";
 import { requireReadRole, requireRole, type TenantContext } from "@/server/auth/tenant";
 import { prisma } from "./client";
+
+/**
+ * Structural-quality floor for entry into the training pool. Below this,
+ * an approved output is still persisted + shown to the reader — we just
+ * don't teach the model to mimic its shape. Set low enough that typical
+ * outputs (partial hashtag coverage, minor length drift) still clear it;
+ * blocks obviously broken outputs (empty bodies, missing structure) from
+ * polluting future few-shot prompts.
+ *
+ * `scoreOutput` returns 0–100 (50 length + 50 structure). Threshold
+ * calibrated against `quality-score.ts` heuristics — cleared by most
+ * platform outputs that hit their format even loosely.
+ */
+const SAMPLE_QUALITY_FLOOR = 30;
 
 const READ_ROLES = [
   MemberRole.OWNER,
@@ -69,11 +84,15 @@ export async function countSamplesByPlatform(
 /**
  * Create a sample from a freshly-approved GeneratedOutput. Verifies the
  * output belongs to a show in the current agency before writing.
+ *
+ * May return `null` when the output falls below the training-quality
+ * floor — the approval itself still succeeds, we just don't add a badly-
+ * shaped output to the show's few-shot pool.
  */
 export async function createSampleFromOutput(
   ctx: TenantContext,
   outputId: string,
-): Promise<VoiceSample> {
+): Promise<VoiceSample | null> {
   requireRole(ctx, APPROVE_ROLES);
   return writeSampleFromOutput({ outputId, agencyId: ctx.agencyId });
 }
@@ -87,14 +106,14 @@ export async function createSampleFromOutput(
 export async function createSampleFromOutputRaw(
   outputId: string,
   agencyId?: string,
-): Promise<VoiceSample> {
+): Promise<VoiceSample | null> {
   return writeSampleFromOutput({ outputId, agencyId });
 }
 
 async function writeSampleFromOutput(input: {
   outputId: string;
   agencyId?: string;
-}): Promise<VoiceSample> {
+}): Promise<VoiceSample | null> {
   const output = await prisma.generatedOutput.findFirst({
     where: {
       id: input.outputId,
@@ -109,6 +128,13 @@ async function writeSampleFromOutput(input: {
     },
   });
   if (!output) throw new NotFoundError(`Output ${input.outputId} not found`);
+
+  // Quality gate — a broken or malformed output shouldn't teach the
+  // model to reproduce it. Scored against the final (possibly edited)
+  // content, since that's what future prompts would echo.
+  if (scoreOutput(output.platform, output.content) < SAMPLE_QUALITY_FLOOR) {
+    return null;
+  }
 
   return prisma.voiceSample.create({
     data: {

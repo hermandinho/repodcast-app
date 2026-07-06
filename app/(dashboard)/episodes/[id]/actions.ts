@@ -6,7 +6,11 @@ import { z } from "zod";
 import { requireAuthContext } from "@/server/auth/context";
 import { NotFoundError, ValidationError } from "@/server/auth/errors";
 import { toTenantContext } from "@/server/auth/tenant";
-import { crossedVoiceRefreshThreshold } from "@/server/ai/voice-strength";
+import {
+  VOICE_DRIFT_WINDOW_SIZE,
+  computeRecentDriftRatio,
+  shouldRefreshVoiceDescription,
+} from "@/server/ai/voice-strength";
 import { isLiveDb } from "@/server/data/source";
 import { prisma } from "@/server/db/client";
 import {
@@ -103,9 +107,9 @@ export async function approveOutputAction(
   const tenant = toTenantContext(auth);
 
   // We need the showId to (a) count samples before approval so we can
-  // detect a voice-refresh threshold crossing, and (b) include it in the
-  // refresh event. Pull the parent client's validationMode too — in CLIENT
-  // mode `approveOutput` sends the output to the portal (no VoiceSample
+  // decide whether to fire a refresh, and (b) include it in the refresh
+  // event. Pull the parent client's validationMode too — in CLIENT mode
+  // `approveOutput` sends the output to the portal (no VoiceSample
   // written yet), so the refresh event must NOT fire; it only fires when
   // INTERNAL mode's approve actually wrote a sample. Pull editDistance so
   // the client can fire a precise analytics event without a second RTT.
@@ -119,7 +123,12 @@ export async function approveOutputAction(
       episode: {
         select: {
           showId: true,
-          show: { select: { client: { select: { validationMode: true } } } },
+          show: {
+            select: {
+              voiceDescriptionSampleCount: true,
+              client: { select: { validationMode: true } },
+            },
+          },
         },
       },
     },
@@ -127,6 +136,7 @@ export async function approveOutputAction(
   const showId = output?.episode.showId ?? null;
   const validationMode = output?.episode.show.client.validationMode ?? "INTERNAL";
   const editDistance = output?.editDistance ?? 0;
+  const sampleCountAtLastRefresh = output?.episode.show.voiceDescriptionSampleCount ?? 0;
   const previousSampleCount = showId ? await prisma.voiceSample.count({ where: { showId } }) : 0;
 
   await approveOutput(tenant, outputId, auth.member.id);
@@ -140,9 +150,47 @@ export async function approveOutputAction(
   // approve path should dispatch its own refresh once the client
   // confirms — tracked separately.
   // Fire-and-forget: an inngest.send failure must not roll back approve.
+  //
+  // Recount post-approve rather than assuming `+1`: the quality gate in
+  // `voice-samples.writeSampleFromOutput` skips writes for outputs below
+  // the training floor, so approve doesn't always yield a sample. A live
+  // recount also prevents us from mis-firing the refresh at a threshold
+  // the sample pool never actually crossed.
   if (showId && validationMode === "INTERNAL") {
-    const newSampleCount = previousSampleCount + 1;
-    if (crossedVoiceRefreshThreshold(previousSampleCount, newSampleCount)) {
+    const newSampleCount = await prisma.voiceSample.count({ where: { showId } });
+
+    // Pull the recent-window samples with their linked output's edit
+    // distance so `shouldRefreshVoiceDescription` can decide on drift
+    // (mean edit ratio) alongside the milestone + periodic triggers.
+    // Only bother querying when there's a realistic chance of firing —
+    // pre-first-threshold this is dead weight.
+    let recentDriftRatio: number | undefined;
+    if (newSampleCount > 0) {
+      const recent = await prisma.voiceSample.findMany({
+        where: { showId },
+        orderBy: { createdAt: "desc" },
+        take: VOICE_DRIFT_WINDOW_SIZE,
+        select: {
+          content: true,
+          generatedOutput: { select: { editDistance: true } },
+        },
+      });
+      recentDriftRatio = computeRecentDriftRatio(
+        recent.map((s) => ({
+          content: s.content,
+          editDistance: s.generatedOutput?.editDistance,
+        })),
+      );
+    }
+
+    if (
+      shouldRefreshVoiceDescription({
+        previousSampleCount,
+        newSampleCount,
+        sampleCountAtLastRefresh,
+        recentDriftRatio,
+      })
+    ) {
       try {
         await inngest.send({
           name: "voice/refresh.requested",
@@ -340,6 +388,7 @@ export async function listOutputVersionsAction(
     version: r.version,
     status: r.status,
     content: r.content,
+    quality: r.quality,
     lastInstruction: r.lastInstruction,
     createdAt: r.createdAt.toISOString(),
     isCurrent: r.supersededAt === null,

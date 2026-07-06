@@ -8,7 +8,10 @@ import type { SampleShow } from "@/lib/sample-data/shows";
 import { platforms, type PlatformKey, type PlatformMeta } from "@/lib/sample-data/platforms";
 import type { VoiceInstructions, VoiceProfile } from "@/lib/sample-data/voice-profiles";
 import { voiceLabel } from "@/lib/sample-data/voice-strength";
-import { saveVoiceInstructionsAction } from "@/app/(dashboard)/voice/[showKey]/actions";
+import {
+  rateVoiceDescriptionAction,
+  saveVoiceInstructionsAction,
+} from "@/app/(dashboard)/voice/[showKey]/actions";
 
 /**
  * Voice profile page — revamp per ref/UI/Revamp/Voice.html option 4b.
@@ -61,6 +64,13 @@ export function VoiceView({ show, profile }: { show: SampleShow; profile: VoiceP
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, startSaving] = useTransition();
+  // Optimistic local mirror of profile.descriptionApproved so the rating
+  // buttons flip instantly on click. Reset when the parent's prop
+  // changes (e.g. after a refresh landed and revalidatePath rehydrated
+  // the page) so we don't hold onto stale local state.
+  const [ratingApproved, setRatingApproved] = useState<boolean | null>(profile.descriptionApproved);
+  const [ratingError, setRatingError] = useState<string | null>(null);
+  const [rating, startRating] = useTransition();
   // Which platforms have an in-progress "add rule" input open. A rule is
   // considered "configured" when the persisted value or draft is non-empty,
   // so this set only tracks the rare case of an empty draft the user is
@@ -232,23 +242,46 @@ export function VoiceView({ show, profile }: { show: SampleShow; profile: VoiceP
     });
   };
 
+  const onRate = (approved: boolean) => {
+    setRatingError(null);
+    // Optimistic — flip the badge immediately so the operator sees
+    // their click land. Roll back on server failure.
+    const previous = ratingApproved;
+    setRatingApproved(approved);
+    startRating(async () => {
+      try {
+        const result = await rateVoiceDescriptionAction({
+          showId: client.key,
+          approved,
+        });
+        if (!result.ok) {
+          setRatingApproved(previous);
+          setRatingError(result.error);
+        }
+      } catch (err) {
+        setRatingApproved(previous);
+        setRatingError(err instanceof Error ? err.message : "Couldn't save your rating.");
+      }
+    });
+  };
+
   return (
     <div className="bg-[#F6F8FC]">
       {/* Top strip — breadcrumb + status pill on the left, review CTA
           on the right. Matches the ref's in-header bar. */}
-      <div className="border-b border-[#EEF1F6] bg-white px-8 py-3">
-        <div className="mx-auto flex max-w-[1240px] items-center justify-between gap-4">
+      <div className="border-b border-[#EEF1F6] bg-white px-4 py-3 sm:px-8">
+        <div className="mx-auto flex max-w-[1240px] flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <nav
             aria-label="Breadcrumb"
-            className="flex items-center gap-[10px] text-[13px] text-[#8A97AD]"
+            className="flex min-w-0 flex-1 items-center gap-[10px] text-[13px] text-[#8A97AD]"
           >
             <Link href="/voice" className="font-semibold text-[#41506B] hover:text-[#0A1E3C]">
               Voice
             </Link>
             <span>/</span>
-            <span className="font-bold text-[#0A1E3C]">{client.name}</span>
+            <span className="min-w-0 truncate font-bold text-[#0A1E3C]">{client.name}</span>
             <span
-              className="ml-1 rounded-full px-[9px] py-[3px] font-mono text-[10px] tracking-[0.1em] uppercase"
+              className="ml-1 flex-none rounded-full px-[9px] py-[3px] font-mono text-[10px] tracking-[0.1em] uppercase"
               style={{ background: WEAK_BG_SOFT, color: WEAK_TEXT }}
             >
               {level}
@@ -256,19 +289,20 @@ export function VoiceView({ show, profile }: { show: SampleShow; profile: VoiceP
           </nav>
           <Link
             href={`/shows/${encodeURIComponent(client.key)}`}
-            className="bg-accent rounded-lg px-4 py-[9px] font-sans text-[13.5px] font-semibold text-white no-underline transition-[filter] hover:brightness-95"
+            className="bg-accent flex-none rounded-lg px-4 py-[9px] font-sans text-[13.5px] font-semibold text-white no-underline transition-[filter] hover:brightness-95"
           >
             Review pending outputs
           </Link>
         </div>
       </div>
 
-      <div className="mx-auto max-w-[1240px] px-8 pt-7 pb-14">
-        <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+      <div className="mx-auto max-w-[1240px] px-4 pt-5 pb-10 sm:px-8 sm:pt-7 sm:pb-14">
+        <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[300px_minmax(0,1fr)]">
           {/* ============================================================
-              TRAINING RAIL (left, sticky on lg+)
+              TRAINING RAIL (left, sticky on xl+ — below that the dashboard
+              chrome leaves too little room for the two-column split)
               ============================================================ */}
-          <aside className="flex flex-col gap-[14px] lg:sticky lg:top-6">
+          <aside className="grid grid-cols-1 gap-[14px] md:grid-cols-3 xl:sticky xl:top-6 xl:grid-cols-1">
             {/* Dark hero card */}
             <div className="rounded-[14px] p-6 text-white" style={{ background: "#0A1E3C" }}>
               <div className="flex items-center gap-3">
@@ -396,9 +430,17 @@ export function VoiceView({ show, profile }: { show: SampleShow; profile: VoiceP
                 </span>
               </div>
               {summaryUnlocked && profile.description.trim().length > 0 ? (
-                <p className="mt-[6px] text-[12.5px] leading-[1.55] text-[#41506B]">
-                  {profile.description}
-                </p>
+                <>
+                  <p className="mt-[6px] text-[12.5px] leading-[1.55] text-[#41506B]">
+                    {profile.description}
+                  </p>
+                  <VoiceDescriptionRating
+                    approved={ratingApproved}
+                    pending={rating}
+                    error={ratingError}
+                    onRate={onRate}
+                  />
+                </>
               ) : (
                 <p className="mt-[6px] text-[12.5px] leading-[1.55] text-[#8A97AD]">
                   Unlocks at {SUMMARY_UNLOCK} approvals — the engine will write {client.host}
@@ -419,8 +461,8 @@ export function VoiceView({ show, profile }: { show: SampleShow; profile: VoiceP
               ============================================================ */}
           <div className="flex min-w-0 flex-col gap-4">
             {/* Platform coverage */}
-            <section className="rounded-[12px] border border-[#E4E9F1] bg-white px-6 py-5">
-              <div className="flex items-baseline justify-between gap-3">
+            <section className="rounded-[12px] border border-[#E4E9F1] bg-white px-4 py-5 sm:px-6">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                 <span className="text-[15px] font-bold text-[#0A1E3C]">Platform coverage</span>
                 <span className="text-[12.5px] text-[#8A97AD]">
                   {coverageBlurb(client.platformSamples, platforms.length)}
@@ -461,8 +503,8 @@ export function VoiceView({ show, profile }: { show: SampleShow; profile: VoiceP
 
             {/* Rules */}
             <section className="overflow-hidden rounded-[12px] border border-[#E4E9F1] bg-white">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EEF1F6] px-6 py-[18px]">
-                <div className="flex items-baseline gap-[10px]">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EEF1F6] px-4 py-[18px] sm:px-6">
+                <div className="flex flex-wrap items-baseline gap-x-[10px] gap-y-1">
                   <span className="text-[15px] font-bold text-[#0A1E3C]">Rules</span>
                   <span className="text-[12.5px] text-[#8A97AD]">
                     Guardrails every generation follows
@@ -486,7 +528,7 @@ export function VoiceView({ show, profile }: { show: SampleShow; profile: VoiceP
               </div>
               {saveError && (
                 <div
-                  className="mx-6 mt-3 rounded-md border px-3 py-2 text-[12px]"
+                  className="mx-4 mt-3 rounded-md border px-3 py-2 text-[12px] sm:mx-6"
                   style={{
                     borderColor: "#E6D9B8",
                     background: WEAK_BG_SOFT,
@@ -499,7 +541,7 @@ export function VoiceView({ show, profile }: { show: SampleShow; profile: VoiceP
 
               <div className="grid grid-cols-1 md:grid-cols-2">
                 {/* Always column */}
-                <div className="border-b border-[#EEF1F6] px-6 py-[18px] md:border-r md:border-b-0">
+                <div className="border-b border-[#EEF1F6] px-4 py-[18px] sm:px-6 md:border-r md:border-b-0">
                   <div className="font-mono text-[10.5px] tracking-[0.12em] text-[#8A97AD]">
                     ALWAYS
                   </div>
@@ -512,7 +554,7 @@ export function VoiceView({ show, profile }: { show: SampleShow; profile: VoiceP
                 </div>
 
                 {/* Per-platform column */}
-                <div className="px-6 py-[18px]">
+                <div className="px-4 py-[18px] sm:px-6">
                   <div className="flex items-baseline justify-between">
                     <span className="font-mono text-[10.5px] tracking-[0.12em] text-[#8A97AD]">
                       PER-PLATFORM
@@ -589,7 +631,7 @@ export function VoiceView({ show, profile }: { show: SampleShow; profile: VoiceP
 
             {/* Approved samples */}
             <section className="overflow-hidden rounded-[12px] border border-[#E4E9F1] bg-white">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EEF1F6] px-6 py-[18px]">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EEF1F6] px-4 py-[18px] sm:px-6">
                 <div className="flex items-baseline gap-[10px]">
                   <span className="text-[15px] font-bold text-[#0A1E3C]">Approved samples</span>
                   <span className="font-mono text-[12px] text-[#8A97AD]">
@@ -631,7 +673,7 @@ export function VoiceView({ show, profile }: { show: SampleShow; profile: VoiceP
               </div>
 
               {profile.samples.length === 0 ? (
-                <div className="px-6 py-12 text-center">
+                <div className="px-4 py-12 text-center sm:px-6">
                   <div className="text-[15px] font-bold text-[#0A1E3C]">
                     No approved samples yet
                   </div>
@@ -653,28 +695,44 @@ export function VoiceView({ show, profile }: { show: SampleShow; profile: VoiceP
                     const p = platformByKey.get(s.platform);
                     if (!p) return null;
                     const isLast = i === visibleSamples.length - 1;
+                    const meta = `${s.episode ?? ""}${s.episode && s.date ? " · " : ""}${s.date ?? ""}`;
                     return (
                       <div
                         key={`${s.platform}-${i}`}
-                        className={`grid items-center gap-4 px-6 py-[13px] ${
+                        className={`flex flex-col gap-2 px-4 py-[13px] md:grid md:items-center md:gap-4 md:px-6 ${
                           !isLast ? "border-b border-[#F4F6FA]" : ""
                         }`}
                         style={{ gridTemplateColumns: "150px minmax(0, 1fr) auto auto" }}
                       >
-                        <div className="flex items-center gap-[9px]">
-                          <PlatformBadge platform={p} size="sm" />
-                          <span className="text-[12.5px] font-bold text-[#0A1E3C]">{p.name}</span>
+                        <div className="flex items-center justify-between gap-[9px] md:justify-start">
+                          <div className="flex min-w-0 items-center gap-[9px]">
+                            <PlatformBadge platform={p} size="sm" />
+                            <span className="truncate text-[12.5px] font-bold text-[#0A1E3C]">
+                              {p.name}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            aria-label="Sample actions"
+                            className="flex-none text-[13px] font-semibold text-[#8A97AD] hover:text-[#41506B] md:hidden"
+                          >
+                            ···
+                          </button>
                         </div>
-                        <div className="truncate text-[13px] text-[#41506B]">{s.text}</div>
-                        <span className="font-mono text-[10.5px] tracking-[0.04em] text-[#B0BACB] uppercase">
-                          {s.episode ? s.episode : ""}
-                          {s.episode && s.date ? " · " : ""}
-                          {s.date}
+                        <div className="text-[13px] leading-[1.5] text-[#41506B] md:truncate md:leading-normal">
+                          {s.text}
+                        </div>
+                        <span
+                          className={`font-mono text-[10.5px] tracking-[0.04em] text-[#B0BACB] uppercase ${
+                            meta.trim().length === 0 ? "hidden md:inline" : ""
+                          }`}
+                        >
+                          {meta}
                         </span>
                         <button
                           type="button"
                           aria-label="Sample actions"
-                          className="text-[13px] font-semibold text-[#8A97AD] hover:text-[#41506B]"
+                          className="hidden text-[13px] font-semibold text-[#8A97AD] hover:text-[#41506B] md:inline"
                         >
                           ···
                         </button>
@@ -729,6 +787,91 @@ function LadderSegment({
             background: color,
           }}
         />
+      )}
+    </div>
+  );
+}
+
+/**
+ * "Is this your voice?" affordance under the summary description.
+ * Three states drive the render:
+ *   - `approved === null` — unrated: two side-by-side buttons.
+ *   - `approved === true` — matched: a small confirmation badge with an
+ *     inline "change my mind" link so the operator can un-vote.
+ *   - `approved === false` — a refresh has been requested: shows a
+ *     "Regenerating…" pill until the parent's `descriptionApproved`
+ *     resets to `null` (which happens when the new description is
+ *     written by `refresh-voice-description` and revalidation lands).
+ */
+function VoiceDescriptionRating({
+  approved,
+  pending,
+  error,
+  onRate,
+}: {
+  approved: boolean | null;
+  pending: boolean;
+  error: string | null;
+  onRate: (approved: boolean) => void;
+}) {
+  return (
+    <div className="mt-3 flex flex-col gap-[6px]">
+      {approved === null ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-semibold text-[#41506B]">Is this your voice?</span>
+          <div className="flex gap-[6px]">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => onRate(true)}
+              className="rounded-full border border-[#E4E9F1] bg-white px-[10px] py-[3px] text-[11.5px] font-semibold text-[#1E7A47] transition-[filter] hover:border-[#B7C3D6] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              👍 Sounds right
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => onRate(false)}
+              className="rounded-full border border-[#E4E9F1] bg-white px-[10px] py-[3px] text-[11.5px] font-semibold text-[#A06D12] transition-[filter] hover:border-[#B7C3D6] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              👎 Not my voice
+            </button>
+          </div>
+        </div>
+      ) : approved ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className="rounded-full px-[9px] py-[3px] text-[10.5px] font-semibold"
+            style={{ background: STRONG_BG_SOFT, color: STRONG_TEXT }}
+          >
+            ✓ You said this matches
+          </span>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => onRate(false)}
+            className="text-[10.5px] font-semibold text-[#8A97AD] hover:text-[#41506B] disabled:opacity-50"
+          >
+            Change my mind
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className="rounded-full px-[9px] py-[3px] text-[10.5px] font-semibold"
+            style={{ background: WEAK_BG_SOFT, color: WEAK_TEXT }}
+          >
+            Regenerating description…
+          </span>
+          <span className="text-[10.5px] text-[#8A97AD]">
+            The engine is rewriting this from your recent approvals.
+          </span>
+        </div>
+      )}
+      {error && (
+        <span className="text-[10.5px]" style={{ color: WEAK_TEXT }}>
+          {error}
+        </span>
       )}
     </div>
   );

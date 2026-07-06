@@ -15,6 +15,13 @@ export type VoiceInstructions = {
 export type VoiceProfile = {
   clientKey: string;
   description: string;
+  /**
+   * Operator's "is this your voice?" verdict on the current
+   * `description`. `null` = not rated yet; `true` = matches; `false` =
+   * a refresh has been requested. Sample-data fixtures leave this as
+   * `null` — the affordance is driven by live-DB data.
+   */
+  descriptionApproved: boolean | null;
   tags: string[];
   samples: VoiceSample[];
   instructions: VoiceInstructions;
@@ -23,6 +30,7 @@ export type VoiceProfile = {
 export const voiceProfiles: Record<string, VoiceProfile> = {
   ff: {
     clientKey: "ff",
+    descriptionApproved: null,
     description:
       "Direct and energetic with a builder's optimism. Short, punchy sentences. Opens on a contrarian hook, favors concrete numbers over abstractions, and always lands on one actionable takeaway. Warm but never fluffy — talks to founders like a peer who's been in the trenches.",
     tags: [
@@ -99,6 +107,7 @@ export const voiceProfiles: Record<string, VoiceProfile> = {
 
   te: {
     clientKey: "te",
+    descriptionApproved: null,
     description:
       "Vivid and sensory with understated grit. Lets the landscape do the talking, leans on concrete detail over adjectives, and closes calm. Never sells the adventure — just reports it honestly and lets the reader feel the weight of the pack.",
     tags: ["Sensory detail", "Understated", "Calm close", "No hype", "Concrete over abstract"],
@@ -145,6 +154,7 @@ export const voiceProfiles: Record<string, VoiceProfile> = {
 
   mt: {
     clientKey: "mt",
+    descriptionApproved: null,
     description:
       "Plain-spoken and skeptical, allergic to jargon. Reframes conventional wisdom with a sharp question, uses everyday analogies, and respects the listener's intelligence. Still calibrating — approve a few more outputs to lock in the voice.",
     tags: ["Plain-spoken", "Skeptical", "Everyday analogies", "Reframes wisdom"],

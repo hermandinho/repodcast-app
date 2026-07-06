@@ -66,6 +66,11 @@ export type OutputState = {
    *  currently READY outputs is actually the flagged one. */
   clientRevisionRequestedAtIso?: string | null;
   clientRevisionNote?: string | null;
+  /** Human-readable rule-adherence flags computed at generation /
+   *  regeneration time. Empty when every parseable rule was followed or
+   *  when the show has no parseable rules. Surfaces as a small warning
+   *  chip in the drawer so reviewers see which rules were ignored. */
+  ruleViolations?: string[];
 };
 
 export type OutputCardActions = {

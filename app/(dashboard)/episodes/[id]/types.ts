@@ -20,6 +20,7 @@ export type OutputVersionSummary = {
   version: number;
   status: string;
   content: string;
+  quality: number | null;
   lastInstruction: string | null;
   createdAt: string;
   isCurrent: boolean;

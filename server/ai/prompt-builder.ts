@@ -4,6 +4,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { Platform } from "@prisma/client";
 import { platformConfig } from "./platforms";
 import { PLATFORM_PROMPTS } from "./prompts";
+import { parseVoiceRules, renderConstraint, type RuleConstraint } from "./rule-parser";
 
 /**
  * Bundle of voice-profile data the prompt builder needs. Sourced from the
@@ -25,16 +26,23 @@ export type VoiceContext = {
 export type VoiceSampleForPrompt = {
   platform: Platform;
   content: string;
+  /**
+   * Cumulative character-edit distance between the AI's original output
+   * and the version that was ultimately approved. Optional — legacy
+   * samples and portal-created samples with no linked GeneratedOutput
+   * are treated as untouched (editFit = 1.0). Sourced from
+   * `GeneratedOutput.editDistance`.
+   */
+  editDistance?: number;
 };
 
 /**
  * Pick the top-N samples to include as few-shot for `targetPlatform`.
  *
- * v2 strategy (Phase 2.1 tuning): on-platform → off-platform → fallback
- * stays the same, but within each bucket we now score samples instead of
- * trusting input order alone:
+ * v3 strategy: on-platform → off-platform → fallback bucketing stays the
+ * same, but each candidate is scored across three axes:
  *
- *   score = 0.7 * recency + 0.3 * lengthFit
+ *   score = (0.7 * recency + 0.3 * lengthFit) * editFit
  *
  * - **Recency** is derived from input index — callers pass newest-first
  *   (`orderBy: { createdAt: "desc" }` in the pipeline). Newest = 1.0,
@@ -47,10 +55,16 @@ export type VoiceSampleForPrompt = {
  *   tuned (see `LENGTH_SWEET_SPOTS`); inside the range = 1.0, linear
  *   decay outside, floor at 0.3 so length-edge samples still get a chance
  *   to be picked when the recency signal is strong.
+ * - **Edit fit** applies as a multiplier so a heavily edited approval
+ *   gets demoted regardless of how strong its recency + length signal is.
+ *   An untouched approval (editDistance = 0) scores 1.0; a rewrite whose
+ *   edit distance is ≥ the sample's own length scores at the floor (0.2).
+ *   Missing editDistance defaults to 1.0 so pre-tracking (or portal)
+ *   samples aren't retroactively demoted.
  *
- * This stops a brand-new one-liner from edging out a slightly older,
- * representative sample and lets the prompt cache prefer the most useful
- * 20 samples instead of the most recent 20.
+ * Rationale: heavily-edited approvals encode the operator's rewrite of
+ * the AI, not the host's voice — so training on them amplifies the model's
+ * fix-ups rather than the actual style we want to match.
  */
 export function selectSamples(
   samples: VoiceSampleForPrompt[],
@@ -67,19 +81,72 @@ export function selectSamples(
   const byScoreDesc = (a: { score: number }, b: { score: number }): number => b.score - a.score;
 
   const onPlatform = scored.filter((x) => x.sample.platform === targetPlatform).sort(byScoreDesc);
-  const offPlatform = scored.filter((x) => x.sample.platform !== targetPlatform).sort(byScoreDesc);
+  const offPlatform = scored.filter((x) => x.sample.platform !== targetPlatform);
 
   const picked: VoiceSampleForPrompt[] = [];
   picked.push(...onPlatform.slice(0, targetCount).map((x) => x.sample));
-  const afterTarget = maxTotal - picked.length;
-  if (afterTarget > 0) {
-    picked.push(...offPlatform.slice(0, afterTarget).map((x) => x.sample));
+
+  const offSlots = maxTotal - picked.length;
+  if (offSlots > 0 && offPlatform.length > 0) {
+    picked.push(...diversifyOffPlatform(offPlatform, offSlots));
   }
+
   const stillNeed = maxTotal - picked.length;
   if (stillNeed > 0) {
     picked.push(...onPlatform.slice(targetCount, targetCount + stillNeed).map((x) => x.sample));
   }
   return picked.slice(0, maxTotal);
+}
+
+/**
+ * Round-robin pick across each represented off-platform, one sample per
+ * pass in descending score order. Stops a show with 15 Twitter approvals
+ * + 1 LinkedIn + 1 Blog from filling every off-platform slot with Twitter,
+ * which would starve the prompt of tonal breadth even though the pool
+ * contains it.
+ *
+ * Platform rotation order is seeded by the top score of each bucket, so
+ * the highest-signal platform still goes first — we diversify *among* the
+ * off-platforms, we don't ignore score. Within a platform, the highest-
+ * scoring sample is taken first; second-best in each platform only comes
+ * back around after every other platform has been served once.
+ */
+function diversifyOffPlatform(
+  scored: Array<{ sample: VoiceSampleForPrompt; score: number }>,
+  slots: number,
+): VoiceSampleForPrompt[] {
+  const byPlatform = new Map<Platform, Array<{ sample: VoiceSampleForPrompt; score: number }>>();
+  for (const item of scored) {
+    const list = byPlatform.get(item.sample.platform) ?? [];
+    list.push(item);
+    byPlatform.set(item.sample.platform, list);
+  }
+  for (const list of byPlatform.values()) list.sort((a, b) => b.score - a.score);
+
+  // Rotation order = the highest-scoring platform first, so we don't
+  // squander an early slot on a weak platform just because it exists.
+  const platformOrder = Array.from(byPlatform.keys()).sort((a, b) => {
+    const topA = byPlatform.get(a)![0].score;
+    const topB = byPlatform.get(b)![0].score;
+    return topB - topA;
+  });
+
+  const picked: VoiceSampleForPrompt[] = [];
+  let round = 0;
+  while (picked.length < slots) {
+    let addedThisRound = false;
+    for (const platform of platformOrder) {
+      const list = byPlatform.get(platform)!;
+      if (round < list.length) {
+        picked.push(list[round].sample);
+        addedThisRound = true;
+        if (picked.length >= slots) break;
+      }
+    }
+    if (!addedThisRound) break;
+    round++;
+  }
+  return picked;
 }
 
 /**
@@ -103,7 +170,8 @@ function scoreSample(sample: VoiceSampleForPrompt, index: number, total: number)
   // the decay denominator would be zero — short-circuit to 1.
   const recency = total <= 1 ? 1 : 1 - 0.8 * (index / (total - 1));
   const lengthFit = lengthFitFor(sample.platform, sample.content.length);
-  return 0.7 * recency + 0.3 * lengthFit;
+  const editFit = editFitFor(sample.editDistance, sample.content.length);
+  return (0.7 * recency + 0.3 * lengthFit) * editFit;
 }
 
 function lengthFitFor(platform: Platform, length: number): number {
@@ -116,6 +184,21 @@ function lengthFitFor(platform: Platform, length: number): number {
   const window = max - min || 1;
   const drift = length < min ? min - length : length - max;
   return Math.max(0.3, 1.0 - drift / window);
+}
+
+/**
+ * Score a sample by how close it is to the AI's original draft. Ratio of
+ * edit distance to sample length: 0 → untouched (1.0), ≥ 1 → totally
+ * rewritten (floor 0.2). Missing editDistance means the sample predates
+ * tracking (or came from a portal path without an output linkage) — treat
+ * as untouched so we don't retroactively downgrade the existing training
+ * pool.
+ */
+function editFitFor(editDistance: number | undefined, length: number): number {
+  if (editDistance === undefined) return 1.0;
+  if (length <= 0) return 1.0;
+  const ratio = Math.min(1, editDistance / length);
+  return Math.max(0.2, 1 - ratio);
 }
 
 // ============================================================
@@ -143,6 +226,26 @@ function samplesBlock(samples: VoiceSampleForPrompt[]): string | null {
     "",
     formatted,
   ].join("\n");
+}
+
+/**
+ * Compose a rules block: freeform text (verbatim, so unparseable rules
+ * still land) followed by a machine-checkable "Hard constraints" list
+ * derived from `parseVoiceRules`. When nothing parses, only the freeform
+ * text renders — so shows using purely tonal rules ("write like a peer")
+ * see zero change.
+ */
+function renderRuleBlock(input: {
+  heading: string;
+  freeform: string;
+  constraints: RuleConstraint[];
+}): string {
+  const parts: string[] = [input.heading, input.freeform];
+  if (input.constraints.length > 0) {
+    parts.push("", "Hard constraints extracted from those rules:");
+    for (const c of input.constraints) parts.push(`- ${renderConstraint(c)}`);
+  }
+  return parts.join("\n");
 }
 
 function instructionsBlock(voice: VoiceContext, platform: Platform): string | null {
@@ -203,15 +306,26 @@ export function buildMessages(opts: {
     systemBlocks.push({ type: "text", text: samplesText, cache_control: { type: "ephemeral" } });
   }
   if (opts.voice.globalInstructions) {
+    // Restate any machine-parseable constraints ("no hashtags",
+    // "under 200 words", banned phrases) as explicit imperatives after
+    // the freeform text. Freeform survives — some rules don't parse
+    // and shouldn't be dropped — but for the ones we can extract, the
+    // model sees them twice, in unmissable form.
     systemBlocks.push({
       type: "text",
-      text: `Non-negotiable rules for this show — these override voice-matching, sample style, and platform norms. Apply them to every output without exception:\n${opts.voice.globalInstructions}`,
+      text: renderRuleBlock({
+        heading:
+          "Non-negotiable rules for this show — these override voice-matching, sample style, and platform norms. Apply them to every output without exception:",
+        freeform: opts.voice.globalInstructions,
+        constraints: parseVoiceRules(opts.voice.globalInstructions),
+      }),
       cache_control: { type: "ephemeral" },
     });
   }
 
   // Platform-specific block (per call) — not cached.
   const platformRule = opts.voice.perPlatformInstructions[opts.platform];
+  const platformConstraints: RuleConstraint[] = platformRule ? parseVoiceRules(platformRule) : [];
   const platformText = [
     PLATFORM_PROMPTS[opts.platform],
     "",
@@ -219,6 +333,9 @@ export function buildMessages(opts: {
     `Target length: ${cfg.idealLength}.`,
     platformRule
       ? `Non-negotiable rule for ${opts.platform} — overrides voice-matching, sample style, AND the platform guidance above (including any emoji, hashtag, formatting, or structural bans). Follow this rule even when it contradicts an earlier bullet: ${platformRule}`
+      : "",
+    platformConstraints.length > 0
+      ? `Hard constraints extracted from that rule:\n${platformConstraints.map((c) => `- ${renderConstraint(c)}`).join("\n")}`
       : "",
     opts.extraInstruction ? `One-time regenerate instruction: ${opts.extraInstruction}` : "",
   ]

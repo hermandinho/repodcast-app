@@ -1757,6 +1757,79 @@ describe("client-instructions repo — tenant filter", () => {
       }),
     ).rejects.toBeInstanceOf(ForbiddenError);
   });
+
+  it("rateVoiceDescription rejects cross-tenant showIds", async () => {
+    mocks.prisma.show.findFirst.mockResolvedValueOnce(null);
+    await expect(
+      clientInstructionsRepo.rateVoiceDescription(owner(A1), {
+        showId: "c-other",
+        approved: true,
+      }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    expect(mocks.prisma.show.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "c-other", client: { agencyId: A1 } },
+      }),
+    );
+    expect(mocks.prisma.show.update).not.toHaveBeenCalled();
+  });
+
+  it("rateVoiceDescription refuses to rate an empty description", async () => {
+    mocks.prisma.show.findFirst.mockResolvedValueOnce({
+      id: "c1",
+      voiceDescription: "",
+    });
+    await expect(
+      clientInstructionsRepo.rateVoiceDescription(owner(A1), {
+        showId: "c1",
+        approved: true,
+      }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    expect(mocks.prisma.show.update).not.toHaveBeenCalled();
+  });
+
+  it("rateVoiceDescription writes the verdict and reports whether to regenerate", async () => {
+    mocks.prisma.show.findFirst.mockResolvedValue({
+      id: "c1",
+      voiceDescription: "This host writes short, punchy sentences.",
+    });
+    mocks.prisma.show.update.mockResolvedValue({ id: "c1" });
+
+    const good = await clientInstructionsRepo.rateVoiceDescription(owner(A1), {
+      showId: "c1",
+      approved: true,
+    });
+    expect(good.shouldRegenerate).toBe(false);
+    expect(mocks.prisma.show.update).toHaveBeenLastCalledWith({
+      where: { id: "c1" },
+      data: { voiceDescriptionApproved: true },
+    });
+
+    const bad = await clientInstructionsRepo.rateVoiceDescription(owner(A1), {
+      showId: "c1",
+      approved: false,
+    });
+    expect(bad.shouldRegenerate).toBe(true);
+    expect(mocks.prisma.show.update).toHaveBeenLastCalledWith({
+      where: { id: "c1" },
+      data: { voiceDescriptionApproved: false },
+    });
+  });
+
+  it("rateVoiceDescription allows REVIEWER role (they're closest to the voice)", async () => {
+    mocks.prisma.show.findFirst.mockResolvedValueOnce({
+      id: "c1",
+      voiceDescription: "This host writes short, punchy sentences.",
+    });
+    mocks.prisma.show.update.mockResolvedValue({ id: "c1" });
+
+    await expect(
+      clientInstructionsRepo.rateVoiceDescription(reviewer(A1), {
+        showId: "c1",
+        approved: true,
+      }),
+    ).resolves.toEqual({ shouldRegenerate: false });
+  });
 });
 
 // ============================================================

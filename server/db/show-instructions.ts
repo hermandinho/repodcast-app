@@ -93,3 +93,62 @@ export async function saveVoiceInstructions(
   });
   return { perPlatform };
 }
+
+// ============================================================
+// Voice-description rating — "is this your voice?" affordance
+// ============================================================
+
+/**
+ * Roles allowed to rate the voice description. Reviewer is intentionally
+ * included: the person best positioned to answer "does this read like
+ * your voice?" is whoever's doing the reviews, not just editors/owners.
+ */
+const RATE_ROLES = [
+  MemberRole.OWNER,
+  MemberRole.ADMIN,
+  MemberRole.EDITOR,
+  MemberRole.REVIEWER,
+] as const;
+
+export const rateVoiceDescriptionInput = z.object({
+  showId: z.string().min(1),
+  /** `true` = matches; `false` = doesn't match and should be regenerated. */
+  approved: z.boolean(),
+});
+
+export type RateVoiceDescriptionInput = z.infer<typeof rateVoiceDescriptionInput>;
+
+/**
+ * Record the operator's verdict on the currently persisted
+ * `voiceDescription`. Returns a flag telling the caller whether a
+ * regeneration should now be dispatched — the DB helper deliberately
+ * doesn't reach into Inngest itself so the action layer can stay in
+ * charge of side-effects and error handling.
+ *
+ * Guardrail: a rating write requires a non-empty `voiceDescription` to
+ * exist on the show. Rating an empty description is meaningless and
+ * would race with the initial threshold-triggered write.
+ */
+export async function rateVoiceDescription(
+  ctx: TenantContext,
+  input: RateVoiceDescriptionInput,
+): Promise<{ shouldRegenerate: boolean }> {
+  requireRole(ctx, RATE_ROLES);
+
+  const show = await prisma.show.findFirst({
+    where: { id: input.showId, client: { agencyId: ctx.agencyId } },
+    select: { id: true, voiceDescription: true },
+  });
+  if (!show) throw new NotFoundError(`Show ${input.showId} not found`);
+
+  if (!show.voiceDescription || show.voiceDescription.trim().length === 0) {
+    throw new NotFoundError(`Show ${input.showId} has no voice description to rate`);
+  }
+
+  await prisma.show.update({
+    where: { id: show.id },
+    data: { voiceDescriptionApproved: input.approved },
+  });
+
+  return { shouldRegenerate: input.approved === false };
+}

@@ -3,6 +3,8 @@ import { NonRetriableError } from "inngest";
 import { CLAUDE_MODEL, requireClaudeClient } from "@/server/ai/claude";
 import { buildMessages, extractText, type VoiceContext } from "@/server/ai/prompt-builder";
 import { scoreOutput } from "@/server/ai/quality-score";
+import { checkRuleAdherence } from "@/server/ai/rule-adherence";
+import { parseVoiceRules } from "@/server/ai/rule-parser";
 import { prisma } from "@/server/db/client";
 import { captureInngestFailure } from "@/server/observability/sentry";
 import type { Events } from "../events";
@@ -121,6 +123,7 @@ export const regenerateOutput = inngest.createFunction(
       where: { showId: show.id },
       orderBy: { createdAt: "desc" },
       take: 20,
+      include: { generatedOutput: { select: { editDistance: true } } },
     });
     const voice: VoiceContext = {
       clientName: show.name,
@@ -133,7 +136,11 @@ export const regenerateOutput = inngest.createFunction(
           p.rule,
         ]),
       ) as Partial<Record<Platform, string>>,
-      samples: samples.map((s) => ({ platform: s.platform, content: s.content })),
+      samples: samples.map((s) => ({
+        platform: s.platform,
+        content: s.content,
+        editDistance: s.generatedOutput?.editDistance,
+      })),
     };
 
     // ---- 3. Build prompt with the optional regenerate instruction + call Claude ----
@@ -166,6 +173,18 @@ export const regenerateOutput = inngest.createFunction(
     const nextStatus =
       instruction && instruction.trim() ? OutputStatus.IN_REVIEW : OutputStatus.READY;
 
+    // Re-check adherence against the freshly regenerated content. The
+    // rules that applied at first-generation might have changed since
+    // (operator edited them mid-review), so we always parse them from
+    // the currently persisted state rather than caching from earlier.
+    const constraints = [
+      ...parseVoiceRules(show.globalInstructions),
+      ...parseVoiceRules(
+        show.platformInstructions.find((p) => p.platform === output.platform)?.rule,
+      ),
+    ];
+    const ruleViolations = checkRuleAdherence(result.content, constraints);
+
     await step.run("persist-regenerated", () =>
       prisma.$transaction([
         prisma.generatedOutput.update({
@@ -174,6 +193,7 @@ export const regenerateOutput = inngest.createFunction(
             content: result.content,
             status: nextStatus,
             quality: scoreOutput(output.platform, result.content),
+            ruleViolations,
           },
         }),
         prisma.outputTransition.create({

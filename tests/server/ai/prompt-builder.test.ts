@@ -116,6 +116,91 @@ describe("selectSamples", () => {
   it("v2 scoring: empty input returns empty array", () => {
     expect(selectSamples([], Platform.TWITTER)).toEqual([]);
   });
+
+  it("v3 scoring: a heavily edited fresh sample loses to a clean older one", () => {
+    // Both LINKEDIN, both inside the length sweet spot, so length-fit
+    // ties. The newer sample (index 0) was rewritten top-to-bottom —
+    // editFit drops to the 0.2 floor, multiplying its whole score by 0.2.
+    // The older sample (index 1) shipped untouched, so its recency-decayed
+    // score isn't multiplied down. Clean older wins.
+    const sweetSpot = "x".repeat(900);
+    const samples: VoiceSampleForPrompt[] = [
+      { platform: Platform.LINKEDIN, content: sweetSpot, editDistance: 2000 }, // fresh, rewritten
+      { platform: Platform.LINKEDIN, content: sweetSpot, editDistance: 0 }, // older, untouched
+    ];
+    const picked = selectSamples(samples, Platform.LINKEDIN, {
+      targetCount: 1,
+      maxTotal: 1,
+    });
+    expect(picked).toHaveLength(1);
+    expect(picked[0].editDistance).toBe(0);
+  });
+
+  it("v3 diversity: off-platform slots round-robin across distinct platforms", () => {
+    // Show has 10 TWITTER approvals, 1 LINKEDIN, 1 BLOG. Target is
+    // INSTAGRAM (no on-platform samples) with 3 off-platform slots. The
+    // pre-diversity picker would fill all 3 with the highest-scoring
+    // TWITTERs; diversify should spread across all three platforms first.
+    const sweetTwitter = "t".repeat(1200);
+    const sweetLinkedin = "l".repeat(900);
+    const sweetBlog = "b".repeat(5000);
+    const samples: VoiceSampleForPrompt[] = [
+      ...Array.from({ length: 10 }, () => ({
+        platform: Platform.TWITTER,
+        content: sweetTwitter,
+      })),
+      { platform: Platform.LINKEDIN, content: sweetLinkedin },
+      { platform: Platform.BLOG, content: sweetBlog },
+    ];
+    const picked = selectSamples(samples, Platform.INSTAGRAM, {
+      targetCount: 0,
+      maxTotal: 3,
+    });
+    const platforms = new Set(picked.map((s) => s.platform));
+    expect(picked).toHaveLength(3);
+    expect(platforms.has(Platform.TWITTER)).toBe(true);
+    expect(platforms.has(Platform.LINKEDIN)).toBe(true);
+    expect(platforms.has(Platform.BLOG)).toBe(true);
+  });
+
+  it("v3 diversity: rotates back to the highest-signal platform once each is served", () => {
+    // 3 slots to fill, 2 platforms available. Round 0 picks one of each;
+    // round 1 falls back to the highest-scoring platform (TWITTER, since
+    // its bucket is bigger and the top score is set by recency-in-input).
+    const sweetTwitter = "t".repeat(1200);
+    const sweetLinkedin = "l".repeat(900);
+    const samples: VoiceSampleForPrompt[] = [
+      { platform: Platform.TWITTER, content: sweetTwitter },
+      { platform: Platform.TWITTER, content: sweetTwitter },
+      { platform: Platform.LINKEDIN, content: sweetLinkedin },
+    ];
+    const picked = selectSamples(samples, Platform.INSTAGRAM, {
+      targetCount: 0,
+      maxTotal: 3,
+    });
+    const twitterCount = picked.filter((s) => s.platform === Platform.TWITTER).length;
+    const linkedinCount = picked.filter((s) => s.platform === Platform.LINKEDIN).length;
+    expect(picked).toHaveLength(3);
+    expect(twitterCount).toBe(2);
+    expect(linkedinCount).toBe(1);
+  });
+
+  it("v3 scoring: missing editDistance is treated as untouched (no regression for legacy samples)", () => {
+    // A newer sample with no editDistance recorded should not be
+    // downgraded — otherwise pre-tracking approvals would silently lose
+    // ranking. With everything else equal (length in-range), newest wins.
+    const sweetSpot = "x".repeat(900);
+    const samples: VoiceSampleForPrompt[] = [
+      { platform: Platform.LINKEDIN, content: sweetSpot }, // no editDistance
+      { platform: Platform.LINKEDIN, content: sweetSpot, editDistance: 0 },
+    ];
+    const picked = selectSamples(samples, Platform.LINKEDIN, {
+      targetCount: 1,
+      maxTotal: 1,
+    });
+    expect(picked).toHaveLength(1);
+    expect(picked[0].editDistance).toBeUndefined();
+  });
 });
 
 describe("buildMessages", () => {
