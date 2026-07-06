@@ -747,22 +747,58 @@ function FAQ() {
 // Final CTA bar
 // ============================================================
 
+/**
+ * Deterministic equalizer heights driving the animated background wave.
+ * Fixed on the module (not per-render) so SSR and hydration agree.
+ * Each bar's `animation-delay` is derived from the index — see the CSS
+ * body — so the wave phases across the strip instead of pulsing in
+ * lockstep. Keyframe: `@keyframes eq` in `app/globals.css`.
+ */
+const WAVE_SEED = [
+  8, 16, 11, 22, 14, 28, 12, 19, 26, 10, 18, 30, 13, 24, 9, 20, 15, 27, 11, 21, 17, 29, 12, 23, 8,
+  18, 25, 14, 31, 10, 19, 13, 26, 16, 9, 22, 12, 28, 15, 20, 11, 24, 8, 17, 30, 13, 21, 9, 18, 27,
+];
+
 function FinalCTA({ isSignedIn }: { isSignedIn: boolean }) {
   return (
-    <section
-      className="flex flex-wrap items-center justify-between gap-6 px-14 py-9 text-white"
-      style={{ background: INK }}
-    >
-      <div className="text-[22px] font-extrabold" style={{ letterSpacing: "-0.02em" }}>
-        Give your contractor hours back.
-      </div>
-      <Link
-        href={isSignedIn ? "/after-sign-in" : "/pricing"}
-        className="rounded-[9px] text-[15px] font-semibold text-white no-underline transition-[filter] hover:brightness-110"
-        style={{ background: "var(--color-accent)", padding: "12px 22px" }}
+    <section className="relative overflow-hidden px-14 py-9 text-white" style={{ background: INK }}>
+      {/* Animated equalizer wave sitting behind the CTA copy — brings
+          the old FinalCTA's motion back after the 1a revamp compressed
+          the whole strip. `pointer-events-none` + low opacity so the
+          bars never fight the copy for attention. */}
+      <div
+        className="pointer-events-none absolute inset-0 flex items-center gap-[5px] px-14"
+        style={{ opacity: 0.1 }}
+        aria-hidden
       >
-        {isSignedIn ? "Continue" : "Get started free"}
-      </Link>
+        {WAVE_SEED.map((h, i) => (
+          <span
+            key={i}
+            style={{
+              flex: 1,
+              height: 30 + h * 2.4,
+              borderRadius: 2,
+              background: "var(--color-accent)",
+              transformOrigin: "center",
+              animation: "eq 1.4s ease-in-out infinite",
+              animationDelay: `${((i % 11) * 0.09).toFixed(2)}s`,
+            }}
+          />
+        ))}
+      </div>
+
+      <div className="relative flex flex-wrap items-center justify-between gap-6">
+        <div className="text-[22px] font-extrabold" style={{ letterSpacing: "-0.02em" }}>
+          Give your contractor hours back.
+        </div>
+        <Link
+          href={isSignedIn ? "/after-sign-in" : "/pricing"}
+          className="rounded-[9px] text-[15px] font-semibold text-white no-underline transition-[filter] hover:brightness-110"
+          style={{ background: "var(--color-accent)", padding: "12px 22px" }}
+        >
+          {isSignedIn ? "Continue" : "Get started free"}
+        </Link>
+      </div>
     </section>
   );
 }
