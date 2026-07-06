@@ -53,9 +53,11 @@ import {
 import { dashboardSummary } from "@/server/db/dashboard";
 import { formatAbsDelta, formatPctDelta } from "@/lib/dashboard-deltas";
 
-export function isLiveDb(): boolean {
-  return !!process.env.DATABASE_URL;
-}
+// Canonical definition lives in `./is-live-db` — callers that only need
+// this flag should import from there so they don't drag in the rest of
+// this module. Re-exported here so existing consumers keep working.
+import { isLiveDb } from "./is-live-db";
+export { isLiveDb };
 
 // ============================================================
 // Platform-key bridging (DB enum ↔ UI short key)

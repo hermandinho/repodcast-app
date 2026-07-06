@@ -3,7 +3,10 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { BrandMark } from "@/components/landing/nav";
 import { getSystemAdminContext } from "@/server/auth/system";
-import { isLiveDb } from "@/server/data/source";
+// Import from the tiny helper module (not `@/server/data/source`) so this
+// routing shim doesn't pull the whole data-source graph — and its
+// `server/db/outputs.ts` chain — through the CI build's import resolver.
+import { isLiveDb } from "@/server/data/is-live-db";
 import { getOnboardingStateForUser } from "@/server/db/agencies";
 
 /**
