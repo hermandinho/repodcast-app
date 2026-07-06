@@ -8,6 +8,7 @@ import {
   listEpisodesForUI,
 } from "@/server/data/source";
 import { resolveTenantContext } from "@/server/data/tenant";
+import type { EpisodeBucketFilter } from "@/server/db/episodes";
 
 const PAGE_SIZE = 25;
 
@@ -20,6 +21,11 @@ function parsePage(raw: string | string[] | undefined): number {
 function parseStatus(raw: string | string[] | undefined): EpisodeStatus | undefined {
   if (typeof raw !== "string") return undefined;
   return raw in EpisodeStatus ? (raw as EpisodeStatus) : undefined;
+}
+
+function parseBucket(raw: string | string[] | undefined): EpisodeBucketFilter | undefined {
+  if (typeof raw !== "string") return undefined;
+  return raw === "review" || raw === "drafts" || raw === "done" ? raw : undefined;
 }
 
 function parseString(raw: string | string[] | undefined): string | undefined {
@@ -45,6 +51,7 @@ export default async function EpisodesListPage({
   const search = parseString(params.q);
   const showId = parseString(params.show);
   const status = parseStatus(params.status);
+  const bucket = parseBucket(params.bucket);
   const from = parseDate(params.from);
   const to = parseDate(params.to);
 
@@ -56,6 +63,7 @@ export default async function EpisodesListPage({
       search,
       showId,
       status,
+      bucket,
       from,
       to,
       take: PAGE_SIZE,
@@ -64,7 +72,7 @@ export default async function EpisodesListPage({
   ]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const isFiltered = Boolean(search || showId || status || from || to);
+  const isFiltered = Boolean(search || showId || status || bucket || from || to);
   const hasAnyEpisodes = bucketTotals.all > 0;
 
   const linkFor = (nextPage: number) => {
@@ -72,6 +80,7 @@ export default async function EpisodesListPage({
     if (search) qp.set("q", search);
     if (showId) qp.set("show", showId);
     if (status) qp.set("status", status);
+    if (bucket) qp.set("bucket", bucket);
     if (typeof params.from === "string") qp.set("from", params.from);
     if (typeof params.to === "string") qp.set("to", params.to);
     if (nextPage > 1) qp.set("page", String(nextPage));
@@ -121,7 +130,7 @@ export default async function EpisodesListPage({
           </Link>
           {bucketTotals.outputsWaitingReview > 0 && (
             <Link
-              href="/episodes?status=READY"
+              href="/episodes?bucket=review"
               className="bg-ink shadow-card rounded-lg px-[18px] py-[9px] font-sans text-[13px] font-semibold text-white no-underline transition-[filter] hover:brightness-110"
             >
               Review all waiting →
@@ -141,7 +150,15 @@ export default async function EpisodesListPage({
         isFiltered ? (
           <EmptyFiltered
             searchTerm={search}
-            activeChips={buildFilterChips({ search, showId, status, from, to, options })}
+            activeChips={buildFilterChips({
+              search,
+              showId,
+              status,
+              bucket,
+              from,
+              to,
+              options,
+            })}
           />
         ) : (
           <EmptyNoEpisodes />
@@ -247,15 +264,17 @@ function buildFilterChips(input: {
   search?: string;
   showId?: string;
   status?: EpisodeStatus;
+  bucket?: EpisodeBucketFilter;
   from?: Date;
   to?: Date;
   options: { shows: { id: string; name: string }[] };
 }): FilterChip[] {
-  const { search, showId, status, from, to, options } = input;
+  const { search, showId, status, bucket, from, to, options } = input;
   const params = new URLSearchParams();
   if (search) params.set("q", search);
   if (showId) params.set("show", showId);
   if (status) params.set("status", status);
+  if (bucket) params.set("bucket", bucket);
   if (from) params.set("from", from.toISOString().slice(0, 10));
   if (to) params.set("to", to.toISOString().slice(0, 10));
 
@@ -266,7 +285,17 @@ function buildFilterChips(input: {
     return qs ? `/episodes?${qs}` : "/episodes";
   };
 
+  const BUCKET_LABEL: Record<EpisodeBucketFilter, string> = {
+    review: "Needs review",
+    drafts: "Draft",
+    done: "Done",
+  };
   const chips: FilterChip[] = [];
+  if (bucket)
+    chips.push({
+      label: BUCKET_LABEL[bucket],
+      clearHref: chipHref("bucket"),
+    });
   if (status)
     chips.push({
       label: status === "READY" ? "Needs review" : status.charAt(0) + status.slice(1).toLowerCase(),

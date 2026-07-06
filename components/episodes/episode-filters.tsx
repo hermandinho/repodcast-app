@@ -33,6 +33,7 @@ export function EpisodeFilters({ options, totalAll, totalDraft, totalReview }: P
   const currentSearch = params.get("q") ?? "";
   const currentShow = params.get("show") ?? "";
   const currentStatus = params.get("status") ?? "";
+  const currentBucket = params.get("bucket") ?? "";
   const currentFrom = params.get("from") ?? "";
   const currentTo = params.get("to") ?? "";
 
@@ -68,9 +69,31 @@ export function EpisodeFilters({ options, totalAll, totalDraft, totalReview }: P
     }, 250);
   };
 
-  // Segment == active if URL matches. `All` is the default (no `status`).
+  // Segment == active if URL matches. `All` is the default (no filter).
+  // `Needs review` uses the virtual `bucket=review` param because
+  // Episode.status alone can't express "at least one pending output"
+  // (see the bucket-filter docs in `server/db/episodes.ts`).
   const active: "all" | "review" | "draft" =
-    currentStatus === "DRAFT" ? "draft" : currentStatus === "READY" ? "review" : "all";
+    currentBucket === "review"
+      ? "review"
+      : currentStatus === "DRAFT" || currentBucket === "drafts"
+        ? "draft"
+        : "all";
+
+  const setBucketPill = (nextBucket: "" | "review" | "drafts") => {
+    const next = new URLSearchParams(params.toString());
+    if (nextBucket) next.set("bucket", nextBucket);
+    else next.delete("bucket");
+    // Bucket-filter clicks clear `status` — the two are mutually
+    // exclusive routes into the same list. Legacy `?status=READY`
+    // links keep working; the pill just never emits `status` itself.
+    next.delete("status");
+    next.delete("page");
+    startTransition(() => {
+      const qs = next.toString();
+      router.push(qs ? `/episodes?${qs}` : "/episodes");
+    });
+  };
 
   return (
     <div className="border-border bg-surface shadow-card mb-[18px] flex flex-wrap items-center gap-[10px] rounded-2xl border px-3 py-[10px]">
@@ -114,21 +137,21 @@ export function EpisodeFilters({ options, totalAll, totalDraft, totalReview }: P
           label="All"
           count={totalAll}
           active={active === "all"}
-          onClick={() => setParam("status", "")}
+          onClick={() => setBucketPill("")}
         />
         <StatusPill
           label="Needs review"
           count={totalReview}
           tone="review"
           active={active === "review"}
-          onClick={() => setParam("status", active === "review" ? "" : "READY")}
+          onClick={() => setBucketPill(active === "review" ? "" : "review")}
         />
         <StatusPill
           label="Draft"
           count={totalDraft}
           tone="draft"
           active={active === "draft"}
-          onClick={() => setParam("status", active === "draft" ? "" : "DRAFT")}
+          onClick={() => setBucketPill(active === "draft" ? "" : "drafts")}
         />
       </div>
 

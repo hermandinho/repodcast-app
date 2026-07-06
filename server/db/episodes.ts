@@ -31,10 +31,29 @@ const ALL_PLATFORMS: Platform[] = [
 // Input schemas
 // ============================================================
 
+/**
+ * Attention-based bucket filter that lives alongside the raw `status`
+ * filter. Needed because `Episode.status` only tracks the generation
+ * pipeline (DRAFT → PROCESSING → READY / FAILED) and never advances past
+ * READY as outputs get approved / scheduled / published. So a query like
+ * "show me episodes needing review" can't be expressed via `status`
+ * alone — it has to reach into `GeneratedOutput.status`.
+ *
+ * - `review` — at least one current (non-superseded) output sits in a
+ *   reviewable status (READY / IN_REVIEW / AWAITING_CLIENT_APPROVAL).
+ * - `drafts` — status DRAFT, or an episode with no outputs yet.
+ * - `done`  — has outputs but nothing pending review; every current
+ *   output is APPROVED / SCHEDULED / PUBLISHED / FAILED (or the episode
+ *   is ARCHIVED).
+ */
+export const episodeBucketFilter = z.enum(["review", "drafts", "done"]);
+export type EpisodeBucketFilter = z.infer<typeof episodeBucketFilter>;
+
 export const listEpisodesFilterInput = z.object({
   /** Case-insensitive substring match on Episode.title. */
   search: z.string().trim().max(200).optional(),
   status: z.nativeEnum(EpisodeStatus).optional(),
+  bucket: episodeBucketFilter.optional(),
   showId: z.string().min(1).optional(),
   clientId: z.string().min(1).optional(),
   /** Inclusive lower bound on `Episode.createdAt`. */
@@ -45,6 +64,11 @@ export const listEpisodesFilterInput = z.object({
   skip: z.number().int().min(0).default(0),
 });
 export type ListEpisodesFilterInput = z.infer<typeof listEpisodesFilterInput>;
+
+/** OutputStatuses that count an output as "pending review". Shared by
+ *  `episodeBucketTotals`, the paged-list `pendingReviewCount` join, and
+ *  the `bucket=review` where-clause translation. */
+const PENDING_REVIEW_STATUSES = ["READY", "IN_REVIEW", "AWAITING_CLIENT_APPROVAL"] as const;
 
 export const createEpisodeInput = z
   .object({
@@ -164,6 +188,7 @@ function buildEpisodeListWhere(
   if (filters.search && filters.search.length > 0) {
     where.title = { contains: filters.search, mode: "insensitive" };
   }
+  if (filters.bucket) applyBucketFilter(where, filters.bucket);
   // The `to` bound is end-of-day inclusive — the picker hands us a midnight
   // boundary and the natural "I want all episodes through Jun 24" semantics
   // means up to 23:59:59 on that day.
@@ -174,6 +199,42 @@ function buildEpisodeListWhere(
     };
   }
   return where;
+}
+
+/**
+ * Translate the virtual `bucket` filter into concrete Prisma `where`
+ * fragments. Mutates `where` in place — mirrors how the other filters
+ * are applied above.
+ *
+ * `review` becomes `outputs.some(pending)`. `drafts` becomes DRAFT-or-no-
+ * outputs (`OR` clause). `done` is the negation of both — has outputs,
+ * none pending. All three are expressible without introducing a raw SQL
+ * escape hatch.
+ */
+function applyBucketFilter(where: Prisma.EpisodeWhereInput, bucket: EpisodeBucketFilter): void {
+  const pendingOutput: Prisma.GeneratedOutputWhereInput = {
+    supersededAt: null,
+    status: { in: [...PENDING_REVIEW_STATUSES] },
+  };
+  switch (bucket) {
+    case "review":
+      where.outputs = { some: pendingOutput };
+      break;
+    case "drafts":
+      // DRAFT status OR no non-superseded outputs. Both proxies for
+      // "nothing to review yet" — the second one covers FAILED/legacy
+      // rows where generation didn't produce anything.
+      where.OR = [{ status: EpisodeStatus.DRAFT }, { outputs: { none: { supersededAt: null } } }];
+      break;
+    case "done":
+      // Has at least one current output AND no pending output. Excludes
+      // DRAFT/no-output rows and review rows both.
+      where.AND = [
+        { outputs: { some: { supersededAt: null } } },
+        { outputs: { none: pendingOutput } },
+      ];
+      break;
+  }
 }
 
 function endOfDay(d: Date): Date {
@@ -190,6 +251,14 @@ export type EpisodeListRow = Episode & {
     client: { id: string; name: string };
   };
   _count: { outputs: number };
+  /**
+   * How many current (non-superseded) outputs are sitting in a
+   * reviewable state (READY / IN_REVIEW / AWAITING_CLIENT_APPROVAL).
+   * Powers the list's Needs review / Done bucketing — `Episode.status`
+   * alone would false-positive here since it never transitions past
+   * READY as outputs advance.
+   */
+  pendingReviewCount: number;
 };
 
 /**
@@ -204,7 +273,7 @@ export async function listEpisodesFiltered(
   requireReadRole(ctx, READ_ROLES);
   const where = buildEpisodeListWhere(ctx, raw);
 
-  const [rows, total] = await Promise.all([
+  const [dbRows, total] = await Promise.all([
     prisma.episode.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -225,6 +294,30 @@ export async function listEpisodesFiltered(
     prisma.episode.count({ where }),
   ]);
 
+  // Fetch pending-review counts for the page's episodes in a single
+  // groupBy — one small query keyed by the ids we already have. Cheaper
+  // than N+1 counts, and Prisma doesn't (yet) let us stack a second
+  // `_count.outputs` clause with a different `where` alongside the
+  // total-output count above.
+  const pendingCountByEpisode = new Map<string, number>();
+  if (dbRows.length > 0) {
+    const groups = await prisma.generatedOutput.groupBy({
+      by: ["episodeId"],
+      where: {
+        episodeId: { in: dbRows.map((r) => r.id) },
+        supersededAt: null,
+        status: { in: [...PENDING_REVIEW_STATUSES] },
+      },
+      _count: { _all: true },
+    });
+    for (const g of groups) pendingCountByEpisode.set(g.episodeId, g._count._all);
+  }
+
+  const rows: EpisodeListRow[] = dbRows.map((r) => ({
+    ...r,
+    pendingReviewCount: pendingCountByEpisode.get(r.id) ?? 0,
+  }));
+
   return { rows, total };
 }
 
@@ -244,8 +337,7 @@ export async function episodeBucketTotals(
 ): Promise<{ all: number; draft: number; review: number; outputsWaitingReview: number }> {
   requireReadRole(ctx, READ_ROLES);
 
-  // Group by status once — Prisma runs it as a single SQL query, which
-  // is cheaper than three separate counts.
+  // Group by status once — cheaper than N counts. Powers `all` + `draft`.
   const groups = await prisma.episode.groupBy({
     by: ["status"],
     where: { show: { client: { agencyId: ctx.agencyId } } },
@@ -258,17 +350,23 @@ export async function episodeBucketTotals(
     all += g._count._all;
     if (g.status === EpisodeStatus.DRAFT) draft += g._count._all;
   }
-  const review = all - draft;
 
-  // Outputs in a reviewable state — needs a separate count since
-  // Episode.status doesn't track per-output review progress.
-  const outputsWaitingReview = await prisma.generatedOutput.count({
+  // Episodes with at least one pending-review output. Can't be derived
+  // from Episode.status because it stops at READY and never advances as
+  // outputs get approved / scheduled / published. Use `distinct` on
+  // episodeId over the pending-output set so an episode with three
+  // pending outputs still counts once.
+  const reviewGroups = await prisma.generatedOutput.groupBy({
+    by: ["episodeId"],
     where: {
       supersededAt: null,
-      status: { in: ["READY", "IN_REVIEW", "AWAITING_CLIENT_APPROVAL"] },
+      status: { in: [...PENDING_REVIEW_STATUSES] },
       episode: { show: { client: { agencyId: ctx.agencyId } } },
     },
+    _count: { _all: true },
   });
+  const review = reviewGroups.length;
+  const outputsWaitingReview = reviewGroups.reduce((sum, g) => sum + g._count._all, 0);
 
   return { all, draft, review, outputsWaitingReview };
 }

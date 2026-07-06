@@ -11,16 +11,21 @@ import {
 } from "@/app/(dashboard)/episodes/actions";
 
 /**
- * Two-section list — `NEEDS REVIEW` (rows with outputs still in flight)
- * and `DRAFTS — NO OUTPUTS YET` (rows in DRAFT or with no outputs). Each
- * row carries the state-appropriate primary action (Review → for review
- * rows, Generate outputs for drafts). Bulk selection stays intact — the
- * checkboxes ride outside the link so a click never navigates.
+ * Three-section list:
+ *   - `NEEDS REVIEW` — at least one current output is still in flight
+ *     (READY / IN_REVIEW / AWAITING_CLIENT_APPROVAL). This is where the
+ *     reviewer's attention should land.
+ *   - `DRAFTS — NO OUTPUTS YET` — DRAFT status, or no non-superseded
+ *     outputs yet. Primary action: Generate outputs.
+ *   - `DONE` — has outputs, none pending. Every current output is
+ *     APPROVED / SCHEDULED / PUBLISHED / FAILED (or the episode is
+ *     ARCHIVED). Renders collapsed by default so a reviewer isn't
+ *     wading through completed work.
  *
- * Bucketing rule: an episode with `outputCount === 0` OR `status ===
- * "DRAFT"` lands in the Drafts group; everything else lands in Needs
- * Review. This uses the same proxy as the toolbar's pill filter so
- * clicking a pill and reading the grouped headings match.
+ * Bucketing uses `pendingReviewCount` from the server payload — driven
+ * off the actual output pool, not `Episode.status` (which stops at READY
+ * and never advances as outputs get approved / scheduled / published).
+ * Before this, done episodes stayed pinned to Needs Review forever.
  */
 
 const APPROVE_ROLES: MemberRole[] = [MemberRole.OWNER, MemberRole.ADMIN, MemberRole.REVIEWER];
@@ -42,8 +47,12 @@ const STATUS_STYLES: Record<EpisodeListStatus, { label: string; bg: string; colo
   FAILED: { label: "Failed", bg: "#FBEDEC", color: "#C0392B" },
 };
 
-function isDraftBucket(e: EpisodeListItem): boolean {
-  return e.status === "DRAFT" || e.outputCount === 0;
+type Bucket = "review" | "drafts" | "done";
+
+function bucketFor(e: EpisodeListItem): Bucket {
+  if (e.status === "DRAFT" || e.outputCount === 0) return "drafts";
+  if (e.pendingReviewCount > 0) return "review";
+  return "done";
 }
 
 export function EpisodeListSelection({
@@ -64,14 +73,26 @@ export function EpisodeListSelection({
   const selectable = canApprove || canGenerate;
   const selectedCount = selected.size;
 
-  const { reviewItems, draftItems } = useMemo(() => {
+  const { reviewItems, draftItems, doneItems } = useMemo(() => {
     const drafts: EpisodeListItem[] = [];
     const review: EpisodeListItem[] = [];
+    const done: EpisodeListItem[] = [];
     for (const e of items) {
-      (isDraftBucket(e) ? drafts : review).push(e);
+      switch (bucketFor(e)) {
+        case "drafts":
+          drafts.push(e);
+          break;
+        case "review":
+          review.push(e);
+          break;
+        case "done":
+          done.push(e);
+          break;
+      }
     }
-    return { reviewItems: review, draftItems: drafts };
+    return { reviewItems: review, draftItems: drafts, doneItems: done };
   }, [items]);
+  const [showDone, setShowDone] = useState(false);
 
   const { approveEligibleCount, generateEligibleCount } = useMemo(() => {
     let approveN = 0;
@@ -241,6 +262,32 @@ export function EpisodeListSelection({
         />
       )}
 
+      {doneItems.length > 0 && (
+        <div className="mt-6">
+          <button
+            type="button"
+            onClick={() => setShowDone((v) => !v)}
+            className="border-border text-muted hover:text-ink hover:bg-canvas mb-3 flex items-center gap-2 rounded-md border bg-white px-3 py-[7px] font-sans text-[12px] font-semibold transition-colors"
+            aria-expanded={showDone}
+          >
+            <span aria-hidden>{showDone ? "▾" : "▸"}</span>
+            Done
+            <span className="text-muted-2 tabular-nums">{doneItems.length}</span>
+          </button>
+          {showDone && (
+            <GroupSection
+              eyebrow="Done"
+              count={doneItems.length}
+              tone="done"
+              items={doneItems}
+              selected={selected}
+              selectable={selectable}
+              onToggle={toggleOne}
+            />
+          )}
+        </div>
+      )}
+
       {selectable && selectedCount > 0 && (
         <div
           className="border-border bg-surface shadow-card-hover sticky bottom-4 z-20 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-[10px]"
@@ -327,15 +374,30 @@ function GroupSection({
 }: {
   eyebrow: string;
   count: number;
-  tone: "review" | "draft";
+  tone: "review" | "draft" | "done";
   items: EpisodeListItem[];
   selected: Set<string>;
   selectable: boolean;
   onToggle: (id: string) => void;
 }) {
-  const eyebrowColor = tone === "review" ? "var(--color-warn-text)" : "var(--color-muted-2)";
-  const chipBg = tone === "review" ? "var(--color-warn-soft)" : "var(--color-neutral-soft)";
-  const chipColor = tone === "review" ? "var(--color-warn-text)" : "var(--color-muted)";
+  const eyebrowColor =
+    tone === "review"
+      ? "var(--color-warn-text)"
+      : tone === "done"
+        ? "var(--color-ok-text, #1E7A47)"
+        : "var(--color-muted-2)";
+  const chipBg =
+    tone === "review"
+      ? "var(--color-warn-soft)"
+      : tone === "done"
+        ? "var(--color-ok-soft, #E4F3EC)"
+        : "var(--color-neutral-soft)";
+  const chipColor =
+    tone === "review"
+      ? "var(--color-warn-text)"
+      : tone === "done"
+        ? "var(--color-ok-text, #1E7A47)"
+        : "var(--color-muted)";
 
   return (
     <section className="mt-6 first:mt-0">
@@ -395,7 +457,7 @@ function EpisodeRow({
   onToggle: () => void;
   selectable: boolean;
   isLast: boolean;
-  variant: "review" | "draft";
+  variant: "review" | "draft" | "done";
 }) {
   const sm = STATUS_STYLES[episode.status];
   const rowClasses = `group hover:bg-canvas relative flex items-center gap-[14px] px-[22px] py-[14px] transition-colors ${
@@ -460,14 +522,23 @@ function EpisodeRow({
           <>
             <div className="hidden w-[150px] flex-shrink-0 sm:block">
               <div className="text-muted mb-[5px] flex justify-between text-[11px] font-semibold">
-                <span>{episode.outputCount} outputs</span>
+                <span>
+                  {episode.pendingReviewCount} of {episode.outputCount} pending
+                </span>
               </div>
-              {/* Filled bar as a lightweight "progress" until we ship
-                  per-episode approved/pending counts on the query. */}
               <div className="bg-border-subtle h-[5px] rounded-[3px]">
                 <div
                   className="bg-accent h-[5px] rounded-[3px]"
-                  style={{ width: episode.outputCount > 0 ? "20%" : "4%" }}
+                  style={{
+                    width:
+                      episode.outputCount > 0
+                        ? `${Math.round(
+                            ((episode.outputCount - episode.pendingReviewCount) /
+                              episode.outputCount) *
+                              100,
+                          )}%`
+                        : "4%",
+                  }}
                 />
               </div>
             </div>
@@ -482,6 +553,27 @@ function EpisodeRow({
               className="bg-accent flex-shrink-0 rounded-lg px-[15px] py-[8px] font-sans text-[12.5px] font-semibold text-white no-underline transition-[filter] hover:brightness-95"
             >
               Review →
+            </Link>
+          </>
+        ) : variant === "done" ? (
+          <>
+            <span className="text-muted-2 hidden flex-shrink-0 text-[12px] sm:inline">
+              {episode.outputCount} outputs · nothing pending
+            </span>
+            <span
+              className="rounded-pill inline-flex flex-shrink-0 items-center gap-[6px] px-[11px] py-[4px] font-sans text-[11px] font-semibold"
+              style={{
+                background: "var(--color-ok-soft, #E4F3EC)",
+                color: "var(--color-ok-text, #1E7A47)",
+              }}
+            >
+              Done
+            </span>
+            <Link
+              href={`/episodes/${episode.id}`}
+              className="border-border text-muted hover:border-accent-border hover:text-accent flex-shrink-0 rounded-lg border bg-white px-[15px] py-[7px] font-sans text-[12.5px] font-semibold no-underline transition-colors"
+            >
+              View
             </Link>
           </>
         ) : (

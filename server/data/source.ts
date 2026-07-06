@@ -355,6 +355,10 @@ export type EpisodeListItem = {
   status: EpisodeListStatus;
   createdAt: string;
   outputCount: number;
+  /** Current (non-superseded) outputs sitting in a reviewable state.
+   *  Drives the list's Needs review / Done bucketing — see the top of
+   *  `episode-list-selection.tsx`. */
+  pendingReviewCount: number;
   initial: string;
   avatarBg: string;
 };
@@ -391,6 +395,11 @@ export async function listEpisodesForUI(
     const items: EpisodeListItem[] = sampleShows.map((s) => {
       const ep = sampleEpisodes[s.key];
       const client = sampleClients.find((c) => c.key === s.clientKey);
+      const outputCount = ep?.outputs.length ?? 7;
+      const pendingReviewCount =
+        ep?.outputs.filter(
+          (o) => o.status === "ready" || o.status === "review" || o.status === "awaiting-client",
+        ).length ?? 0;
       return {
         id: s.key,
         title: ep?.episode ?? "Untitled episode",
@@ -400,7 +409,8 @@ export async function listEpisodesForUI(
         clientName: client?.name ?? "",
         status: "READY",
         createdAt: ep?.episodeMeta?.split("·")[1]?.trim() ?? "Recently",
-        outputCount: ep?.outputs.length ?? 7,
+        outputCount,
+        pendingReviewCount,
         initial: s.initial,
         avatarBg: s.avatarBg,
       };
@@ -419,6 +429,7 @@ export async function listEpisodesForUI(
     status: e.status as EpisodeListStatus,
     createdAt: formatShortDate(e.createdAt),
     outputCount: e._count.outputs,
+    pendingReviewCount: e.pendingReviewCount,
     initial: initialsOf(e.show.name),
     avatarBg: colorForName(e.show.name),
   }));
