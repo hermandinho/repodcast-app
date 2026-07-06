@@ -26,6 +26,7 @@ datasource db {
 enum Plan {
   SOLO
   STUDIO
+  AGENCY
   NETWORK
 }
 

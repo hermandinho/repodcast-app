@@ -18,6 +18,7 @@ import type {
 export const Plan = {
   SOLO: "SOLO",
   STUDIO: "STUDIO",
+  AGENCY: "AGENCY",
   NETWORK: "NETWORK",
 } as const satisfies Record<PrismaPlan, PrismaPlan>;
 export type Plan = PrismaPlan;

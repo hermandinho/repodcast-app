@@ -10,7 +10,7 @@ import {
   SUPPORTED_CURRENCIES,
 } from "@/lib/currencies";
 import { BillingCadence, Plan } from "@/lib/enums";
-import { TRIAL_ACTIVATION_FEE_CENTS } from "@/lib/plans";
+import { isTrialEligiblePlan, PLAN_DISPLAY, TRIAL_ACTIVATION_FEE_CENTS } from "@/lib/plans";
 import { requireAuthContext } from "@/server/auth/context";
 import { ValidationError } from "@/server/auth/errors";
 import { priceIdFor } from "@/server/billing/prices";
@@ -97,18 +97,21 @@ export async function checkoutFromOnboardingAction(formData: FormData): Promise<
     );
   }
 
-  // Trial-eligibility: SOLO-tier only, one trial per Stripe customer.
+  // Trial-eligibility: SOLO or STUDIO, one trial per Stripe customer.
   //
-  // We gate the trial on `plan === SOLO` because the $1 activation is a
-  // 90× loss multiplier at Network's $90 cost cap vs 8× at Solo's $9 —
-  // Studio/Network buyers subscribe directly at full price on day 0.
-  // See MarketingStrategy.md §1 for the full rationale.
+  // The trial ladder mirrors the pricing table: entry-tier buyers get
+  // the $1/7-day trial so they can commit before paying full price;
+  // AGENCY and NETWORK buyers subscribe directly (higher-intent buyers,
+  // and caps trial abuse at scale). Which plans qualify lives in
+  // `lib/plans.ts` — the checkout shape here reads from that constant
+  // so a future tier change doesn't require touching this file.
   //
   // Second-trial ban: `stripeCustomerId` set OR a non-NONE `trialStatus`
   // means the customer has already burned their one trial.
-  const isSoloPick = plan === Plan.SOLO;
   const trialEligible =
-    isSoloPick && !agency?.stripeCustomerId && (agency?.trialStatus ?? "NONE") === "NONE";
+    isTrialEligiblePlan(plan) &&
+    !agency?.stripeCustomerId &&
+    (agency?.trialStatus ?? "NONE") === "NONE";
 
   const stripe = requireStripeClient();
   const url = await baseUrl();
@@ -119,15 +122,16 @@ export async function checkoutFromOnboardingAction(formData: FormData): Promise<
     plan,
     cadence,
     currency: resolvedCurrency,
-    solo_trial_activation: trialEligible ? "true" : "false",
+    trial_activation: trialEligible ? "true" : "false",
   };
 
   const session = trialEligible
-    ? await createSoloTrialCheckout({
+    ? await createTrialCheckout({
         stripe,
         auth,
         currency: resolvedCurrency,
         priceId,
+        plan,
         successUrl: `${url}/onboarding/return?${returnParams.toString()}`,
         cancelUrl: `${url}/onboarding/plan?${returnParams.toString()}`,
         metadata: sharedMetadata,
@@ -150,26 +154,29 @@ export async function checkoutFromOnboardingAction(formData: FormData): Promise<
 }
 
 // ============================================================
-// Solo trial: mode:'payment' — charge $1 today, save card,
-// create subscription in webhook.
+// Trial checkout: mode:'payment' — charge $1 today, save card,
+// create subscription in webhook. Used for Solo + Studio picks.
 // ============================================================
 
-async function createSoloTrialCheckout(args: {
+async function createTrialCheckout(args: {
   stripe: Stripe;
   auth: { user: { email: string }; agency: { id: string } };
   currency: (typeof SUPPORTED_CURRENCIES)[number];
   priceId: string;
+  plan: Plan;
   successUrl: string;
   cancelUrl: string;
   metadata: Record<string, string>;
 }): Promise<Stripe.Checkout.Session> {
-  const { stripe, auth, currency, priceId, successUrl, cancelUrl, metadata } = args;
+  const { stripe, auth, currency, priceId, plan, successUrl, cancelUrl, metadata } = args;
 
   // Stripe UI needs a concrete product/price line item to render "$1 due
   // today". We use `price_data` (inline) rather than a persisted Price so
   // there's no bookkeeping in Stripe products/prices for the activation
   // fee — the fee amount is baked into `TRIAL_ACTIVATION_FEE_CENTS` at
   // the app layer, single source of truth.
+  const planName = PLAN_DISPLAY[plan].name;
+  const planUsdMonthly = PLAN_DISPLAY[plan].prices.monthly.USD;
   return stripe.checkout.sessions.create({
     mode: "payment",
     currency: CURRENCY_META[currency].stripeCode,
@@ -180,9 +187,8 @@ async function createSoloTrialCheckout(args: {
           currency: CURRENCY_META[currency].stripeCode,
           unit_amount: TRIAL_ACTIVATION_FEE_CENTS,
           product_data: {
-            name: "Solo trial activation",
-            description:
-              "$1 non-refundable activation fee. Your Solo plan ($29/mo) starts on day 8 unless you cancel first.",
+            name: `${planName} trial activation`,
+            description: `$1 non-refundable activation fee. Your ${planName} plan ($${planUsdMonthly}/mo) starts on day 8 unless you cancel first.`,
           },
         },
       },

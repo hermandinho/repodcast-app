@@ -124,7 +124,8 @@ export async function getAgencyPlan(agencyId: string): Promise<Plan> {
 const PLAN_RANK: Record<Plan, number> = {
   SOLO: 0,
   STUDIO: 1,
-  NETWORK: 2,
+  AGENCY: 2,
+  NETWORK: 3,
 };
 
 /**

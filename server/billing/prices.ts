@@ -26,6 +26,10 @@ const ENV_KEY: Record<Plan, Record<BillingCadence, string>> = {
     MONTHLY: "NEXT_PUBLIC_STRIPE_STUDIO_MONTHLY_PRICE_ID",
     ANNUAL: "NEXT_PUBLIC_STRIPE_STUDIO_ANNUAL_PRICE_ID",
   },
+  AGENCY: {
+    MONTHLY: "NEXT_PUBLIC_STRIPE_AGENCY_MONTHLY_PRICE_ID",
+    ANNUAL: "NEXT_PUBLIC_STRIPE_AGENCY_ANNUAL_PRICE_ID",
+  },
   NETWORK: {
     MONTHLY: "NEXT_PUBLIC_STRIPE_NETWORK_MONTHLY_PRICE_ID",
     ANNUAL: "NEXT_PUBLIC_STRIPE_NETWORK_ANNUAL_PRICE_ID",
@@ -44,7 +48,7 @@ export function priceIdFor(plan: Plan, cadence: BillingCadence = "MONTHLY"): str
 export function planAndCadenceForPriceId(
   priceId: string,
 ): { plan: Plan; cadence: BillingCadence } | null {
-  const plans: Plan[] = ["SOLO", "STUDIO", "NETWORK"];
+  const plans: Plan[] = ["SOLO", "STUDIO", "AGENCY", "NETWORK"];
   const cadences: BillingCadence[] = ["MONTHLY", "ANNUAL"];
   for (const plan of plans) {
     for (const cadence of cadences) {

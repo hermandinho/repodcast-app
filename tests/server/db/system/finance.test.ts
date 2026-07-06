@@ -166,6 +166,7 @@ describe("getFinanceSummary — MRR rollup", () => {
     expect(summary.mrr.byPlan).toEqual([
       { plan: "SOLO", agencies: 0, mrrCents: 0 },
       { plan: "STUDIO", agencies: 5, mrrCents: expectedStudio },
+      { plan: "AGENCY", agencies: 0, mrrCents: 0 },
       { plan: "NETWORK", agencies: 2, mrrCents: expectedNetwork },
     ]);
     expect(summary.mrr.totalCents).toBe(expectedStudio + expectedNetwork);

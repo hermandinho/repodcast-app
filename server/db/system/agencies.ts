@@ -35,7 +35,7 @@ const PAGE_SIZE_MAX = 100;
 
 export const listAgenciesForRootInput = z.object({
   search: z.string().trim().min(1).max(120).optional(),
-  plan: z.enum(["SOLO", "STUDIO", "NETWORK"]).optional(),
+  plan: z.enum(["SOLO", "STUDIO", "AGENCY", "NETWORK"]).optional(),
   /**
    * "active" excludes suspended rows; "suspended" only suspended; "all" both.
    * NOTE: `Agency.suspendedAt` lands in 3.6.5's write surface — until then
@@ -547,7 +547,7 @@ export async function listAgencyMembers(
 // which is only acceptable for rare admin actions — never wire this pattern
 // into a hot request path.
 
-const PLAN_VALUES = ["SOLO", "STUDIO", "NETWORK"] as const;
+const PLAN_VALUES = ["SOLO", "STUDIO", "AGENCY", "NETWORK"] as const;
 
 export const suspendAgencyInput = z.object({
   id: z.string().trim().min(1),

@@ -66,7 +66,7 @@ export async function grantAgencyPlanOverrideAction(formData: FormData): Promise
   const id = strOrEmpty(formData.get("id"));
   const rawPlan = strOrEmpty(formData.get("plan"));
 
-  if (rawPlan !== "SOLO" && rawPlan !== "STUDIO" && rawPlan !== "NETWORK") {
+  if (rawPlan !== "SOLO" && rawPlan !== "STUDIO" && rawPlan !== "AGENCY" && rawPlan !== "NETWORK") {
     redirect(`/root/agencies/${id}?action_error=invalid_plan`);
   }
 

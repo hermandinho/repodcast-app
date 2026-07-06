@@ -121,7 +121,7 @@ function passthroughParams(params: Record<string, string | string[] | undefined>
 
 function parsePlan(value: string | string[] | undefined): Plan | undefined {
   const v = single(value);
-  if (v === Plan.SOLO || v === Plan.STUDIO || v === Plan.NETWORK) return v;
+  if (v === Plan.SOLO || v === Plan.STUDIO || v === Plan.AGENCY || v === Plan.NETWORK) return v;
   return undefined;
 }
 

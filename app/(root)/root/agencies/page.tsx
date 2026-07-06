@@ -68,6 +68,7 @@ function formatRelative(date: Date | null): string {
 const PLAN_STYLE: Record<Plan, string> = {
   SOLO: "bg-slate-700/40 text-slate-200 ring-slate-500/40",
   STUDIO: "bg-accent/20 text-accent-soft ring-accent/40",
+  AGENCY: "bg-violet-500/20 text-violet-200 ring-violet-400/40",
   NETWORK: "bg-emerald-500/20 text-emerald-200 ring-emerald-400/40",
 };
 

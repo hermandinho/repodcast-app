@@ -272,12 +272,22 @@ export async function updatePreferredCurrency(
 }
 
 /**
- * Phase 2.5 — agency white-label branding setter. OWNER/ADMIN only, and
- * gated to Agency+ plans (Studio is the entry tier; white-label is one of
- * the AGENCY-and-up differentiators). `updateMany` keeps the write
- * tenant-scoped atomically. Empty values are coerced to NULL by the Zod
- * input so a "clear" gesture lands as a real unset (UI falls back to
- * Repodcast defaults on null).
+ * Agency white-label branding setter — OWNER/ADMIN, per-field plan gate.
+ *
+ * The write is split across the two fields the schema exposes so the
+ * plan ladder is actually enforced instead of just claimed:
+ *
+ *   - `brandLogoUrl` — the "Branded client portal" promise. Requires
+ *     AGENCY+ (matches the pricing table's "Branded client portal" row).
+ *   - `brandAccentColor` — the "Custom brand accent" promise. Requires
+ *     NETWORK+ (matches the "Custom brand accent + domain" row).
+ *
+ * Callers can pass either field, both, or neither. Only the fields
+ * actually present in the payload get gated — an Agency user writing
+ * just the logo doesn't need to satisfy the accent gate. `updateMany`
+ * keeps the write tenant-scoped atomically. Empty values are coerced
+ * to NULL by the Zod input so a "clear" gesture lands as a real unset
+ * (UI falls back to Repodcast defaults on null).
  */
 export async function updateAgencyBranding(
   ctx: TenantContext,
@@ -285,13 +295,16 @@ export async function updateAgencyBranding(
 ): Promise<Agency> {
   requireRole(ctx, WRITE_ROLES);
   const plan = await getAgencyPlan(ctx.agencyId);
-  assertMinPlan(plan, Plan.NETWORK);
+  if (patch.brandLogoUrl !== undefined) assertMinPlan(plan, Plan.AGENCY);
+  if (patch.brandAccentColor !== undefined) assertMinPlan(plan, Plan.NETWORK);
+
+  const data: Partial<Pick<Agency, "brandLogoUrl" | "brandAccentColor">> = {};
+  if (patch.brandLogoUrl !== undefined) data.brandLogoUrl = patch.brandLogoUrl;
+  if (patch.brandAccentColor !== undefined) data.brandAccentColor = patch.brandAccentColor;
+
   const { count } = await prisma.agency.updateMany({
     where: { id: ctx.agencyId },
-    data: {
-      brandLogoUrl: patch.brandLogoUrl,
-      brandAccentColor: patch.brandAccentColor,
-    },
+    data,
   });
   if (count === 0) throw new NotFoundError(`Agency ${ctx.agencyId} not found`);
   return prisma.agency.findUniqueOrThrow({ where: { id: ctx.agencyId } });

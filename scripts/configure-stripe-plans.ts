@@ -5,7 +5,7 @@
  *
  * Usage:  npm run stripe:plans
  *
- * For each Plan (SOLO / STUDIO / NETWORK) the script:
+ * For each Plan (SOLO / STUDIO / AGENCY / NETWORK) the script:
  *   1. Finds-or-creates a Stripe Product keyed by `metadata.repodcast_plan`.
  *   2. Finds-or-creates **two** recurring Prices keyed by the (plan, cadence)
  *      tuple — `metadata.repodcast_cadence = MONTHLY | ANNUAL`. Each Price's
@@ -14,17 +14,18 @@
  *      `PLAN_PRICES_BY_CURRENCY`. A mismatch causes that specific Price to
  *      be archived + replaced (Stripe Prices are immutable on currency
  *      math).
- *   3. Prints the six resulting Price IDs ready to paste into `.env.local`
- *      as `NEXT_PUBLIC_STRIPE_<PLAN>_<CADENCE>_PRICE_ID`.
+ *   3. Prints the eight resulting Price IDs (4 plans × 2 cadences) ready
+ *      to paste into `.env.local` as
+ *      `NEXT_PUBLIC_STRIPE_<PLAN>_<CADENCE>_PRICE_ID`.
  *
  * Re-running is safe: an existing matching Price is re-used, only mismatches
  * trigger a replace. The script never deletes Products; archived Prices stay
  * in Stripe for historical subscriptions.
  *
- * NOTE — the Solo $1 trial activation fee is NOT provisioned here. It's
- * created on the fly by the `checkout.session.completed` webhook via
- * `stripe.invoiceItems.create` (a raw amount + description, no Price ID).
- * See `app/api/webhooks/stripe/route.ts#handleCheckoutSessionCompleted`
+ * NOTE — the $1 trial activation fee (Solo + Studio) is NOT provisioned
+ * here. It's created on the fly by the `checkout.session.completed`
+ * webhook via `stripe.invoiceItems.create` (a raw amount + description,
+ * no Price ID). See `app/api/webhooks/stripe/route.ts#handleCheckoutSessionCompleted`
  * for why: Stripe defers one-time subscription line items to `trial_end`
  * when `trial_period_days` is set, so the "$1 today" needed to land as a
  * separate immediate invoice instead.

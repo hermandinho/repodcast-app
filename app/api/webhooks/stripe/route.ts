@@ -439,8 +439,13 @@ async function sendTrialExpiredForAgency(agencyId: string): Promise<void> {
  * before touching Stripe.
  */
 async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
-  const isSoloTrialActivation = session.metadata?.solo_trial_activation === "true";
-  if (!isSoloTrialActivation) return;
+  // Accept both the current `trial_activation` marker AND the legacy
+  // `solo_trial_activation` name so in-flight Checkout sessions started
+  // before the rename (when only Solo qualified) still finish cleanly.
+  const isTrialActivation =
+    session.metadata?.trial_activation === "true" ||
+    session.metadata?.solo_trial_activation === "true";
+  if (!isTrialActivation) return;
   // Only the mode:'payment' path needs the follow-up subscription create.
   // A mode:'subscription' session with this metadata means we accidentally
   // set the flag; skip so we don't double-create a subscription.

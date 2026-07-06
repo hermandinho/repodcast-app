@@ -526,11 +526,14 @@ export async function bulkGenerateEpisodes(
     return { dispatches: [], skippedNotEligible };
   }
 
-  // Batch generation is a Network-tier feature — Studio and Agency users
+  // Batch generation unlocks at AGENCY — Solo and Studio operators still
   // fire episodes one at a time through the single-episode dispatch path.
   // Gate here (not just the UI) so a hand-crafted request still bounces.
+  // Priority queue is a separate promise gated at NETWORK (see
+  // `inngest/functions/generate-episode.ts`); AGENCY buyers get batch
+  // dispatch but their events still land in the default queue.
   const plan = await getAgencyPlan(ctx.agencyId);
-  assertMinPlan(plan, Plan.NETWORK);
+  assertMinPlan(plan, Plan.AGENCY);
 
   // Plan capacity for the count of NEW episode generations the batch
   // implies. Re-generating a FAILED row is still a generation in cost

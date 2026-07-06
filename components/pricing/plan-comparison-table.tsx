@@ -24,38 +24,42 @@
 type ComparisonRow = {
   section?: string;
   label: string;
-  values: [string, string, string];
+  /** Ordered Solo, Studio, Agency, Network. */
+  values: [string, string, string, string];
 };
 
 const COMPARISON: ComparisonRow[] = [
-  { section: "Voice", label: "Per-client voice model", values: ["✓", "✓", "✓"] },
-  { label: "Approval-driven voice learning", values: ["✓", "✓", "✓"] },
-  { label: "Voice strength meter", values: ["✓", "✓", "✓"] },
+  { section: "Voice", label: "Per-client voice model", values: ["✓", "✓", "✓", "✓"] },
+  { label: "Approval-driven voice learning", values: ["✓", "✓", "✓", "✓"] },
+  { label: "Voice strength meter", values: ["✓", "✓", "✓", "✓"] },
 
-  { section: "Output", label: "Formats per episode", values: ["7", "7", "7"] },
-  { label: "Turnaround time", values: ["< 60s", "< 60s", "< 60s"] },
-  { label: "Batch processing", values: ["—", "—", "✓"] },
-  { label: "Priority queue", values: ["—", "—", "✓"] },
+  { section: "Output", label: "Formats per episode", values: ["7", "7", "7", "7"] },
+  { label: "Turnaround time", values: ["< 60s", "< 60s", "< 60s", "< 60s"] },
+  { label: "Batch processing", values: ["—", "—", "✓", "✓"] },
+  { label: "Priority queue", values: ["—", "—", "—", "✓"] },
 
-  { section: "Team", label: "Client shows", values: ["1", "5", "25"] },
-  { label: "Seats", values: ["1", "3", "Unlimited"] },
-  { label: "Approval workflow", values: ["✓", "✓", "✓"] },
-  { label: "Role-based permissions", values: ["—", "✓", "✓"] },
+  { section: "Team", label: "Client shows", values: ["1", "5", "12", "25"] },
+  { label: "Seats", values: ["1", "3", "6", "Unlimited"] },
+  { label: "Approval workflow", values: ["✓", "✓", "✓", "✓"] },
+  { label: "Role-based permissions", values: ["—", "✓", "✓", "✓"] },
 
-  { section: "Client-facing", label: "White-label exports", values: ["—", "—", "✓"] },
-  { label: "Client portal (per-client)", values: ["—", "—", "✓"] },
-  { label: "Custom brand accent", values: ["—", "—", "✓"] },
+  {
+    section: "Client-facing",
+    label: "Remove Repodcast branding",
+    values: ["—", "✓", "✓", "✓"],
+  },
+  { label: "Branded client portal", values: ["—", "—", "✓", "✓"] },
+  { label: "Custom brand accent + domain", values: ["—", "—", "—", "✓"] },
 
-  { section: "Ops", label: "Episodes / month", values: ["20", "60", "250"] },
-  { label: "Generations / month", values: ["140", "420", "1,750"] },
+  { section: "Ops", label: "Episodes / month", values: ["20", "60", "150", "300"] },
 
-  { section: "Billing", label: "Currencies", values: ["5", "5", "5"] },
-  { label: "Monthly or annual", values: ["✓", "✓", "✓"] },
-  { label: "$1 activation, 7-day trial", values: ["✓", "—", "—"] },
-  { label: "Cancel any time", values: ["✓", "✓", "✓"] },
+  { section: "Billing", label: "Currencies", values: ["5", "5", "5", "5"] },
+  { label: "Monthly or annual", values: ["✓", "✓", "✓", "✓"] },
+  { label: "$1 activation, 7-day trial", values: ["✓", "✓", "—", "—"] },
+  { label: "Cancel any time", values: ["✓", "✓", "✓", "✓"] },
 ];
 
-const PLAN_NAMES = ["Solo", "Studio", "Network"] as const;
+const PLAN_NAMES = ["Solo", "Studio", "Agency", "Network"] as const;
 const POPULAR_IDX = 1; // Studio
 
 const INK = "#0a1e3c";
@@ -71,7 +75,11 @@ const SECTION_STRIP = "#fbfcfe";
 const CHECK_GREEN = "#1f8a5b";
 const DASH_GRAY = "#c9d2e0";
 
-const GRID_TEMPLATE = "2fr 1fr 1fr 1fr";
+/** Feature label column + one column per plan (Solo, Studio, Agency, Network). */
+const GRID_TEMPLATE = "2fr 1fr 1fr 1fr 1fr";
+/** Minimum width the 5-col grid needs before rows start looking cramped.
+ *  Below this, the parent wraps the table in a horizontal-scroll shell. */
+const TABLE_MIN_WIDTH = 780;
 
 export function PlanComparisonTable({ compact = false }: { compact?: boolean } = {}) {
   const table = <ComparisonInner compact={compact} />;
@@ -94,7 +102,7 @@ export function PlanComparisonTable({ compact = false }: { compact?: boolean } =
         {/* Horizontal scroll on narrow viewports — the 4-column grid needs
             ~640px of horizontal room to read comfortably. */}
         <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:overflow-x-visible sm:px-0">
-          <div style={{ minWidth: 640 }}>{table}</div>
+          <div style={{ minWidth: TABLE_MIN_WIDTH }}>{table}</div>
         </div>
       </div>
     );
@@ -140,7 +148,7 @@ export function PlanComparisonTable({ compact = false }: { compact?: boolean } =
             below that keeps rows aligned instead of column-wrapping into
             an unreadable mess. Same fallback the compact variant uses. */}
         <div className="-mx-5 overflow-x-auto px-5 sm:-mx-6 sm:overflow-x-visible sm:px-0">
-          <div style={{ minWidth: 640 }}>{table}</div>
+          <div style={{ minWidth: TABLE_MIN_WIDTH }}>{table}</div>
         </div>
       </div>
     </section>
@@ -242,11 +250,12 @@ function ComparisonInner({ compact }: { compact: boolean }) {
         </div>
         {PLAN_NAMES.map((name, i) => {
           const isPopular = i === POPULAR_IDX;
-          // Solo card at index 0 shows the trial CTA (Solo-only trial); the
-          // paid plans use a neutral "Get started" so the two rows share
-          // one label instead of naming the plan back at the user. All
-          // three anchor-scroll to the picker at the top of the page.
-          const label = i === 0 ? "Start 7-day trial" : "Get started";
+          // Solo (idx 0) + Studio (idx 1) get the trial CTA — matches the
+          // trial-eligible plan set. Agency + Network go straight to
+          // "Get started" (direct-checkout tiers). All four anchor-scroll
+          // to the picker at the top of the page.
+          const isTrialTier = i === 0 || i === 1;
+          const label = isTrialTier ? "Start 7-day trial" : "Get started";
           return (
             <div
               key={name}
@@ -306,15 +315,27 @@ function ComparisonRowView({ row, first }: { row: ComparisonRow; first: boolean 
           >
             {row.section.toUpperCase()}
           </div>
-          <div />
-          <div
-            style={{
-              background: HL_BG,
-              borderLeft: `1px solid ${HL_BORDER}`,
-              borderRight: `1px solid ${HL_BORDER}`,
-            }}
-          />
-          <div />
+          {/* Empty placeholder cells — one per plan column so the section
+              strip aligns with the row grid. The highlighted (Studio)
+              column keeps its blue tint through the strip so the vertical
+              band reads uninterrupted top-to-bottom. */}
+          {PLAN_NAMES.map((_, i) => {
+            const isPopular = i === POPULAR_IDX;
+            return (
+              <div
+                key={i}
+                style={
+                  isPopular
+                    ? {
+                        background: HL_BG,
+                        borderLeft: `1px solid ${HL_BORDER}`,
+                        borderRight: `1px solid ${HL_BORDER}`,
+                      }
+                    : undefined
+                }
+              />
+            );
+          })}
         </div>
       ) : null}
       <div

@@ -10,7 +10,14 @@ import {
   SUPPORTED_CURRENCIES,
   type SupportedCurrency,
 } from "@/lib/currencies";
-import { PLAN_DISPLAY, PLAN_ORDER, TRIAL_DAYS, effectiveMonthlyPrice, priceFor } from "@/lib/plans";
+import {
+  isTrialEligiblePlan,
+  PLAN_DISPLAY,
+  PLAN_ORDER,
+  TRIAL_DAYS,
+  effectiveMonthlyPrice,
+  priceFor,
+} from "@/lib/plans";
 
 /**
  * Public plan picker — powers `/pricing` AND is re-mounted inside
@@ -19,11 +26,12 @@ import { PLAN_DISPLAY, PLAN_ORDER, TRIAL_DAYS, effectiveMonthlyPrice, priceFor }
  * CTAs on `/pricing` link to the sign-up flow, and the `/onboarding/plan`
  * variant posts to a server action instead.
  *
- * Revamp visual system (see `ref/UI/Revamp/`): three plan cards, STUDIO
+ * Revamp visual system (see `ref/UI/Revamp/`): four plan cards, STUDIO
  * gets a dark navy background with white text + a floating "POPULAR"
- * badge above the card and a shadow that lifts it off the row. Solo /
- * Network sit in white cards with a subtle border. CTAs pin to the
- * bottom of each card via `margin-top: auto` for consistent alignment.
+ * badge above the card and a shadow that lifts it off the row. Solo,
+ * Agency, and Network sit in white cards with a subtle border. CTAs pin
+ * to the bottom of each card via `margin-top: auto` for consistent
+ * alignment.
  */
 
 const INK = "#0a1e3c";
@@ -83,12 +91,13 @@ export function PricingPicker(
         <CurrencyPicker value={currency} onChange={setCurrency} />
       </div>
 
-      {/* Plan cards — 3 equal columns, allow the popular badge (which sits
-          -11px above the card) to render outside the row via the grid's
-          top margin. */}
+      {/* Plan cards — 4 tiers now (Solo / Studio / Agency / Network). Two
+          columns on tablet so cards stay legible, four across on md+.
+          The popular badge sits -11px above its card and needs the row's
+          top margin to render fully. */}
       <div
-        className="grid grid-cols-1 md:grid-cols-3"
-        style={{ gap: 18, marginTop: 34, alignItems: "stretch" }}
+        className="grid grid-cols-1 gap-[18px] sm:grid-cols-2 md:grid-cols-4"
+        style={{ marginTop: 34, alignItems: "stretch" }}
       >
         {PLAN_ORDER.map((plan) => (
           <PlanCard
@@ -238,12 +247,14 @@ function PlanCard({
     cadence === "ANNUAL"
       ? `Billed ${formatPlanPrice(annualPrice, currency)} yearly`
       : "Billed monthly";
-  // Trial framing is SOLO-only — Studio/Network buyers subscribe directly.
-  // The trial-eligibility flag from the parent still gates on "first-time
-  // customer" (no stripeCustomerId + trialStatus === NONE); we additionally
-  // gate on the plan here so the picker shows the same message the server
-  // action will honor. See MarketingStrategy.md §1 + `checkoutFromOnboardingAction`.
-  const showTrialFraming = mode.trialEligible && plan === Plan.SOLO;
+  // Trial framing is Solo + Studio — the two entry tiers get the
+  // $1/7-day trial; Agency and Network subscribe directly. The trial-
+  // eligibility flag from the parent still gates on "first-time
+  // customer" (no stripeCustomerId + trialStatus === NONE); the
+  // per-plan gate here mirrors the server action in
+  // `checkoutFromOnboardingAction` so the CTA copy never promises what
+  // the action won't honor.
+  const showTrialFraming = mode.trialEligible && isTrialEligiblePlan(plan);
   const trialLine = showTrialFraming
     ? `$1 today, then ${formatPlanPrice(monthlyPrice, currency)}/mo after ${TRIAL_DAYS} days`
     : cadenceHint;
@@ -262,10 +273,10 @@ function PlanCard({
   const bulletBorder = highlighted ? "rgba(255,255,255,0.14)" : "#eef1f6";
   const bulletColor = highlighted ? "#dbe4f5" : MUTED;
 
-  // Only Solo shows the trial CTA — Studio/Network go straight to
-  // subscription. The parent-supplied `submittingLabel` (onboarding
-  // fallback) is intentionally ignored on Studio/Network so we don't
-  // leak trial copy onto non-trial cards; Solo still honors it.
+  // Only trial-eligible plans (Solo + Studio) show the trial CTA — the
+  // other tiers go straight to subscription. The parent-supplied
+  // `submittingLabel` (onboarding fallback) is intentionally ignored on
+  // non-trial cards so we don't leak trial copy onto them.
   const ctaLabel = showTrialFraming
     ? `Start ${TRIAL_DAYS}-day trial`
     : mode.kind === "public"
