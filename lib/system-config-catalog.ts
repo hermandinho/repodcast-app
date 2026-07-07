@@ -1,5 +1,10 @@
-import { LANDING_SOCIAL_LINKS_KEY } from "./landing-social-links";
-import { DEFAULT_TRUSTED_BY, LANDING_TRUSTED_BY_KEY } from "./landing-trusted-by";
+import type { ZodType } from "zod";
+import { LANDING_SOCIAL_LINKS_KEY, landingSocialLinksSchema } from "./landing-social-links";
+import {
+  DEFAULT_TRUSTED_BY,
+  LANDING_TRUSTED_BY_KEY,
+  landingTrustedBySchema,
+} from "./landing-trusted-by";
 
 /**
  * Registry of every `SystemConfig` key the codebase reads at runtime. Powers
@@ -40,6 +45,16 @@ export type KnownConfigEntry = {
    * serving stale HTML for the affected page(s).
    */
   revalidatePaths?: readonly string[];
+  /**
+   * Runtime schema used by the reader. When present, `/root/config` parses
+   * the stored `SystemConfig.value` against it and surfaces mismatches
+   * inline — so an operator whose value fails validation sees the exact
+   * reason instead of a silently-empty landing surface.
+   *
+   * Typed loose (`ZodType`) so we don't need per-entry generics on the
+   * catalog. Callers only ever run `.safeParse` on the returned schema.
+   */
+  schema?: ZodType;
 };
 
 export const KNOWN_SYSTEM_CONFIG: readonly KnownConfigEntry[] = [
@@ -53,6 +68,7 @@ export const KNOWN_SYSTEM_CONFIG: readonly KnownConfigEntry[] = [
       "Strip is hidden when the key is unset. Configure it to publish a studio list — placeholder names never leak to real visitors.",
     example: DEFAULT_TRUSTED_BY,
     revalidatePaths: ["/"],
+    schema: landingTrustedBySchema,
   },
   {
     key: LANDING_SOCIAL_LINKS_KEY,
@@ -74,6 +90,7 @@ export const KNOWN_SYSTEM_CONFIG: readonly KnownConfigEntry[] = [
       ],
     },
     revalidatePaths: ["/"],
+    schema: landingSocialLinksSchema,
   },
 ];
 
@@ -83,19 +100,45 @@ export function findKnownConfig(key: string): KnownConfigEntry | undefined {
 }
 
 /**
+ * One human-readable message per schema issue. Empty array = value parses
+ * cleanly. Uses `error.issues` (rather than `flatten()`) so callers can show
+ * "links[0].platform: Invalid input" instead of a generic per-field bag.
+ */
+export type ConfigValidationIssue = { path: string; message: string };
+
+export function validateConfigValue(
+  entry: KnownConfigEntry,
+  value: unknown,
+): ConfigValidationIssue[] {
+  if (!entry.schema) return [];
+  const parsed = entry.schema.safeParse(value);
+  if (parsed.success) return [];
+  return parsed.error.issues.map((issue) => ({
+    path: issue.path.length > 0 ? issue.path.join(".") : "(root)",
+    message: issue.message,
+  }));
+}
+
+/**
  * Merge the catalog with the persisted SystemConfig rows so the UI can show
  * per-key status without cross-referencing on the render side. The catalog
  * order is preserved; unknown DB keys (ad-hoc entries added by an operator)
  * are omitted — the "Platform config" section below already lists those.
+ *
+ * `issues` is populated when the entry has a `schema` AND the stored value
+ * fails to parse. Empty array otherwise (not-yet-configured OR configured
+ * and valid OR no schema defined).
  */
 export function mergeKnownConfigStatus(
-  configured: readonly { key: string }[],
-): Array<KnownConfigEntry & { isConfigured: boolean }> {
-  const configuredKeys = new Set(configured.map((r) => r.key));
-  return KNOWN_SYSTEM_CONFIG.map((entry) => ({
-    ...entry,
-    isConfigured: configuredKeys.has(entry.key),
-  }));
+  configured: readonly { key: string; value: unknown }[],
+): Array<KnownConfigEntry & { isConfigured: boolean; issues: ConfigValidationIssue[] }> {
+  const rowByKey = new Map(configured.map((r) => [r.key, r.value]));
+  return KNOWN_SYSTEM_CONFIG.map((entry) => {
+    const value = rowByKey.get(entry.key);
+    const isConfigured = rowByKey.has(entry.key);
+    const issues = isConfigured ? validateConfigValue(entry, value) : [];
+    return { ...entry, isConfigured, issues };
+  });
 }
 
 export function countMissingKnownConfigs(configured: readonly { key: string }[]): number {

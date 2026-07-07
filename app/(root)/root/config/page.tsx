@@ -9,8 +9,11 @@ import {
 } from "@/server/db/system/config";
 import {
   countMissingKnownConfigs,
+  findKnownConfig,
   KNOWN_SYSTEM_CONFIG,
   mergeKnownConfigStatus,
+  validateConfigValue,
+  type ConfigValidationIssue,
   type KnownConfigEntry,
 } from "@/lib/system-config-catalog";
 import {
@@ -121,23 +124,37 @@ function resolvePrefill(raw: string | undefined): KnownConfigEntry | null {
 // Known configs — catalog panel
 // ============================================================
 
+type KnownConfigEntryWithStatus = KnownConfigEntry & {
+  isConfigured: boolean;
+  issues: ConfigValidationIssue[];
+};
+
 function KnownConfigsSection({
   entries,
   missingCount,
   canWrite,
 }: {
-  entries: Array<KnownConfigEntry & { isConfigured: boolean }>;
+  entries: KnownConfigEntryWithStatus[];
   missingCount: number;
   canWrite: boolean;
 }) {
   if (entries.length === 0) return null;
-  const allSet = missingCount === 0;
+  const brokenCount = entries.reduce((n, e) => (e.issues.length > 0 ? n + 1 : n), 0);
+  const allSet = missingCount === 0 && brokenCount === 0;
+  // Broken values are a harder failure than "not set" — the operator saved
+  // something that the reader is silently ignoring — so we escalate the
+  // section chrome to red when any exist.
+  const anyBroken = brokenCount > 0;
 
   return (
     <section
       id="known-configs"
       className={`flex flex-col gap-4 rounded-xl border p-4 ${
-        allSet ? "border-emerald-900/50 bg-emerald-950/10" : "border-amber-900/60 bg-amber-950/10"
+        anyBroken
+          ? "border-red-900/60 bg-red-950/20"
+          : allSet
+            ? "border-emerald-900/50 bg-emerald-950/10"
+            : "border-amber-900/60 bg-amber-950/10"
       }`}
     >
       <div className="flex items-baseline justify-between gap-3">
@@ -153,12 +170,18 @@ function KnownConfigsSection({
         </div>
         <span
           className={`shrink-0 rounded-md border px-2 py-1 font-mono text-[11px] tracking-wider uppercase ${
-            allSet
-              ? "border-emerald-700/60 bg-emerald-900/30 text-emerald-200"
-              : "border-amber-700/60 bg-amber-900/30 text-amber-200"
+            anyBroken
+              ? "border-red-700/60 bg-red-900/30 text-red-200"
+              : allSet
+                ? "border-emerald-700/60 bg-emerald-900/30 text-emerald-200"
+                : "border-amber-700/60 bg-amber-900/30 text-amber-200"
           }`}
         >
-          {allSet ? "all set" : `${missingCount} need${missingCount === 1 ? "s" : ""} setup`}
+          {anyBroken
+            ? `${brokenCount} misconfigured`
+            : allSet
+              ? "all set"
+              : `${missingCount} need${missingCount === 1 ? "s" : ""} setup`}
         </span>
       </div>
 
@@ -175,23 +198,26 @@ function KnownConfigCard({
   entry,
   canWrite,
 }: {
-  entry: KnownConfigEntry & { isConfigured: boolean };
+  entry: KnownConfigEntryWithStatus;
   canWrite: boolean;
 }) {
   const exampleJson = JSON.stringify(entry.example, null, 2);
+  const isBroken = entry.isConfigured && entry.issues.length > 0;
   return (
     <li
       className={`rounded-lg border ${
-        entry.isConfigured
-          ? "border-emerald-900/40 bg-emerald-950/10"
-          : "border-amber-900/50 bg-zinc-900/40"
+        isBroken
+          ? "border-red-900/60 bg-red-950/20"
+          : entry.isConfigured
+            ? "border-emerald-900/40 bg-emerald-950/10"
+            : "border-amber-900/50 bg-zinc-900/40"
       }`}
     >
-      <details className="group" open={!entry.isConfigured}>
+      <details className="group" open={!entry.isConfigured || isBroken}>
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
           <div className="flex min-w-0 flex-col gap-1">
             <div className="flex items-center gap-2">
-              <StatusDot ok={entry.isConfigured} />
+              <StatusDot tone={isBroken ? "error" : entry.isConfigured ? "ok" : "warn"} />
               <span className="font-mono text-[12px] text-white">{entry.key}</span>
               <span className="truncate text-[12px] text-zinc-400">— {entry.label}</span>
             </div>
@@ -199,17 +225,26 @@ function KnownConfigCard({
           </div>
           <span
             className={`shrink-0 rounded px-2 py-0.5 font-mono text-[10.5px] tracking-wider uppercase ${
-              entry.isConfigured
-                ? "bg-emerald-900/30 text-emerald-200"
-                : "bg-amber-900/30 text-amber-200"
+              isBroken
+                ? "bg-red-900/40 text-red-200"
+                : entry.isConfigured
+                  ? "bg-emerald-900/30 text-emerald-200"
+                  : "bg-amber-900/30 text-amber-200"
             }`}
           >
-            {entry.isConfigured ? "configured" : "not set"}
+            {isBroken ? "misconfigured" : entry.isConfigured ? "configured" : "not set"}
           </span>
         </summary>
 
         <div className="border-t border-zinc-800 px-4 py-4 text-[12.5px]">
-          {entry.isConfigured ? (
+          {isBroken ? (
+            <SchemaIssuesBanner
+              issues={entry.issues}
+              hint="The reader is falling back to defaults because the stored value doesn't match the schema. Fix the value under “Platform config” below."
+            />
+          ) : null}
+
+          {entry.isConfigured && !isBroken ? (
             <p className="text-emerald-200/80">
               Value is persisted in{" "}
               <code className="rounded bg-zinc-800 px-1 py-0.5 font-mono text-[11px] text-zinc-200">
@@ -217,7 +252,7 @@ function KnownConfigCard({
               </code>
               . Scroll down to the “Platform config” section to view or edit it.
             </p>
-          ) : (
+          ) : !entry.isConfigured ? (
             <div className="flex flex-col gap-3">
               <div className="flex flex-col gap-1 text-zinc-300">
                 <div>
@@ -272,19 +307,45 @@ function KnownConfigCard({
                 </p>
               )}
             </div>
-          )}
+          ) : null}
         </div>
       </details>
     </li>
   );
 }
 
-function StatusDot({ ok }: { ok: boolean }) {
+function StatusDot({ tone }: { tone: "ok" | "warn" | "error" }) {
+  const cls = tone === "ok" ? "bg-emerald-400" : tone === "warn" ? "bg-amber-400" : "bg-red-400";
+  return <span aria-hidden="true" className={`inline-block size-2 rounded-full ${cls}`} />;
+}
+
+/**
+ * Shared error banner used by both the Known-configs card and the
+ * Platform-config card. Lists each Zod issue as `path: message` so the
+ * operator can find the exact field to fix.
+ */
+function SchemaIssuesBanner({ issues, hint }: { issues: ConfigValidationIssue[]; hint?: string }) {
   return (
-    <span
-      aria-hidden="true"
-      className={`inline-block size-2 rounded-full ${ok ? "bg-emerald-400" : "bg-amber-400"}`}
-    />
+    <div className="mb-3 rounded-lg border border-red-900/60 bg-red-950/30 p-3">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="font-mono text-[10.5px] tracking-wider text-red-200 uppercase">
+          Schema mismatch
+        </span>
+        <span className="font-mono text-[10.5px] text-red-300/70">
+          {issues.length} issue{issues.length === 1 ? "" : "s"}
+        </span>
+      </div>
+      {hint ? <p className="mb-2 text-[12px] text-red-100/90">{hint}</p> : null}
+      <ul className="flex flex-col gap-1">
+        {issues.map((issue, idx) => (
+          <li key={idx} className="font-mono text-[11.5px] text-red-100">
+            <span className="text-red-300">{issue.path}</span>
+            <span className="text-red-400/70"> — </span>
+            <span>{issue.message}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -328,15 +389,30 @@ function SystemConfigSection({
 }
 
 function SystemConfigCard({ row, canWrite }: { row: SystemConfigRow; canWrite: boolean }) {
+  // If the key is one of the ones the codebase knows about, validate the
+  // stored value inline. Ad-hoc keys have no schema and stay silent.
+  const catalogEntry = findKnownConfig(row.key);
+  const issues = catalogEntry ? validateConfigValue(catalogEntry, row.value) : [];
+  const isBroken = issues.length > 0;
+
   return (
-    <li className="rounded-lg border border-zinc-800 bg-zinc-900/40">
-      <details className="group">
+    <li
+      className={`rounded-lg border ${
+        isBroken ? "border-red-900/60 bg-red-950/20" : "border-zinc-800 bg-zinc-900/40"
+      }`}
+    >
+      <details className="group" open={isBroken}>
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
           <div className="flex min-w-0 flex-col gap-1">
             <div className="flex items-center gap-2">
               <span className="font-mono text-[12px] text-white">{row.key}</span>
               {row.description ? (
                 <span className="truncate text-[12px] text-zinc-500">— {row.description}</span>
+              ) : null}
+              {isBroken ? (
+                <span className="shrink-0 rounded bg-red-900/40 px-2 py-0.5 font-mono text-[10.5px] tracking-wider text-red-200 uppercase">
+                  Schema mismatch
+                </span>
               ) : null}
             </div>
             <div className="text-[11.5px] text-zinc-500">
@@ -350,6 +426,12 @@ function SystemConfigCard({ row, canWrite }: { row: SystemConfigRow; canWrite: b
         </summary>
 
         <div className="border-t border-zinc-800 px-4 py-4">
+          {isBroken ? (
+            <SchemaIssuesBanner
+              issues={issues}
+              hint="Reader is falling back to defaults until this is fixed. Edit the value below and save."
+            />
+          ) : null}
           <pre className="mb-3 max-h-64 overflow-auto rounded border border-zinc-800 bg-zinc-950 p-3 font-mono text-[11px] leading-relaxed text-zinc-300">
             {stringifyJsonValue(row.value)}
           </pre>
