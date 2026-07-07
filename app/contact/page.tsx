@@ -73,7 +73,10 @@ export default async function ContactPage() {
     <div className="w-full overflow-x-hidden">
       <LandingNav isSignedIn={isSignedIn} />
       <main style={{ background: "#FBFCFE" }}>
-        <div className="mx-auto px-7" style={{ maxWidth: 900, paddingTop: 72, paddingBottom: 96 }}>
+        <div
+          className="mx-auto px-5 pt-12 pb-16 sm:px-7 sm:pt-16 sm:pb-24 md:pt-[72px] md:pb-24"
+          style={{ maxWidth: 900 }}
+        >
           <p
             className="m-0 text-[11px] font-medium uppercase"
             style={{
@@ -85,7 +88,7 @@ export default async function ContactPage() {
             Contact
           </p>
           <h1
-            className="mt-3 mb-4 text-[42px] leading-[1.1] font-semibold"
+            className="mt-3 mb-4 text-[32px] leading-[1.1] font-semibold sm:text-[38px] md:text-[42px]"
             style={{
               fontFamily: "var(--font-display)",
               color: "#1A2A4A",
@@ -95,24 +98,21 @@ export default async function ContactPage() {
             Get in touch.
           </h1>
           <p
-            className="m-0 text-[16.5px]"
+            className="m-0 text-[15px] sm:text-[16.5px]"
             style={{ color: "#5A6473", lineHeight: 1.7, maxWidth: 640 }}
           >
             Pick the mailbox that fits — messages route straight to the person who owns that area,
             not into a shared inbox that nobody watches.
           </p>
 
-          <div
-            className="mt-12 grid gap-5"
-            style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}
-          >
+          <div className="mt-8 grid grid-cols-1 gap-4 sm:mt-12 sm:grid-cols-2 sm:gap-5">
             {cards.map((card) => (
               <ContactCard key={card.email} card={card} />
             ))}
             <AbuseCard />
           </div>
 
-          <p className="mt-10 text-[13.5px]" style={{ color: "#6B7BA3", lineHeight: 1.6 }}>
+          <p className="mt-8 text-[13.5px] sm:mt-10" style={{ color: "#6B7BA3", lineHeight: 1.6 }}>
             Prefer to read first?{" "}
             <Link
               href="/legal/privacy"
