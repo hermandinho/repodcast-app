@@ -5,6 +5,7 @@ import { isClerkAPIResponseError } from "@clerk/shared/error";
 import type { MemberRole, Plan, SystemAdminRole, TrialStatus } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { prisma } from "@/server/db/client";
+import { hasActiveAccess } from "@/server/billing/limits";
 import { ForbiddenError } from "./errors";
 import { readImpersonationPayload, type ImpersonationMode } from "./impersonation";
 
@@ -46,6 +47,13 @@ export type AuthContext = {
      * unpaid agencies get bounced to /onboarding.
      */
     stripeSubscriptionId: string | null;
+    /**
+     * ROOT-granted free-access window. Non-null AND in the future = the
+     * agency clears the "has active subscription" gate without a Stripe sub.
+     * Surfaced on the auth context so the dashboard layout can decide with
+     * one call instead of a second DB round-trip. See `hasActiveAccess`.
+     */
+    compAccessExpiresAt: Date | null;
     /**
      * Phase 3.9 — trial state, surfaced here so the dashboard shell can
      * render the "X days left" banner without a second lookup. `trialEndsAt`
@@ -145,6 +153,7 @@ export async function getAuthContext(): Promise<AuthContext | null> {
             name: true,
             plan: true,
             stripeSubscriptionId: true,
+            compAccessExpiresAt: true,
             trialStatus: true,
             trialEndsAt: true,
           },
@@ -167,6 +176,7 @@ export async function getAuthContext(): Promise<AuthContext | null> {
       name: member.agency.name,
       plan: member.agency.plan,
       stripeSubscriptionId: member.agency.stripeSubscriptionId,
+      compAccessExpiresAt: member.agency.compAccessExpiresAt,
       trialStatus: member.agency.trialStatus,
       trialEndsAt: member.agency.trialEndsAt,
     },
@@ -205,6 +215,7 @@ async function resolveImpersonatedContext(
             name: true,
             plan: true,
             stripeSubscriptionId: true,
+            compAccessExpiresAt: true,
             trialStatus: true,
             trialEndsAt: true,
           },
@@ -232,6 +243,7 @@ async function resolveImpersonatedContext(
       name: impersonatedMember.agency.name,
       plan: impersonatedMember.agency.plan,
       stripeSubscriptionId: impersonatedMember.agency.stripeSubscriptionId,
+      compAccessExpiresAt: impersonatedMember.agency.compAccessExpiresAt,
       trialStatus: impersonatedMember.agency.trialStatus,
       trialEndsAt: impersonatedMember.agency.trialEndsAt,
     },
@@ -283,11 +295,12 @@ export function assertRole(ctx: AuthContext, allowed: readonly MemberRole[]): vo
 }
 
 /**
- * Refuse write actions when the agency has no live Stripe subscription
- * — canceled subs land here, since the webhook nulls
- * `stripeSubscriptionId` on `customer.subscription.deleted`. Trialing
- * subs still count as live (Stripe issues a subscription id at trial
- * start), so this doesn't block the free-trial flow.
+ * Refuse write actions when the agency has no live access — a Stripe
+ * subscription OR a ROOT-granted comp window that hasn't expired yet.
+ * Canceled subs land here (the webhook nulls `stripeSubscriptionId` on
+ * `customer.subscription.deleted`); trialing subs still count as live
+ * (Stripe issues a subscription id at trial start), so this doesn't
+ * block the free-trial flow.
  *
  * Placed alongside `assertRole` so create/mutate server actions can
  * gate in one call before touching the DB. The dashboard layout also
@@ -298,7 +311,7 @@ export function assertRole(ctx: AuthContext, allowed: readonly MemberRole[]): vo
  * the redirect.
  */
 export function assertActiveSubscription(ctx: AuthContext): void {
-  if (!ctx.agency.stripeSubscriptionId) {
+  if (!hasActiveAccess(ctx.agency)) {
     throw new ForbiddenError(
       "Your subscription isn't active. Resume it (or pick a plan) in Settings → Billing before creating new content.",
     );

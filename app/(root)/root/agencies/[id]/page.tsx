@@ -205,6 +205,7 @@ export default async function RootAgencyDrilldownPage({
         agencyName={agency.name}
         agencyPlan={agency.plan}
         planOverride={agency.planOverride}
+        compAccessExpiresAt={agency.compAccessExpiresAt}
         suspendedAt={agency.suspendedAt}
         stripeSubscriptionId={agency.stripeSubscriptionId}
         latestInvoice={latestInvoice}
@@ -268,6 +269,9 @@ const ACTION_OK_COPY: Record<string, string> = {
   unsuspended: "Agency unsuspended. Tenant dashboard access restored.",
   override_granted: "Plan override granted.",
   override_revoked: "Plan override revoked.",
+  comp_access_granted: "Comp access granted. The agency now clears the paid-only gate.",
+  comp_access_extended: "Comp access extended.",
+  comp_access_revoked: "Comp access revoked. Standard billing gate applies again.",
   subscription_canceled: "Stripe subscription canceled; local plan downgraded to STUDIO.",
   trial_extended: "Trial extended. Stripe and local trialEndsAt updated.",
 };

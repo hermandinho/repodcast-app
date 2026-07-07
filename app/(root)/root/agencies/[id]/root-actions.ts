@@ -7,11 +7,14 @@ import type { Plan } from "@prisma/client";
 import { ForbiddenError, NotFoundError, ValidationError } from "@/server/auth/errors";
 import { requireSystemAdminContext } from "@/server/auth/system";
 import {
+  extendAgencyCompAccess,
   extendAgencyTrial,
   forceCancelAgencySubscription,
+  grantAgencyCompAccess,
   grantAgencyPlanOverride,
   hardDeleteAgency,
   recordInvoiceRefundIntent,
+  revokeAgencyCompAccess,
   revokeAgencyPlanOverride,
   suspendAgency,
   unsuspendAgency,
@@ -94,6 +97,57 @@ export async function revokeAgencyPlanOverrideAction(formData: FormData): Promis
   }
   revalidatePath(`/root/agencies/${id}`);
   redirect(`/root/agencies/${id}?action_ok=override_revoked`);
+}
+
+// ============================================================
+// Comp access (free dashboard access, no Stripe sub)
+// ============================================================
+
+export async function grantAgencyCompAccessAction(formData: FormData): Promise<void> {
+  const ctx = await requireSystemAdminContext();
+  const id = strOrEmpty(formData.get("id"));
+
+  try {
+    await grantAgencyCompAccess(ctx, {
+      id,
+      durationDays: Number.parseInt(strOrEmpty(formData.get("durationDays")), 10),
+      note: strOrEmpty(formData.get("note")),
+    });
+  } catch (err) {
+    redirect(`/root/agencies/${id}?action_error=${errCode(err)}`);
+  }
+  revalidatePath(`/root/agencies/${id}`);
+  redirect(`/root/agencies/${id}?action_ok=comp_access_granted`);
+}
+
+export async function extendAgencyCompAccessAction(formData: FormData): Promise<void> {
+  const ctx = await requireSystemAdminContext();
+  const id = strOrEmpty(formData.get("id"));
+
+  try {
+    await extendAgencyCompAccess(ctx, {
+      id,
+      additionalDays: Number.parseInt(strOrEmpty(formData.get("additionalDays")), 10),
+      note: strOrEmpty(formData.get("note")),
+    });
+  } catch (err) {
+    redirect(`/root/agencies/${id}?action_error=${errCode(err)}`);
+  }
+  revalidatePath(`/root/agencies/${id}`);
+  redirect(`/root/agencies/${id}?action_ok=comp_access_extended`);
+}
+
+export async function revokeAgencyCompAccessAction(formData: FormData): Promise<void> {
+  const ctx = await requireSystemAdminContext();
+  const id = strOrEmpty(formData.get("id"));
+
+  try {
+    await revokeAgencyCompAccess(ctx, { id, note: strOrEmpty(formData.get("note")) });
+  } catch (err) {
+    redirect(`/root/agencies/${id}?action_error=${errCode(err)}`);
+  }
+  revalidatePath(`/root/agencies/${id}`);
+  redirect(`/root/agencies/${id}?action_ok=comp_access_revoked`);
 }
 
 // ============================================================

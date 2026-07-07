@@ -7,6 +7,7 @@ import { NavDrawerProvider } from "@/components/shell/nav-drawer-context";
 import { Sidebar } from "@/components/shell/sidebar";
 import { Topbar } from "@/components/shell/topbar";
 import { getAuthContext } from "@/server/auth/context";
+import { hasActiveAccess } from "@/server/billing/limits";
 import { isLiveDb } from "@/server/data/source";
 
 // Module-level helpers — kept out of the component body so the react-hooks/
@@ -25,12 +26,13 @@ function formatShortDate(d: Date): string {
  * Two gates, checked off a single `getAuthContext` payload:
  *   1. Signed in and belongs to an agency? If not → /onboarding (the
  *      router decides between workspace vs plan substep).
- *   2. Agency carries a Stripe `stripeSubscriptionId`? If not → same,
- *      the router forwards to /onboarding/plan. `/settings/*` is
- *      exempt so a user whose subscription was just canceled can still
- *      reach Billing (to resubscribe) or the Agency danger zone (to
- *      delete the workspace); otherwise the moment the Stripe webhook
- *      nulls `stripeSubscriptionId` they'd be trapped in onboarding.
+ *   2. Agency clears `hasActiveAccess` (live Stripe sub OR unexpired
+ *      ROOT-granted comp window)? If not → same, the router forwards
+ *      to /onboarding/plan. `/settings/*` is exempt so a user whose
+ *      subscription was just canceled can still reach Billing (to
+ *      resubscribe) or the Agency danger zone (to delete the
+ *      workspace); otherwise the moment the Stripe webhook nulls
+ *      `stripeSubscriptionId` they'd be trapped in onboarding.
  *
  * Sample-data mode skips both — the demo tenant is always "set up".
  *
@@ -44,7 +46,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const isSettingsPath = pathname.startsWith("/settings");
   if (isLiveDb()) {
     if (!auth) redirect("/onboarding");
-    if (!auth.agency.stripeSubscriptionId && !isSettingsPath) redirect("/onboarding");
+    if (!hasActiveAccess(auth.agency) && !isSettingsPath) redirect("/onboarding");
   }
 
   return (

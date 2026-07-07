@@ -5,7 +5,7 @@ import { z } from "zod";
 import { NotFoundError } from "@/server/auth/errors";
 import { requireRole, type TenantContext } from "@/server/auth/tenant";
 import { SUPPORTED_CURRENCIES } from "@/lib/currencies";
-import { assertMinPlan, getAgencyPlan } from "@/server/billing/limits";
+import { assertMinPlan, getAgencyPlan, hasActiveAccess } from "@/server/billing/limits";
 import { sendWelcomeEmail } from "@/server/email/send";
 import { prisma } from "./client";
 
@@ -167,7 +167,8 @@ export async function userHasAnyMembership(clerkUserId: string): Promise<boolean
  *    zone to delete). Signalled by a non-null `stripeCustomerId`, which
  *    Stripe stamps on the very first Checkout Session — the same marker the
  *    trial-eligibility gate uses.
- *  - `{ kind: "paying", agencyId, agencyName }` — sub is live → /dashboard
+ *  - `{ kind: "paying", agencyId, agencyName }` — sub is live OR a
+ *    ROOT-granted comp window is still open → /dashboard
  *
  * Scoped to the user's oldest agency, matching every other "which agency
  * are we onboarding" helper. Multi-agency membership is a separate flow.
@@ -200,13 +201,14 @@ export async function getOnboardingStateForUser(
           name: true,
           stripeSubscriptionId: true,
           stripeCustomerId: true,
+          compAccessExpiresAt: true,
         },
       },
     },
   });
   if (!member) return { kind: "no-membership" };
   const { agency } = member;
-  if (agency.stripeSubscriptionId) {
+  if (hasActiveAccess(agency)) {
     return { kind: "paying", agencyId: agency.id, agencyName: agency.name };
   }
   return {

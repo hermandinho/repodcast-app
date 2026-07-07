@@ -239,7 +239,18 @@ model Agency {
   /// below) their paid tier without touching Stripe — comp accounts,
   /// partners, support escalations. Every grant / revoke lands an audit row
   /// with the operator's justification.
+  ///
+  /// Note: `planOverride` shapes CAPACITY only. Whether an agency has
+  /// dashboard *access* without a Stripe sub is gated separately on
+  /// `compAccessExpiresAt` below.
   planOverride            Plan?
+  /// ROOT-granted free access. When non-null and in the future, the agency
+  /// clears the "has active subscription" gate exactly as a Stripe sub would
+  /// — the onboarding router routes them to /dashboard, the dashboard layout
+  /// lets them through, and `assertActiveSubscription` accepts their writes.
+  /// A past date is treated as "expired" (equivalent to null). Grant/revoke
+  /// go through `withSystemAudit`.
+  compAccessExpiresAt     DateTime?
   /// Phase 3.9 — trial lifecycle. `trialEndsAt` mirrors Stripe's
   /// `subscription.trial_end`; the webhook stamps it on `syncSubscription`.
   /// Null on agencies that never trialed (legacy + paid-first). `trialStatus`

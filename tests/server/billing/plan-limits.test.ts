@@ -40,6 +40,7 @@ import {
   assertMinPlan,
   assertPlanCapacity,
   getAgencyPlan,
+  hasActiveAccess,
   loadCapacityForUI,
   planCapacity,
 } from "@/server/billing/limits";
@@ -351,5 +352,58 @@ describe("planCapacity — override consumption", () => {
     expect(result.limit).toBe(0);
     // assertPlanCapacity would fire ForbiddenError on any usage against this
     // cap — which is exactly the abuse-throttle path the override enables.
+  });
+});
+
+// ============================================================
+// hasActiveAccess — shared predicate for the "paid access" gates
+// ============================================================
+
+describe("hasActiveAccess", () => {
+  it("returns true when a Stripe subscription is live (no comp needed)", () => {
+    expect(
+      hasActiveAccess({
+        stripeSubscriptionId: "sub_123",
+        compAccessExpiresAt: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("returns true when comp window is in the future — no Stripe sub required", () => {
+    expect(
+      hasActiveAccess({
+        stripeSubscriptionId: null,
+        compAccessExpiresAt: new Date(Date.now() + 60 * 1000),
+      }),
+    ).toBe(true);
+  });
+
+  it("returns false when comp window has expired", () => {
+    expect(
+      hasActiveAccess({
+        stripeSubscriptionId: null,
+        compAccessExpiresAt: new Date(Date.now() - 60 * 1000),
+      }),
+    ).toBe(false);
+  });
+
+  it("returns false when both signals are absent (post-cancel, no comp)", () => {
+    expect(
+      hasActiveAccess({
+        stripeSubscriptionId: null,
+        compAccessExpiresAt: null,
+      }),
+    ).toBe(false);
+  });
+
+  it("Stripe sub trumps an expired comp — canceled+comp customer stays inside the app", () => {
+    // Should never happen in practice (revokeAgencyCompAccess nulls the
+    // field), but the predicate is defensive: EITHER signal is sufficient.
+    expect(
+      hasActiveAccess({
+        stripeSubscriptionId: "sub_123",
+        compAccessExpiresAt: new Date(Date.now() - 60 * 1000),
+      }),
+    ).toBe(true);
   });
 });

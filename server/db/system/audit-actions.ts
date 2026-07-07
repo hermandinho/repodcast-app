@@ -21,6 +21,9 @@ export const SYSTEM_AUDIT_ACTIONS = {
   AGENCY_UNSUSPEND: "agency.unsuspend",
   AGENCY_GRANT_PLAN_OVERRIDE: "agency.grant_plan_override",
   AGENCY_REVOKE_PLAN_OVERRIDE: "agency.revoke_plan_override",
+  AGENCY_GRANT_COMP_ACCESS: "agency.grant_comp_access",
+  AGENCY_EXTEND_COMP_ACCESS: "agency.extend_comp_access",
+  AGENCY_REVOKE_COMP_ACCESS: "agency.revoke_comp_access",
   AGENCY_HARD_DELETE: "agency.hard_delete",
   AGENCY_UPDATE_NOTE: "agency.update_note",
 

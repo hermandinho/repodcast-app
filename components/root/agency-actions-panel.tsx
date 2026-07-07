@@ -1,14 +1,27 @@
 import type { InvoiceStatus, Plan, SystemAdminRole, TrialStatus } from "@prisma/client";
 import {
+  extendAgencyCompAccessAction,
   extendAgencyTrialAction,
   forceCancelAgencySubscriptionAction,
+  grantAgencyCompAccessAction,
   grantAgencyPlanOverrideAction,
   hardDeleteAgencyAction,
   recordInvoiceRefundIntentAction,
+  revokeAgencyCompAccessAction,
   revokeAgencyPlanOverrideAction,
   suspendAgencyAction,
   unsuspendAgencyAction,
 } from "@/app/(root)/root/agencies/[id]/root-actions";
+
+/**
+ * Kept out of the component body so the react-hooks/purity rule doesn't flag
+ * `Date.now()` as impure inside render. Matches the `daysUntil` pattern used
+ * by the dashboard layout for the trial banner.
+ */
+function isCompAccessActive(expiresAt: Date | null): boolean {
+  if (!expiresAt) return false;
+  return expiresAt.getTime() > Date.now();
+}
 
 /**
  * Phase 3.6.5 — ROOT-side actions rendered on the agency drilldown's
@@ -25,6 +38,7 @@ export function AgencyActionsPanel({
   agencyName,
   agencyPlan,
   planOverride,
+  compAccessExpiresAt,
   suspendedAt,
   stripeSubscriptionId,
   latestInvoice,
@@ -36,6 +50,7 @@ export function AgencyActionsPanel({
   agencyName: string;
   agencyPlan: Plan;
   planOverride: Plan | null;
+  compAccessExpiresAt: Date | null;
   suspendedAt: Date | null;
   stripeSubscriptionId: string | null;
   latestInvoice: {
@@ -66,26 +81,40 @@ export function AgencyActionsPanel({
   const isSuspended = suspendedAt !== null;
   const hasOverride = planOverride !== null;
   const hasSub = Boolean(stripeSubscriptionId);
+  const compActive = isCompAccessActive(compAccessExpiresAt);
   const canHardDelete = viewerRole === "ROOT";
 
   return (
     <section className="flex flex-col gap-4">
       <div className="flex items-baseline justify-between">
         <h2 className="font-display text-lg font-semibold text-white">ROOT actions</h2>
-        {isSuspended ? (
-          <span className="rounded bg-red-500/20 px-2 py-0.5 font-mono text-[10.5px] tracking-wider text-red-200 uppercase">
-            Suspended
-          </span>
-        ) : hasOverride ? (
-          <span className="rounded bg-amber-500/20 px-2 py-0.5 font-mono text-[10.5px] tracking-wider text-amber-200 uppercase">
-            Override: {planOverride}
-          </span>
-        ) : null}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {isSuspended ? (
+            <span className="rounded bg-red-500/20 px-2 py-0.5 font-mono text-[10.5px] tracking-wider text-red-200 uppercase">
+              Suspended
+            </span>
+          ) : null}
+          {hasOverride ? (
+            <span className="rounded bg-amber-500/20 px-2 py-0.5 font-mono text-[10.5px] tracking-wider text-amber-200 uppercase">
+              Override: {planOverride}
+            </span>
+          ) : null}
+          {compActive ? (
+            <span className="rounded bg-emerald-500/20 px-2 py-0.5 font-mono text-[10.5px] tracking-wider text-emerald-200 uppercase">
+              Comp active
+            </span>
+          ) : null}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <SuspendCard agencyId={agencyId} isSuspended={isSuspended} suspendedAt={suspendedAt} />
         <PlanOverrideCard agencyId={agencyId} agencyPlan={agencyPlan} planOverride={planOverride} />
+        <CompAccessCard
+          agencyId={agencyId}
+          compAccessExpiresAt={compAccessExpiresAt}
+          hasSub={hasSub}
+        />
         <ForceCancelCard agencyId={agencyId} agencyName={agencyName} hasSub={hasSub} />
         <RefundCard agencyId={agencyId} latestInvoice={latestInvoice} />
         {trialStatus === "ACTIVE" ? (
@@ -229,6 +258,143 @@ function PlanOverrideCard({
             Revoke override
           </button>
         </form>
+      ) : null}
+    </ActionCard>
+  );
+}
+
+// ============================================================
+// Comp access (free dashboard access — no Stripe sub needed)
+// ============================================================
+
+/** Duration presets in days. 3650 (10y) is the schema cap. */
+const COMP_DURATION_PRESETS = [30, 90, 180, 365, 3650] as const;
+
+function formatDaysFromNow(target: Date): string {
+  const diffMs = target.getTime() - Date.now();
+  if (diffMs <= 0) return "expired";
+  const days = Math.ceil(diffMs / 86_400_000);
+  if (days <= 90) return `${days} day${days === 1 ? "" : "s"} left`;
+  const months = Math.round(days / 30);
+  if (months <= 24) return `~${months} months left`;
+  return `~${Math.round(days / 365)} years left`;
+}
+
+function CompAccessCard({
+  agencyId,
+  compAccessExpiresAt,
+  hasSub,
+}: {
+  agencyId: string;
+  compAccessExpiresAt: Date | null;
+  hasSub: boolean;
+}) {
+  const active = isCompAccessActive(compAccessExpiresAt);
+  const expired = compAccessExpiresAt !== null && !active;
+
+  return (
+    <ActionCard
+      label="Comp access"
+      description={
+        active
+          ? `Grants dashboard access without a Stripe subscription. Expires ${compAccessExpiresAt!
+              .toISOString()
+              .slice(0, 10)} (${formatDaysFromNow(compAccessExpiresAt!)}). Extend or revoke below.`
+          : expired
+            ? `Previous comp window expired ${compAccessExpiresAt!.toISOString().slice(0, 10)}. Grant a new one to restore access.`
+            : hasSub
+              ? "The agency already has a live Stripe subscription. Grant a comp only for internal demo tenants or post-cancel goodwill."
+              : "Grants dashboard access without a Stripe subscription. Use for internal demos, partner comps, or support-case escalations."
+      }
+    >
+      <form action={grantAgencyCompAccessAction} className="flex flex-col gap-2">
+        <input type="hidden" name="id" value={agencyId} />
+        <label className="flex flex-col gap-1">
+          <span className="font-mono text-[10px] tracking-wider text-zinc-500 uppercase">
+            Duration
+          </span>
+          <select
+            name="durationDays"
+            required
+            defaultValue={90}
+            className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-[12.5px] text-zinc-100"
+          >
+            {COMP_DURATION_PRESETS.map((d) => (
+              <option key={d} value={d}>
+                {d === 3650 ? "10 years (effectively indefinite)" : `${d} days`}
+              </option>
+            ))}
+          </select>
+        </label>
+        <input
+          type="text"
+          name="note"
+          required
+          minLength={3}
+          maxLength={500}
+          placeholder="Reason (internal demo, partner comp, support case ...)"
+          className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-[12.5px] text-zinc-100 placeholder:text-zinc-500"
+        />
+        <button
+          type="submit"
+          className="rounded border border-emerald-500/60 bg-emerald-500/10 px-3 py-2 text-[12.5px] font-medium text-emerald-100 hover:bg-emerald-500/20"
+        >
+          {active ? "Replace comp window" : "Grant comp access"}
+        </button>
+      </form>
+
+      {active ? (
+        <>
+          <form action={extendAgencyCompAccessAction} className="mt-2 flex flex-col gap-2">
+            <input type="hidden" name="id" value={agencyId} />
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                name="additionalDays"
+                defaultValue={30}
+                min={1}
+                max={3650}
+                required
+                className="w-24 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-[12.5px] text-zinc-100"
+              />
+              <span className="text-[12px] text-zinc-500">days to add</span>
+            </div>
+            <input
+              type="text"
+              name="note"
+              required
+              minLength={3}
+              maxLength={500}
+              placeholder="Reason to extend"
+              className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-[12.5px] text-zinc-100 placeholder:text-zinc-500"
+            />
+            <button
+              type="submit"
+              className="rounded border border-sky-500/60 bg-sky-500/10 px-3 py-2 text-[12.5px] font-medium text-sky-100 hover:bg-sky-500/20"
+            >
+              Extend comp window
+            </button>
+          </form>
+
+          <form action={revokeAgencyCompAccessAction} className="mt-2 flex items-center gap-2">
+            <input type="hidden" name="id" value={agencyId} />
+            <input
+              type="text"
+              name="note"
+              required
+              minLength={3}
+              maxLength={500}
+              placeholder="Reason to revoke"
+              className="flex-1 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-[12.5px] text-zinc-100 placeholder:text-zinc-500"
+            />
+            <button
+              type="submit"
+              className="rounded border border-zinc-700 px-3 py-2 text-[12.5px] text-zinc-300 hover:bg-zinc-800"
+            >
+              Revoke
+            </button>
+          </form>
+        </>
       ) : null}
     </ActionCard>
   );

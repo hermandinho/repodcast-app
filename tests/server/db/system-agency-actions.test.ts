@@ -50,10 +50,13 @@ vi.mock("@/server/storage/r2", () => ({
 
 import type { SystemAdminContext } from "@/server/auth/system";
 import {
+  extendAgencyCompAccess,
   forceCancelAgencySubscription,
+  grantAgencyCompAccess,
   grantAgencyPlanOverride,
   hardDeleteAgency,
   recordInvoiceRefundIntent,
+  revokeAgencyCompAccess,
   revokeAgencyPlanOverride,
   suspendAgency,
   unsuspendAgency,
@@ -311,6 +314,203 @@ describe("revokeAgencyPlanOverride", () => {
 
     await expect(
       revokeAgencyPlanOverride(ctx(), { id: "agc_1", note: "cleanup" }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+});
+
+// ============================================================
+// Comp access — free dashboard access without a Stripe sub
+// ============================================================
+
+describe("grantAgencyCompAccess", () => {
+  it("rejects SUPPORT with ForbiddenError before any TX", async () => {
+    await expect(
+      grantAgencyCompAccess(ctx("SUPPORT"), {
+        id: "agc_1",
+        durationDays: 90,
+        note: "demo tenant",
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    expect(mocks.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("stamps compAccessExpiresAt ~durationDays out + fires agency.grant_comp_access audit", async () => {
+    mocks.agencyFindUnique.mockResolvedValueOnce({
+      id: "agc_1",
+      name: "Acme",
+      compAccessExpiresAt: null,
+    });
+    mocks.agencyUpdate.mockImplementationOnce(
+      async (args: { data: { compAccessExpiresAt: Date } }) => ({
+        id: "agc_1",
+        name: "Acme",
+        compAccessExpiresAt: args.data.compAccessExpiresAt,
+      }),
+    );
+    const fake = buildFakeTx();
+    mocks.$transaction.mockImplementation(async (cb: (t: unknown) => Promise<unknown>) =>
+      cb(fake.tx),
+    );
+
+    const before = Date.now();
+    const result = await grantAgencyCompAccess(ctx(), {
+      id: "agc_1",
+      durationDays: 90,
+      note: "internal demo",
+    });
+    const after = Date.now();
+
+    // Expiry should be within [now + 90d - epsilon, now + 90d + epsilon]
+    const expected90d = 90 * 86_400_000;
+    expect(result.compAccessExpiresAt.getTime()).toBeGreaterThanOrEqual(before + expected90d - 5);
+    expect(result.compAccessExpiresAt.getTime()).toBeLessThanOrEqual(after + expected90d + 5);
+    expect(fake.auditWrites[0]?.action).toBe("agency.grant_comp_access");
+  });
+
+  it("rejects a duration outside [1, 3650] days at Zod validation", async () => {
+    await expect(
+      grantAgencyCompAccess(ctx(), { id: "agc_1", durationDays: 0, note: "x" }),
+    ).rejects.toThrow();
+    await expect(
+      grantAgencyCompAccess(ctx(), { id: "agc_1", durationDays: 4000, note: "x" }),
+    ).rejects.toThrow();
+  });
+});
+
+describe("extendAgencyCompAccess", () => {
+  it("adds days on top of a live comp expiry", async () => {
+    const currentExpiry = new Date(Date.now() + 10 * 86_400_000);
+    mocks.agencyFindUnique.mockResolvedValueOnce({
+      id: "agc_1",
+      name: "Acme",
+      compAccessExpiresAt: currentExpiry,
+    });
+    mocks.agencyUpdate.mockImplementationOnce(
+      async (args: { data: { compAccessExpiresAt: Date } }) => ({
+        id: "agc_1",
+        name: "Acme",
+        compAccessExpiresAt: args.data.compAccessExpiresAt,
+      }),
+    );
+    const fake = buildFakeTx();
+    mocks.$transaction.mockImplementation(async (cb: (t: unknown) => Promise<unknown>) =>
+      cb(fake.tx),
+    );
+
+    const result = await extendAgencyCompAccess(ctx(), {
+      id: "agc_1",
+      additionalDays: 30,
+      note: "extension",
+    });
+
+    // Live comp → extension stacks: current + 30d
+    expect(result.compAccessExpiresAt.getTime()).toBe(currentExpiry.getTime() + 30 * 86_400_000);
+    expect(fake.auditWrites[0]?.action).toBe("agency.extend_comp_access");
+  });
+
+  it("rebases off now when the current expiry is already in the past", async () => {
+    const expiredAt = new Date(Date.now() - 5 * 86_400_000);
+    mocks.agencyFindUnique.mockResolvedValueOnce({
+      id: "agc_1",
+      name: "Acme",
+      compAccessExpiresAt: expiredAt,
+    });
+    mocks.agencyUpdate.mockImplementationOnce(
+      async (args: { data: { compAccessExpiresAt: Date } }) => ({
+        id: "agc_1",
+        name: "Acme",
+        compAccessExpiresAt: args.data.compAccessExpiresAt,
+      }),
+    );
+    const fake = buildFakeTx();
+    mocks.$transaction.mockImplementation(async (cb: (t: unknown) => Promise<unknown>) =>
+      cb(fake.tx),
+    );
+
+    const before = Date.now();
+    const result = await extendAgencyCompAccess(ctx(), {
+      id: "agc_1",
+      additionalDays: 30,
+      note: "renew",
+    });
+    const after = Date.now();
+
+    // Expired comp → rebase off `now`, so expiry lands ~30d out (not
+    // "still in the past + 30d").
+    const expected = 30 * 86_400_000;
+    expect(result.compAccessExpiresAt.getTime()).toBeGreaterThanOrEqual(before + expected - 5);
+    expect(result.compAccessExpiresAt.getTime()).toBeLessThanOrEqual(after + expected + 5);
+  });
+
+  it("rebases off now when compAccessExpiresAt was null", async () => {
+    mocks.agencyFindUnique.mockResolvedValueOnce({
+      id: "agc_1",
+      name: "Acme",
+      compAccessExpiresAt: null,
+    });
+    mocks.agencyUpdate.mockImplementationOnce(
+      async (args: { data: { compAccessExpiresAt: Date } }) => ({
+        id: "agc_1",
+        name: "Acme",
+        compAccessExpiresAt: args.data.compAccessExpiresAt,
+      }),
+    );
+    const fake = buildFakeTx();
+    mocks.$transaction.mockImplementation(async (cb: (t: unknown) => Promise<unknown>) =>
+      cb(fake.tx),
+    );
+
+    const before = Date.now();
+    const result = await extendAgencyCompAccess(ctx(), {
+      id: "agc_1",
+      additionalDays: 7,
+      note: "grant-via-extend",
+    });
+    const after = Date.now();
+
+    const expected = 7 * 86_400_000;
+    expect(result.compAccessExpiresAt.getTime()).toBeGreaterThanOrEqual(before + expected - 5);
+    expect(result.compAccessExpiresAt.getTime()).toBeLessThanOrEqual(after + expected + 5);
+  });
+});
+
+describe("revokeAgencyCompAccess", () => {
+  it("nulls compAccessExpiresAt when one is active", async () => {
+    mocks.agencyFindUnique.mockResolvedValueOnce({
+      id: "agc_1",
+      name: "Acme",
+      compAccessExpiresAt: new Date(Date.now() + 10 * 86_400_000),
+    });
+    mocks.agencyUpdate.mockResolvedValueOnce({
+      id: "agc_1",
+      name: "Acme",
+      compAccessExpiresAt: null,
+    });
+    const fake = buildFakeTx();
+    mocks.$transaction.mockImplementation(async (cb: (t: unknown) => Promise<unknown>) =>
+      cb(fake.tx),
+    );
+
+    await revokeAgencyCompAccess(ctx(), { id: "agc_1", note: "partner offboarded" });
+
+    const updateArgs = fake.agencyUpdates[0] as { data: { compAccessExpiresAt: Date | null } };
+    expect(updateArgs.data.compAccessExpiresAt).toBeNull();
+    expect(fake.auditWrites[0]?.action).toBe("agency.revoke_comp_access");
+  });
+
+  it("throws ValidationError when there's no comp access to revoke", async () => {
+    mocks.agencyFindUnique.mockResolvedValueOnce({
+      id: "agc_1",
+      name: "Acme",
+      compAccessExpiresAt: null,
+    });
+    const fake = buildFakeTx();
+    mocks.$transaction.mockImplementation(async (cb: (t: unknown) => Promise<unknown>) =>
+      cb(fake.tx),
+    );
+
+    await expect(
+      revokeAgencyCompAccess(ctx(), { id: "agc_1", note: "cleanup" }),
     ).rejects.toBeInstanceOf(ValidationError);
   });
 });

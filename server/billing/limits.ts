@@ -103,6 +103,27 @@ export async function assertPlanCapacity(
 }
 
 /**
+ * Does this agency currently have valid dashboard access? True when it has
+ * an active Stripe subscription OR a live ROOT-granted comp window
+ * (`compAccessExpiresAt` in the future). This is the shared predicate used
+ * by every "block if unpaid" gate — the onboarding router, the dashboard
+ * layout, and `assertActiveSubscription`.
+ *
+ * A single field pair (`stripeSubscriptionId`, `compAccessExpiresAt`) is
+ * enough — checking `Date.now()` inline avoids a stale-clock race (a
+ * long-lived server component reading a cached value at the top of the
+ * request lifecycle) and needs no cron to clean up expired comps.
+ */
+export function hasActiveAccess(agency: {
+  stripeSubscriptionId: string | null;
+  compAccessExpiresAt: Date | null;
+}): boolean {
+  if (agency.stripeSubscriptionId) return true;
+  if (agency.compAccessExpiresAt && agency.compAccessExpiresAt.getTime() > Date.now()) return true;
+  return false;
+}
+
+/**
  * Read the current agency's *effective* plan in one query. Prefers
  * `planOverride` (set by ROOT via `grantAgencyPlanOverride`) when present —
  * so comp accounts and support-escalation grants take effect without

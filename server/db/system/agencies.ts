@@ -81,6 +81,9 @@ export type AgencyDetailForRoot = {
   plan: Plan;
   /** Non-null when a ROOT-side plan override is in effect. */
   planOverride: Plan | null;
+  /** Non-null while a ROOT-granted free-access window is in effect. A past
+   *  value means the comp has expired and the standard gate applies again. */
+  compAccessExpiresAt: Date | null;
   /** Non-null when the agency is suspended. Tenant dashboard bounces on this. */
   suspendedAt: Date | null;
   createdAt: Date;
@@ -333,6 +336,7 @@ export async function getAgencyForRoot(
       name: true,
       plan: true,
       planOverride: true,
+      compAccessExpiresAt: true,
       suspendedAt: true,
       createdAt: true,
       updatedAt: true,
@@ -414,6 +418,7 @@ export async function getAgencyForRoot(
     name: agency.name,
     plan: agency.plan,
     planOverride: agency.planOverride,
+    compAccessExpiresAt: agency.compAccessExpiresAt,
     suspendedAt: agency.suspendedAt,
     createdAt: agency.createdAt,
     updatedAt: agency.updatedAt,
@@ -707,6 +712,176 @@ export async function revokeAgencyPlanOverride(
         where: { id: input.id },
         data: { planOverride: null },
         select: { id: true, name: true, plan: true, planOverride: true },
+      });
+      audit.setAfter(after);
+    },
+  );
+}
+
+// ============================================================
+// Comp access — free dashboard access, no Stripe sub required.
+// ============================================================
+//
+// A ROOT-granted `Agency.compAccessExpiresAt` is treated as an equivalent
+// signal to `stripeSubscriptionId` by the three access gates:
+//
+//   - `getOnboardingStateForUser` — routes to /dashboard instead of /plan
+//   - dashboard layout — lets the request through
+//   - `assertActiveSubscription` — accepts writes
+//
+// Grants are always time-boxed (1..3650 days) so a comp doesn't become
+// permanent by accident. Operators can extend or revoke at any time.
+
+/** Upper bound for a single grant / extension. Ten years is functionally
+ * "indefinite" but forces a re-audit if we ever want longer. */
+const COMP_ACCESS_MAX_DAYS = 3650;
+
+export const grantAgencyCompAccessInput = z.object({
+  id: z.string().trim().min(1),
+  /** Length of the comp window from now, in days. */
+  durationDays: z.coerce.number().int().min(1).max(COMP_ACCESS_MAX_DAYS),
+  /** Required — audit note (partner deal, internal demo, support case ...). */
+  note: z.string().trim().min(3).max(500),
+});
+export type GrantAgencyCompAccessInput = z.input<typeof grantAgencyCompAccessInput>;
+
+/**
+ * Grant a fresh comp window. Overwrites any existing `compAccessExpiresAt`
+ * outright — `extendAgencyCompAccess` is the additive variant. Same-TX audit
+ * row lands `before`/`after` snapshots so the log records what got clobbered.
+ */
+export async function grantAgencyCompAccess(
+  ctx: SystemAdminContext,
+  rawInput: GrantAgencyCompAccessInput,
+): Promise<{ compAccessExpiresAt: Date }> {
+  assertSystemRole(ctx, SYSTEM_WRITE_ROLES);
+  const input = grantAgencyCompAccessInput.parse(rawInput);
+
+  const newExpiry = new Date(Date.now() + input.durationDays * 86_400_000);
+  await withSystemAudit(
+    ctx,
+    {
+      action: SYSTEM_AUDIT_ACTIONS.AGENCY_GRANT_COMP_ACCESS,
+      targetAgencyId: input.id,
+      note: input.note,
+    },
+    async (tx, audit) => {
+      const before = await tx.agency.findUnique({
+        where: { id: input.id },
+        select: { id: true, name: true, compAccessExpiresAt: true },
+      });
+      if (!before) throw new NotFoundError(`Agency ${input.id} not found`);
+      audit.setBefore(before);
+
+      const after = await tx.agency.update({
+        where: { id: input.id },
+        data: { compAccessExpiresAt: newExpiry },
+        select: { id: true, name: true, compAccessExpiresAt: true },
+      });
+      audit.setAfter(after);
+    },
+  );
+  return { compAccessExpiresAt: newExpiry };
+}
+
+export const extendAgencyCompAccessInput = z.object({
+  id: z.string().trim().min(1),
+  /** Days added to the current `compAccessExpiresAt`. If the current value is
+   *  null OR already in the past, extension is measured from `now` instead. */
+  additionalDays: z.coerce.number().int().min(1).max(COMP_ACCESS_MAX_DAYS),
+  note: z.string().trim().min(3).max(500),
+});
+export type ExtendAgencyCompAccessInput = z.input<typeof extendAgencyCompAccessInput>;
+
+/**
+ * Push `compAccessExpiresAt` further into the future by N days. Rebases off
+ * `now` when the current comp has already lapsed so an extension always
+ * results in a live window (rather than a still-past date).
+ */
+export async function extendAgencyCompAccess(
+  ctx: SystemAdminContext,
+  rawInput: ExtendAgencyCompAccessInput,
+): Promise<{ compAccessExpiresAt: Date }> {
+  assertSystemRole(ctx, SYSTEM_WRITE_ROLES);
+  const input = extendAgencyCompAccessInput.parse(rawInput);
+
+  let newExpiry: Date | null = null;
+
+  await withSystemAudit(
+    ctx,
+    {
+      action: SYSTEM_AUDIT_ACTIONS.AGENCY_EXTEND_COMP_ACCESS,
+      targetAgencyId: input.id,
+      note: input.note,
+    },
+    async (tx, audit) => {
+      const before = await tx.agency.findUnique({
+        where: { id: input.id },
+        select: { id: true, name: true, compAccessExpiresAt: true },
+      });
+      if (!before) throw new NotFoundError(`Agency ${input.id} not found`);
+      audit.setBefore(before);
+
+      const base =
+        before.compAccessExpiresAt && before.compAccessExpiresAt.getTime() > Date.now()
+          ? before.compAccessExpiresAt
+          : new Date();
+      newExpiry = new Date(base.getTime() + input.additionalDays * 86_400_000);
+
+      const after = await tx.agency.update({
+        where: { id: input.id },
+        data: { compAccessExpiresAt: newExpiry },
+        select: { id: true, name: true, compAccessExpiresAt: true },
+      });
+      audit.setAfter(after);
+    },
+  );
+  // newExpiry is always assigned inside the audit callback above; the
+  // non-null assertion is safe once the TX has committed successfully.
+  return { compAccessExpiresAt: newExpiry! };
+}
+
+export const revokeAgencyCompAccessInput = z.object({
+  id: z.string().trim().min(1),
+  note: z.string().trim().min(3).max(500),
+});
+export type RevokeAgencyCompAccessInput = z.input<typeof revokeAgencyCompAccessInput>;
+
+/**
+ * Immediately end the comp window by nulling `compAccessExpiresAt`. The
+ * agency snaps back to the standard Stripe-gated flow on the next request.
+ * Errors if there was nothing active to revoke (matches the pattern used by
+ * `revokeAgencyPlanOverride`).
+ */
+export async function revokeAgencyCompAccess(
+  ctx: SystemAdminContext,
+  rawInput: RevokeAgencyCompAccessInput,
+): Promise<void> {
+  assertSystemRole(ctx, SYSTEM_WRITE_ROLES);
+  const input = revokeAgencyCompAccessInput.parse(rawInput);
+
+  await withSystemAudit(
+    ctx,
+    {
+      action: SYSTEM_AUDIT_ACTIONS.AGENCY_REVOKE_COMP_ACCESS,
+      targetAgencyId: input.id,
+      note: input.note,
+    },
+    async (tx, audit) => {
+      const before = await tx.agency.findUnique({
+        where: { id: input.id },
+        select: { id: true, name: true, compAccessExpiresAt: true },
+      });
+      if (!before) throw new NotFoundError(`Agency ${input.id} not found`);
+      if (before.compAccessExpiresAt === null) {
+        throw new ValidationError(`Agency ${input.id} has no active comp access`);
+      }
+      audit.setBefore(before);
+
+      const after = await tx.agency.update({
+        where: { id: input.id },
+        data: { compAccessExpiresAt: null },
+        select: { id: true, name: true, compAccessExpiresAt: true },
       });
       audit.setAfter(after);
     },
