@@ -66,7 +66,7 @@ export async function getSystemAdminContext(): Promise<SystemAdminContext | null
     }),
   ]);
 
-  console.log("getSystemAdminContext", { user, admin });
+  // console.log("getSystemAdminContext", { user, admin });
 
   if (!user || !admin) return null;
 
