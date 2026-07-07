@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Inter, JetBrains_Mono, Schibsted_Grotesk, Sora, Spline_Sans_Mono } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import { ConsentBanner } from "@/components/consent/consent-banner";
 import { PostHogProvider } from "@/components/providers/posthog-provider";
 import { clerkAppearance } from "@/lib/clerk-appearance";
@@ -63,6 +64,7 @@ export default function RootLayout({
         <body className="min-h-full">
           <PostHogProvider>{children}</PostHogProvider>
           <ConsentBanner />
+          <Analytics />
         </body>
       </html>
     </ClerkProvider>
