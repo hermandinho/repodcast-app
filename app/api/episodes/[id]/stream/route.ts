@@ -33,6 +33,17 @@ import { listOutputsForEpisode } from "@/server/db/outputs";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+/**
+ * Tell Vercel this handler is allowed to stream for up to 5 minutes.
+ * Without this, the platform default (10s legacy / 60s Fluid Compute)
+ * kills the response mid-poll — the client reconnects, but a 1–3 min
+ * RSS import + generate can churn through the reconnect cycle without a
+ * live connection ever coinciding with the moment outputs land. Matches
+ * `MAX_DURATION_MS` below. Pro plan caps at 300s; Hobby will still cap
+ * lower and cycle, but the client-side `router.refresh()` in the
+ * snapshot handler keeps state converging across reconnects.
+ */
+export const maxDuration = 300;
 
 const POLL_MS = 1500;
 const HEARTBEAT_MS = 15_000;
@@ -316,6 +327,19 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       };
 
       heartbeatTimer = setInterval(heartbeat, HEARTBEAT_MS);
+
+      // Flush an immediate `:connected` comment so the EventSource fires
+      // `onopen` *before* the first DB poll completes. Two payoffs:
+      //   1. Any proxy on the path (Vercel edge, corporate proxy) sees
+      //      bytes and stops buffering the response as if it might be
+      //      a regular JSON API.
+      //   2. The client's `consecutiveErrors` counter can reset on the
+      //      established connection even if the first poll is slow.
+      try {
+        controller.enqueue(encoder.encode(`: connected\n\n`));
+      } catch {
+        // Ignore — cleanup path takes over.
+      }
 
       // Kick off — `void` so the start() callback returns synchronously.
       void poll().catch((err) => {

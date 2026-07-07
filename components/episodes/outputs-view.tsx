@@ -415,6 +415,13 @@ export function OutputsView({
             return old ? mergeOutput(old, p) : buildNewRowFromPayload(p);
           });
         });
+        // Vercel serverless caps stream length, so a long RSS import
+        // cycles the SSE connection every 60–300s. `episode.pipeline`
+        // (awaitingTranscript, source, status) is a server-computed prop
+        // — only a `router.refresh()` refetches it. Piggybacking on the
+        // reconnect's fresh snapshot avoids the panel getting stuck on
+        // "Importing…" after transcript lands mid-cycle.
+        router.refresh();
       });
 
       es.addEventListener("output", (ev) => {
