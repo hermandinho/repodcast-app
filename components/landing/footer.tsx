@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { CookiePreferencesButton } from "@/components/consent/cookie-preferences-button";
+import { DEFAULT_SOCIAL_LINKS, type LandingSocialLinks } from "@/lib/landing-social-links";
 import { BrandMark } from "./nav";
+import { SocialIcon, socialLabel } from "./social-icon";
 
 const COLUMNS = [
   {
@@ -29,7 +31,17 @@ const COLUMNS = [
   },
 ];
 
-export function LandingFooter() {
+export function LandingFooter({
+  socialLinks = DEFAULT_SOCIAL_LINKS,
+}: {
+  /**
+   * Managed from `/root/config` under the `LANDING_SOCIAL_LINKS` key.
+   * Server fetch + fallback lives in `lib/landing-social-links.ts`; the
+   * footer itself just renders what it's given. Absent / empty →
+   * the row is hidden entirely (no placeholder icons).
+   */
+  socialLinks?: LandingSocialLinks;
+} = {}) {
   return (
     <footer className="px-5 pt-12 pb-8 sm:px-7 sm:pt-14 sm:pb-10" style={{ background: "#13203B" }}>
       <div className="mx-auto" style={{ maxWidth: 1180 }}>
@@ -49,6 +61,27 @@ export function LandingFooter() {
             >
               Platform-ready content from every client episode — in their voice, sharper every time.
             </p>
+            {socialLinks.links.length > 0 ? (
+              <div className="mt-5 flex flex-wrap items-center gap-3">
+                {socialLinks.links.map((link) => (
+                  <a
+                    key={link.platform}
+                    href={link.href}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    aria-label={socialLabel(link.platform)}
+                    className="inline-flex size-9 items-center justify-center rounded-md border transition-colors"
+                    style={{
+                      borderColor: "#2A3C60",
+                      color: "#A9B6D4",
+                      background: "transparent",
+                    }}
+                  >
+                    <SocialIcon platform={link.platform} className="size-4" />
+                  </a>
+                ))}
+              </div>
+            ) : null}
           </div>
           {COLUMNS.map((col) => (
             <div key={col.title}>

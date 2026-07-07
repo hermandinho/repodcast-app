@@ -1,3 +1,4 @@
+import { LANDING_SOCIAL_LINKS_KEY } from "./landing-social-links";
 import { DEFAULT_TRUSTED_BY, LANDING_TRUSTED_BY_KEY } from "./landing-trusted-by";
 
 /**
@@ -51,6 +52,27 @@ export const KNOWN_SYSTEM_CONFIG: readonly KnownConfigEntry[] = [
     defaultBehavior:
       "Strip is hidden when the key is unset. Configure it to publish a studio list — placeholder names never leak to real visitors.",
     example: DEFAULT_TRUSTED_BY,
+    revalidatePaths: ["/"],
+  },
+  {
+    key: LANDING_SOCIAL_LINKS_KEY,
+    label: "Landing footer social links",
+    purpose:
+      "Social profile URLs rendered as icons in the landing-page footer. Platform slug is a fixed enum (twitter, linkedin, youtube, instagram, github, tiktok, facebook, threads).",
+    readAt: "lib/landing-social-links.ts",
+    defaultBehavior:
+      "Footer social row is hidden when the key is unset. Set it once with the profile URLs you want visitors to hit.",
+    // Non-empty example so "Configure with defaults" seeds a usable
+    // scaffold instead of an empty array. Operators are expected to swap
+    // in their real profile URLs — the placeholders below are Repodcast's
+    // canonical brand handles.
+    example: {
+      links: [
+        { platform: "twitter", href: "https://twitter.com/repodcastapp" },
+        { platform: "linkedin", href: "https://www.linkedin.com/company/repodcast" },
+        { platform: "youtube", href: "https://youtube.com/@repodcast" },
+      ],
+    },
     revalidatePaths: ["/"],
   },
 ];
