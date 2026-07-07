@@ -44,6 +44,19 @@ const isPublicRoute = createRouteMatcher([
   // every non-allowlisted request to this page. Must be public so the
   // splash itself renders without auth.
   "/coming-soon",
+  // File-based metadata routes (Next app-router conventions). Social
+  // crawlers and search engines fetch these anonymously — if Clerk's
+  // `auth.protect()` runs, they get a 404 rewrite and link previews
+  // ship without images, sitemaps go undiscovered, etc. Next appends
+  // a content-hash query string to the image routes (e.g.
+  // `/opengraph-image?abc123`), so the trailing `(.*)` isn't optional.
+  "/opengraph-image(.*)",
+  "/twitter-image(.*)",
+  "/icon(.*)",
+  "/apple-icon(.*)",
+  "/sitemap.xml",
+  "/robots.txt",
+  "/manifest.webmanifest",
 ]);
 
 /**
