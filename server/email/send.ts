@@ -21,6 +21,10 @@ import {
   type OnboardingFinishSetupEmailProps,
 } from "./templates/onboarding-finish-setup";
 import {
+  SuggestionReceivedEmail,
+  type SuggestionReceivedEmailProps,
+} from "./templates/suggestion-received";
+import {
   OnboardingFirstClientEmail,
   type OnboardingFirstClientEmailProps,
 } from "./templates/onboarding-first-client";
@@ -344,6 +348,36 @@ export async function sendTrialDay2Email(
   return send({
     to,
     subject: `${props.agencyName}: here's what your client sees`,
+    html,
+  });
+}
+
+// ============================================================
+// In-app feedback / suggestion notification
+// ============================================================
+
+const SUGGESTION_SUBJECT_PREFIX: Record<SuggestionReceivedEmailProps["type"], string> = {
+  BUG: "[Bug]",
+  FEATURE_REQUEST: "[Feature]",
+  IMPROVEMENT: "[Improvement]",
+  QUESTION: "[Question]",
+  OTHER: "[Feedback]",
+};
+
+/**
+ * Sent to the feedback inbox (`CONTACT_EMAILS.feedback`) when a user
+ * submits via the dashboard Feedback button. Fire-and-forget from the
+ * server action — the durable inbox is the `Suggestion` row in Postgres.
+ */
+export async function sendSuggestionReceivedEmail(
+  to: string | string[],
+  props: Omit<SuggestionReceivedEmailProps, "triageUrl">,
+): Promise<SendResult> {
+  const triageUrl = `${APP_BASE_URL}/root/feedback`;
+  const html = await render(SuggestionReceivedEmail({ ...props, triageUrl }));
+  return send({
+    to,
+    subject: `${SUGGESTION_SUBJECT_PREFIX[props.type]} ${props.title}`,
     html,
   });
 }

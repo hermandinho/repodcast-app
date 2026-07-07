@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { FeedbackButton } from "@/components/dashboard/feedback-button";
 import { ImpersonationBanner } from "@/components/dashboard/impersonation-banner";
 import { TrialBanner } from "@/components/dashboard/trial-banner";
 import { NavDrawerProvider } from "@/components/shell/nav-drawer-context";
@@ -70,6 +71,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           ) : null}
           <main className="flex-1 overflow-y-auto">{children}</main>
         </div>
+        <FeedbackButton />
       </div>
     </NavDrawerProvider>
   );

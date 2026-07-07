@@ -15,6 +15,12 @@ export const CONTACT_EMAILS = {
   privacy: process.env.CONTACT_EMAIL_PRIVACY ?? "privacy@repodcastapp.com",
   security: process.env.CONTACT_EMAIL_SECURITY ?? "security@repodcastapp.com",
   legal: process.env.CONTACT_EMAIL_LEGAL ?? "legal@repodcastapp.com",
+  /**
+   * Inbox that receives in-app Feedback submissions (Bug / Feature request
+   * / etc.) from the tenant dashboard's Feedback button. Also surfaced on
+   * `/root/feedback` for triage — email is a best-effort mirror.
+   */
+  feedback: process.env.CONTACT_EMAIL_FEEDBACK ?? "feedback@repodcastapp.com",
 } as const;
 
 export type ContactEmailKey = keyof typeof CONTACT_EMAILS;

@@ -174,6 +174,29 @@ enum TrialStatus {
   CANCELED
 }
 
+/// Kind of in-app suggestion the reporter picked. `OTHER` is the escape
+/// hatch so we never force a reporter to lie about their category. The
+/// enum is deliberately narrow — anything beyond this and we build a
+/// discovery surface, not a triage queue.
+enum SuggestionType {
+  BUG
+  FEATURE_REQUEST
+  IMPROVEMENT
+  QUESTION
+  OTHER
+}
+
+/// Lifecycle state of a `Suggestion`. Terminal states (`SHIPPED`,
+/// `WONTFIX`) stamp `resolvedAt`; everything else is open triage.
+enum SuggestionStatus {
+  NEW
+  TRIAGED
+  PLANNED
+  IN_PROGRESS
+  SHIPPED
+  WONTFIX
+}
+
 // ============================================================
 // Tenant & access
 // ============================================================
@@ -250,6 +273,7 @@ model Agency {
   limitOverrides       AgencyLimitOverride[]
   integrations         AgencyIntegration[]
   notifications        Notification[]
+  suggestions          Suggestion[]
 
   /// Same hot-path index as declared inline in the migration — mirrored here
   /// so `prisma migrate diff` stays clean on the next migration boundary.
@@ -295,6 +319,8 @@ model Member {
   /// Notifications for which this member was the actor (e.g. the editor
   /// who requested review).
   actorOfNotifications      Notification[]         @relation("NotificationActor")
+  /// In-app suggestions this member submitted.
+  suggestions               Suggestion[]
 
   @@unique([agencyId, clerkUserId])
   @@index([agencyId])
@@ -1100,6 +1126,8 @@ model SystemAdmin {
   /// `onDelete: SetNull` on the FK so a soft-delete drops the queue link
   /// without losing the report itself.
   assignedAbuseReports   AbuseReport[]         @relation("AbuseAssignee")
+  /// In-app suggestions this admin resolved / shipped / rejected.
+  resolvedSuggestions    Suggestion[]          @relation("SuggestionResolver")
 
   @@index([role])
   @@index([deactivatedAt])
@@ -1388,4 +1416,62 @@ model AgencyIntegration {
   /// overwrites the token via upsert rather than creating a duplicate row.
   @@unique([agencyId, provider])
   @@index([agencyId])
+}
+
+// ============================================================
+// In-app suggestions / feedback (Bug, Request, Improvement, …)
+// ============================================================
+//
+// User-submitted feedback captured from the dashboard's floating Feedback
+// button. The row is the durable source of truth; a Resend email to the
+// feedback inbox is fire-and-forget so a Resend hiccup can never fail the
+// submission itself.
+//
+// FK posture mirrors AbuseReport pointers (nullable + SetNull) so hard-
+// deleting an agency or removing a member doesn't cascade-wipe historical
+// feedback — the queue on `/root/feedback` still renders the row with a
+// snapshotted `reporterEmail`/`reporterName`.
+
+model Suggestion {
+  id                      String           @id @default(cuid())
+  /// Agency the reporter belonged to at submission. Null when the
+  /// reporter had no active membership; historical rows also null-out
+  /// on agency hard-delete.
+  agencyId                String?
+  /// Member row of the reporter. Same nullability + SetNull rationale as
+  /// `agencyId`.
+  memberId                String?
+  /// Snapshotted at submit time so the row still reads correctly after
+  /// the member is removed from the agency.
+  reporterEmail           String
+  reporterName            String?
+  type                    SuggestionType
+  /// One-line summary — length-capped in the create input.
+  title                   String
+  /// Free-text body — length-capped in the create input.
+  body                    String
+  status                  SuggestionStatus @default(NEW)
+  /// The pathname the reporter was on when they hit "Send feedback".
+  /// Helps operators reproduce a bug or eyeball a feature request in
+  /// context. Free-form; validated to `startsWith("/")` at input.
+  contextUrl              String?
+  /// Free-text resolution note the operator typed when moving the row
+  /// to `SHIPPED` or `WONTFIX`. Null on non-terminal states.
+  resolution              String?
+  resolvedAt              DateTime?
+  resolvedBySystemAdminId String?
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+
+  agency                Agency?      @relation(fields: [agencyId], references: [id], onDelete: SetNull)
+  member                Member?      @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  resolvedBySystemAdmin SystemAdmin? @relation("SuggestionResolver", fields: [resolvedBySystemAdminId], references: [id], onDelete: SetNull)
+
+  /// Queue hot path: paginated queue sorted by (status, age).
+  @@index([status, createdAt])
+  /// Filter-dropdown hot path on `/root/feedback`.
+  @@index([type, status])
+  /// "All feedback from agency X" drill-in.
+  @@index([agencyId, createdAt])
+  @@index([resolvedBySystemAdminId])
 }

@@ -48,6 +48,9 @@ export const SYSTEM_AUDIT_ACTIONS = {
   ABUSE_RESOLVE: "abuse.resolve",
   ABUSE_DISMISS: "abuse.dismiss",
 
+  SUGGESTION_STATUS_CHANGE: "suggestion.status_change",
+  SUGGESTION_RESOLVE: "suggestion.resolve",
+
   IMPERSONATE_START: "impersonate.start",
   IMPERSONATE_END: "impersonate.end",
   IMPERSONATE_PROMOTE_WRITE: "impersonate.promote_write",
