@@ -36,6 +36,7 @@
     "@react-email/render": "~2.0.9",
     "@react-pdf/renderer": "~4.5.1",
     "@sentry/nextjs": "~10.62.0",
+    "@vercel/analytics": "^2.0.1",
     "inngest": "~4.11.0",
     "next": "16.2.9",
     "pg": "~8.22.0",
