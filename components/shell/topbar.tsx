@@ -4,6 +4,7 @@ import { listClientsForUI, listShowsForUI } from "@/server/data/source";
 import { resolveTenantContext } from "@/server/data/tenant";
 import { ClientSwitcher, type ClientWithCounts } from "./client-switcher";
 import { NavToggle } from "./nav-toggle";
+import { SearchShell } from "./search-shell";
 
 /**
  * Dashboard topbar — revamp visual system (see `ref/UI/Revamp/`).
@@ -64,6 +65,7 @@ export async function Topbar() {
       </div>
 
       <div className="ml-auto flex flex-shrink-0 items-center" style={{ gap: 12 }}>
+        <SearchShell />
         {/*<Link*/}
         {/*  href="/episodes/new"*/}
         {/*  aria-label="New episode"*/}

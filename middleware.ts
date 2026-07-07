@@ -25,6 +25,12 @@ const isPublicRoute = createRouteMatcher([
   "/api/inngest(.*)",
   // Uptime probes (Vercel + external monitors) must work without auth.
   "/api/health",
+  // Global command-palette search — the route self-gates via
+  // `getAuthContext` and returns 401 empty for unauth live-mode callers.
+  // Sample-data mode needs to reach the handler without a Clerk session so
+  // fresh clones can demo the palette; opting into `isPublicRoute` lets
+  // the handler make that decision.
+  "/api/search",
   // Phase 2.5 — client portal: the token itself is the credential, no
   // Clerk login required. Route handler validates expiry + revocation.
   "/portal/(.*)",

@@ -29,6 +29,7 @@ import {
   listRecentTransitions as dbListRecentTransitions,
   type TransitionWithContext,
 } from "@/server/db/transitions";
+import { searchAgency as dbSearchAgency } from "@/server/db/search";
 import {
   countSamplesByPlatform as dbCountSamplesByPlatform,
   listVoiceSamplesForShow as dbListVoiceSamplesForShow,
@@ -946,4 +947,123 @@ function colorForRecent(name: string): string {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0;
   return RECENT_PALETTE[Math.abs(hash) % RECENT_PALETTE.length];
+}
+
+// ============================================================
+// Global search — clients + shows + episodes
+// ============================================================
+
+export type SearchHit =
+  | { kind: "client"; id: string; name: string; href: string }
+  | {
+      kind: "show";
+      id: string;
+      name: string;
+      host: string;
+      clientName: string;
+      href: string;
+    }
+  | {
+      kind: "episode";
+      id: string;
+      title: string;
+      showName: string;
+      clientName: string;
+      dateLabel: string;
+      href: string;
+    };
+
+export type SearchResultsForUI = {
+  clients: Extract<SearchHit, { kind: "client" }>[];
+  shows: Extract<SearchHit, { kind: "show" }>[];
+  episodes: Extract<SearchHit, { kind: "episode" }>[];
+};
+
+const EMPTY_SEARCH: SearchResultsForUI = { clients: [], shows: [], episodes: [] };
+
+function includesFold(haystack: string, needle: string): boolean {
+  return haystack.toLowerCase().includes(needle.toLowerCase());
+}
+
+export async function searchForUI(
+  ctx: TenantContext,
+  q: string,
+  limit = 5,
+): Promise<SearchResultsForUI> {
+  const needle = q.trim();
+  if (needle.length < 2) return EMPTY_SEARCH;
+
+  if (!isLiveDb()) {
+    const clients = sampleClients
+      .filter((c) => includesFold(c.name, needle))
+      .slice(0, limit)
+      .map((c) => ({
+        kind: "client" as const,
+        id: c.key,
+        name: c.name,
+        href: `/clients/${c.key}`,
+      }));
+
+    const shows = sampleShows
+      .filter((s) => includesFold(s.name, needle) || includesFold(s.host, needle))
+      .slice(0, limit)
+      .map((s) => {
+        const parent = sampleClients.find((c) => c.key === s.clientKey);
+        return {
+          kind: "show" as const,
+          id: s.key,
+          name: s.name,
+          host: s.host,
+          clientName: parent?.name ?? "",
+          href: `/shows/${s.key}`,
+        };
+      });
+
+    const episodes = Object.values(sampleEpisodes)
+      .filter((e) => includesFold(e.episode, needle))
+      .slice(0, limit)
+      .map((e) => {
+        const show = sampleShows.find((s) => s.key === e.clientKey);
+        const parent = show ? sampleClients.find((c) => c.key === show.clientKey) : null;
+        return {
+          kind: "episode" as const,
+          id: e.id,
+          title: e.episode,
+          showName: show?.name ?? "",
+          clientName: parent?.name ?? "",
+          dateLabel: "",
+          href: `/episodes/${e.id}`,
+        };
+      });
+
+    return { clients, shows, episodes };
+  }
+
+  const raw = await dbSearchAgency(ctx, needle, limit);
+
+  return {
+    clients: raw.clients.map((c) => ({
+      kind: "client",
+      id: c.id,
+      name: c.name,
+      href: `/clients/${c.id}`,
+    })),
+    shows: raw.shows.map((s) => ({
+      kind: "show",
+      id: s.id,
+      name: s.name,
+      host: s.host,
+      clientName: s.client.name,
+      href: `/shows/${s.id}`,
+    })),
+    episodes: raw.episodes.map((e) => ({
+      kind: "episode",
+      id: e.id,
+      title: e.title,
+      showName: e.show.name,
+      clientName: e.show.client.name,
+      dateLabel: formatShortDate(e.createdAt),
+      href: `/episodes/${e.id}`,
+    })),
+  };
 }
