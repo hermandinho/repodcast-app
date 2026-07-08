@@ -1,7 +1,8 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { MemberRole } from "@prisma/client";
+import { FeatureUpgradePrompt } from "@/components/billing/feature-upgrade-prompt";
 import { WorkflowForm } from "@/components/clients/workflow-form";
+import { planIncludesFeature } from "@/lib/plan-features";
 import { getAgencyPlan } from "@/server/billing/limits";
 import { getClient } from "@/server/db/clients";
 import { getClientForUI, isLiveDb } from "@/server/data/source";
@@ -42,12 +43,11 @@ export default async function ClientWorkflowPage({ params }: { params: Promise<{
   }
 
   const plan = await getAgencyPlan(tenant.agencyId);
-  const planUnlocksWorkflow = plan === "AGENCY" || plan === "NETWORK";
 
-  if (!planUnlocksWorkflow) {
+  if (!planIncludesFeature(plan, "clientWorkflow")) {
     return (
       <div className="mx-auto max-w-[720px]">
-        <WorkflowUpgradePrompt />
+        <FeatureUpgradePrompt feature="clientWorkflow" />
       </div>
     );
   }
@@ -69,54 +69,6 @@ export default async function ClientWorkflowPage({ params }: { params: Promise<{
         initialNotificationEmails={client.notificationEmails}
         ownerEmail={ownerMember?.email ?? null}
       />
-    </div>
-  );
-}
-
-/**
- * Inline upsell shown on Solo / Studio when an OWNER/ADMIN opens the
- * workflow tab. Styled to match the portal-mint upgrade banner in
- * `PortalLinksCard` so the "you need Agency to touch portals" story
- * reads the same in both places. The tab itself stays visible on lower
- * plans (users need to see WHY it isn't editable), but the form is
- * replaced with this card.
- */
-function WorkflowUpgradePrompt() {
-  return (
-    <div className="border-border bg-surface rounded-2xl border p-6">
-      <div className="flex items-start gap-3">
-        <span
-          aria-hidden
-          className="mt-[3px] inline-flex h-[22px] w-[22px] flex-shrink-0 items-center justify-center rounded-full text-[13px] font-semibold"
-          style={{ background: "#FBF1DE", color: "#A06D12" }}
-        >
-          ↑
-        </span>
-        <div className="min-w-0">
-          <h2 className="font-display text-ink text-[15px] font-semibold">
-            Client-approval workflow unlocks on the Agency plan.
-          </h2>
-          <p className="text-muted mt-1 max-w-[560px] text-[12.5px] leading-[1.55]">
-            The workflow tab routes approvals through the client portal and fans notifications out
-            to the recipients you configure here. Both features are Agency-and-up. Your current plan
-            approves outputs internally by default — every generated post goes through your team.
-          </p>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <Link
-              href="/settings/billing"
-              className="rounded-md bg-[#0A1E3C] px-3 py-[7px] font-sans text-[12.5px] font-semibold text-white no-underline hover:brightness-110"
-            >
-              Upgrade to Agency
-            </Link>
-            <Link
-              href="/pricing"
-              className="text-muted-2 hover:text-ink rounded-md px-2 py-[7px] font-sans text-[12.5px] font-semibold no-underline"
-            >
-              Compare plans →
-            </Link>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

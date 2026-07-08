@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import type { Plan } from "@prisma/client";
+import { FeatureUpgradePrompt } from "@/components/billing/feature-upgrade-prompt";
 import { ArtworkUpload } from "@/components/clients/artwork-upload";
+import { planIncludesFeature } from "@/lib/plan-features";
 import { updateAgencyBrandingAction } from "@/app/(dashboard)/settings/branding/actions";
 
 const INK = "#0a1e3c";
@@ -33,14 +36,24 @@ export function BrandingForm({
   initialLogoUrl,
   initialAccentColor,
   canEdit,
+  plan,
 }: {
   agencyName: string;
   initialLogoUrl: string | null;
   initialAccentColor: string | null;
   canEdit: boolean;
+  /**
+   * Effective agency plan. Drives the nested accent-color gate — accent
+   * is NETWORK-only (see `server/db/agencies.ts#updateAgencyBranding`),
+   * so on AGENCY we render a small `<FeatureUpgradePrompt size="sm">`
+   * in place of the swatch row rather than swatches whose save the
+   * server would reject.
+   */
+  plan: Plan;
 }) {
   const [logoUrl, setLogoUrl] = useState<string>(initialLogoUrl ?? "");
   const [accent, setAccent] = useState<string>(initialAccentColor ?? "");
+  const unlocksAccent = planIncludesFeature(plan, "customAccent");
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -51,7 +64,10 @@ export function BrandingForm({
 
   const initialLogo = initialLogoUrl ?? "";
   const initialAccent = initialAccentColor ?? "";
-  const dirty = logoUrl !== initialLogo || accentTrimmed !== initialAccent;
+  // Accent is only "dirty" on plans that unlock it — otherwise the field is
+  // read-only and its state can't change, but a stale prop update shouldn't
+  // suddenly enable the save button either.
+  const dirty = logoUrl !== initialLogo || (unlocksAccent && accentTrimmed !== initialAccent);
 
   const onSave = () => {
     if (!canEdit || !accentValid || !dirty || pending) return;
@@ -60,7 +76,13 @@ export function BrandingForm({
       try {
         const result = await updateAgencyBrandingAction({
           brandLogoUrl: logoUrl.trim().length > 0 ? logoUrl.trim() : null,
-          brandAccentColor: accentTrimmed.length > 0 ? accentTrimmed : null,
+          // Never send an accent-color patch on a plan that can't set one —
+          // the server would 403 and stall the whole save.
+          brandAccentColor: unlocksAccent
+            ? accentTrimmed.length > 0
+              ? accentTrimmed
+              : null
+            : undefined,
         });
         if (!result.ok) {
           setError(result.error);
@@ -150,66 +172,74 @@ export function BrandingForm({
           <div style={{ fontSize: 12.5, color: LIGHT_MUTED, marginTop: 3 }}>
             Buttons + highlights on client-facing surfaces.
           </div>
-          <div className="flex flex-wrap items-center" style={{ gap: 10, marginTop: 14 }}>
-            {SWATCHES.map((c) => {
-              const selected =
-                (accentTrimmed.length > 0 && accentTrimmed.toLowerCase() === c.toLowerCase()) ||
-                (isDefault && c === DEFAULT_ACCENT);
-              return (
-                <button
-                  key={c}
-                  type="button"
-                  aria-label={`Use ${c}`}
+          {unlocksAccent ? (
+            <>
+              <div className="flex flex-wrap items-center" style={{ gap: 10, marginTop: 14 }}>
+                {SWATCHES.map((c) => {
+                  const selected =
+                    (accentTrimmed.length > 0 && accentTrimmed.toLowerCase() === c.toLowerCase()) ||
+                    (isDefault && c === DEFAULT_ACCENT);
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      aria-label={`Use ${c}`}
+                      disabled={!canEdit}
+                      onClick={() => setAccent(c === DEFAULT_ACCENT ? "" : c)}
+                      style={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: 99,
+                        background: c,
+                        outline: selected ? `2px solid ${c}` : "none",
+                        outlineOffset: selected ? 3 : 0,
+                        border: "none",
+                        cursor: canEdit ? "pointer" : "not-allowed",
+                        padding: 0,
+                        opacity: canEdit ? 1 : 0.5,
+                      }}
+                    />
+                  );
+                })}
+                <div
+                  aria-hidden
+                  style={{ width: 1, height: 24, background: ROW_BORDER, margin: "0 4px" }}
+                />
+                <input
+                  type="text"
+                  value={displayAccent}
+                  onChange={(e) => setAccent(e.target.value)}
+                  placeholder="#3A5BA0"
                   disabled={!canEdit}
-                  onClick={() => setAccent(c === DEFAULT_ACCENT ? "" : c)}
+                  aria-label="Accent color hex"
                   style={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: 99,
-                    background: c,
-                    outline: selected ? `2px solid ${c}` : "none",
-                    outlineOffset: selected ? 3 : 0,
-                    border: "none",
-                    cursor: canEdit ? "pointer" : "not-allowed",
-                    padding: 0,
-                    opacity: canEdit ? 1 : 0.5,
+                    border: `1px solid ${OUTLINE_STRONG}`,
+                    borderRadius: 8,
+                    padding: "8px 12px",
+                    fontFamily: "var(--font-revamp-mono)",
+                    fontSize: 12.5,
+                    color: MUTED,
+                    background: "#fff",
+                    outline: "none",
+                    width: 120,
                   }}
                 />
-              );
-            })}
-            <div
-              aria-hidden
-              style={{ width: 1, height: 24, background: ROW_BORDER, margin: "0 4px" }}
-            />
-            <input
-              type="text"
-              value={displayAccent}
-              onChange={(e) => setAccent(e.target.value)}
-              placeholder="#3A5BA0"
-              disabled={!canEdit}
-              aria-label="Accent color hex"
-              style={{
-                border: `1px solid ${OUTLINE_STRONG}`,
-                borderRadius: 8,
-                padding: "8px 12px",
-                fontFamily: "var(--font-revamp-mono)",
-                fontSize: 12.5,
-                color: MUTED,
-                background: "#fff",
-                outline: "none",
-                width: 120,
-              }}
-            />
-          </div>
-          {isDefault ? (
-            <div style={{ fontSize: 12, color: LIGHT_MUTED, marginTop: 10 }}>
-              Using default — Repodcast blue
+              </div>
+              {isDefault ? (
+                <div style={{ fontSize: 12, color: LIGHT_MUTED, marginTop: 10 }}>
+                  Using default — Repodcast blue
+                </div>
+              ) : !accentValid ? (
+                <div style={{ fontSize: 12, color: "#A06D12", marginTop: 10 }}>
+                  Use a 6-digit hex like #3A5BA0
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <div style={{ marginTop: 14 }}>
+              <FeatureUpgradePrompt feature="customAccent" size="sm" />
             </div>
-          ) : !accentValid ? (
-            <div style={{ fontSize: 12, color: "#A06D12", marginTop: 10 }}>
-              Use a 6-digit hex like #3A5BA0
-            </div>
-          ) : null}
+          )}
         </div>
 
         {/* Save footer */}
@@ -426,13 +456,6 @@ export function BrandingForm({
                   Request changes
                 </span>
               </div>
-            </div>
-            <div
-              className="flex items-center justify-center"
-              style={{ gap: 8, fontSize: 11.5, color: LIGHT_MUTED, marginTop: 14 }}
-            >
-              Powered by Repodcast ·{" "}
-              <span style={{ color: MUTED, fontWeight: 600 }}>hidden on Network plan</span>
             </div>
           </div>
         </div>
