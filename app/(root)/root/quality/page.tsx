@@ -725,8 +725,7 @@ function FlaggedOutputsSection({
 
       {rows.length === 0 ? (
         <div className="rounded-xl border border-dashed border-zinc-800 bg-zinc-900/40 p-6 text-center text-sm text-zinc-500">
-          No flagged outputs. Tenant-side flagging UI is Phase 4 polish; ROOT-side flagging lives on
-          the agency drilldown&rsquo;s Episodes tab (future slice).
+          No flagged outputs.
         </div>
       ) : (
         <ul className="flex flex-col gap-2">
