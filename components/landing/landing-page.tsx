@@ -56,6 +56,7 @@ export function LandingPage({
       <TrustedBy trustedBy={trustedBy} />
       <Problem />
       <HowItWorks />
+      <VideoShowcase />
       <VoiceEngine />
       <Outputs />
       <Pricing isSignedIn={isSignedIn} />
@@ -456,6 +457,84 @@ function HowItWorks() {
               </div>
             </div>
           ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ============================================================
+// Video showcase — desktop-only demo strip
+// ============================================================
+
+/**
+ * Short muted demo that sits between "How it works" and "Voice engine" —
+ * the narrative reads "here are the three steps → here it is happening
+ * → here's the engine behind it," which is why this lands *between*
+ * those two sections rather than replacing the hero product mock.
+ *
+ * Desktop-only on purpose. `hidden md:block` on the wrapper means the
+ * `<video>` element is `display: none` on phones, which:
+ *   - skips autoplay entirely on every modern browser,
+ *   - drops the 15 MB payload off the mobile network cost (with
+ *     `preload="metadata"` a few KB of container header may still be
+ *     fetched — acceptable, and the actual bytes only flow if the
+ *     visitor resizes into desktop and the element becomes visible).
+ *
+ * Motion accessibility: `muted` + `loop` means the video is a decorative
+ * moving image, no sound, no controls, no keyboard trap. Users with
+ * `prefers-reduced-motion` still see a moving loop — we intentionally
+ * skip pausing for that class because the whole section is optional
+ * embellishment (they can scroll past instantly).
+ */
+function VideoShowcase() {
+  return (
+    <section
+      className="hidden px-5 py-14 sm:px-8 sm:py-20 md:block lg:px-14 lg:py-[88px]"
+      style={{ background: "#fff", borderTop: `1px solid ${BORDER_SOFT}` }}
+    >
+      <div className="mx-auto" style={{ maxWidth: 1180 }}>
+        <div className="mb-8 flex flex-wrap items-end justify-between gap-4 sm:mb-10 sm:gap-6">
+          <div>
+            <Kicker>See it in action</Kicker>
+            <H2 maxWidth={560}>A full episode, seven formats, one voice.</H2>
+          </div>
+          <div className="pb-1 text-[14px]" style={{ color: MUTED_2 }}>
+            Voice-true content in under a minute
+          </div>
+        </div>
+        <div
+          className="overflow-hidden rounded-[14px]"
+          style={{
+            // Match the HeroProductPanel's frame so the two visual
+            // "product windows" on the page read as a set.
+            border: `1px solid ${BORDER}`,
+            boxShadow: "0 24px 60px -20px rgba(10,30,60,.18)",
+            background: CANVAS,
+            // Explicit aspect ratio on the WRAPPER so the section
+            // reserves space before the video's intrinsic dimensions
+            // arrive with the metadata packet. Prevented a first-paint
+            // where the section rendered at 0px height and looked
+            // blank until the video decoded.
+            aspectRatio: "16 / 9",
+          }}
+        >
+          <video
+            className="block h-full w-full"
+            src="/videos/repodcast-voice-tip.mp4"
+            autoPlay
+            muted
+            loop
+            playsInline
+            // `preload="auto"` on desktop-only content — the 15 MB is
+            // acceptable when we've already gated phones out at the
+            // section level. `metadata` was too conservative: some
+            // browsers wouldn't decode the first frame until playback
+            // started, and combined with strict autoplay policies that
+            // left an empty rectangle.
+            preload="auto"
+            aria-label="Repodcast demo — turning an episode transcript into voice-true content"
+          />
         </div>
       </div>
     </section>
