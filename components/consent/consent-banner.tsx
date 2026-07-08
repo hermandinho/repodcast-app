@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSyncExternalStore } from "react";
-import { readConsent, subscribeConsent, writeConsent } from "@/lib/consent";
+import { readConsent, subscribeConsent, writeConsent, type ConsentValue } from "@/lib/consent";
 
 /**
  * Bottom-anchored cookie / analytics consent banner. Renders on every page
@@ -14,14 +14,32 @@ import { readConsent, subscribeConsent, writeConsent } from "@/lib/consent";
  * long form.
  *
  * State comes through `useSyncExternalStore` so localStorage is the single
- * source of truth — no `setState`-in-`useEffect` shuffle, no hydration
- * mismatch (server snapshot is always `null`, so the banner stays hidden
- * during SSR and hydrates in with the real decision).
+ * source of truth — no `setState`-in-`useEffect` shuffle.
+ *
+ * SSR / hydration handling: the server can't read localStorage, so we can't
+ * know the user's real decision until after mount. `getServerSnapshot`
+ * returns a distinct `"unknown"` sentinel (rather than `null`) so both the
+ * SSR HTML and the initial hydration render treat the banner as hidden.
+ * Once `getSnapshot` fires after mount, the real decision drives the
+ * render. Payoff: users who've already accepted / declined never see the
+ * banner flash into view on navigation. Users who haven't yet decided see
+ * the banner appear one frame after hydration — imperceptible, and
+ * semantically the correct posture (no tracking until they respond).
  */
-export function ConsentBanner() {
-  const consent = useSyncExternalStore(subscribeConsent, readConsent, () => null);
 
-  if (consent === "accepted" || consent === "declined") return null;
+type ConsentSnapshot = ConsentValue | null | "unknown";
+
+export function ConsentBanner() {
+  const consent = useSyncExternalStore<ConsentSnapshot>(
+    subscribeConsent,
+    readConsent,
+    () => "unknown",
+  );
+
+  // Hide on SSR (`"unknown"`), after any decision (`"accepted"` /
+  // `"declined"`). The banner shows only when the client-side snapshot is
+  // explicitly `null` — i.e. localStorage was read and had no value.
+  if (consent !== null) return null;
 
   return (
     <div
