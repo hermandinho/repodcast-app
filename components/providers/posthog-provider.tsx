@@ -34,6 +34,22 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
       // App Router navigations.
       capture_pageview: false,
       person_profiles: "identified_only",
+      // Drop every event fired while the visitor is under `/root/*`.
+      // Root is our internal platform-admin surface — operator activity
+      // there isn't product usage and would just skew the funnels in
+      // PostHog. Filtering at the SDK level covers pageviews,
+      // autocapture, and custom `track()` calls in one place, matching
+      // the `beforeSend` filter on Vercel Analytics. Reads
+      // `window.location.pathname` at capture time (not init time) so
+      // the filter correctly kicks in when the operator navigates INTO
+      // /root mid-session — init could have happened on /dashboard.
+      before_send: (event) => {
+        if (!event) return event;
+        if (typeof window === "undefined") return event;
+        const path = window.location.pathname;
+        if (path === "/root" || path.startsWith("/root/")) return null;
+        return event;
+      },
     });
     posthog.capture("app_loaded", { source: "web" });
   }, [consent]);
