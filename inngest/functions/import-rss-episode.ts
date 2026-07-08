@@ -3,7 +3,7 @@ import { NonRetriableError } from "inngest";
 import { audioExtensionFor } from "@/lib/audio";
 import { prisma } from "@/server/db/client";
 import { captureInngestFailure } from "@/server/observability/sentry";
-import { putR2Object } from "@/server/storage/r2";
+import { streamR2Object } from "@/server/storage/r2";
 import {
   listEpisodesByFeedId,
   lookupEpisodeByGuid,
@@ -39,11 +39,51 @@ function truncateReason(message: string): string {
  *   - 5xx / network errors fall through to Inngest's default retry policy.
  */
 
-const AUDIO_FETCH_TIMEOUT_MS = 60_000;
-/** Generous ceiling — most podcast episodes are 10–60 MB; >500 MB is a misconfigured feed. */
-const MAX_AUDIO_BYTES = 500 * 1024 * 1024;
+/**
+ * Wall-clock ceiling on the whole fetch-and-stream. Not a "no progress
+ * for N seconds" watchdog — a simple upper bound. 10 minutes covers a
+ * 2 GB file over a ~30 Mbps link; larger than that is off-spec.
+ */
+const AUDIO_FETCH_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * Sanity cap. We no longer buffer the enclosure into Node's heap
+ * (streaming straight to R2 multipart upload — see `streamR2Object`),
+ * so the memory pressure that motivated the old 500 MB limit is gone.
+ * A ceiling still catches genuinely misconfigured feeds — an
+ * uncompressed 3-hour WAV lands around 1.8 GB, and a 6-hour lossless
+ * recording pushes 3.6 GB; anything past 2 GB is almost certainly one
+ * of those, not a legitimate podcast episode.
+ */
+const MAX_AUDIO_BYTES = 2 * 1024 * 1024 * 1024;
 /** Lower bound on a usable transcript — shorter than this and Claude has nothing to chew on. */
 const MIN_TRANSCRIPT_CHARS = 500;
+
+/**
+ * Web-stream passthrough that aborts if the cumulative byte count
+ * exceeds `maxBytes`. Feeds without a `Content-Length` header can't be
+ * preflighted, so we watch bytes as they flow — the moment the ceiling
+ * is breached, the stream errors and lib-storage's multipart upload
+ * aborts (no orphan partial object left in R2).
+ */
+function throwOnByteOverflow(
+  source: ReadableStream<Uint8Array>,
+  maxBytes: number,
+  onExceed: (seenBytes: number) => Error,
+): ReadableStream<Uint8Array> {
+  let seen = 0;
+  const transform = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      seen += chunk.byteLength;
+      if (seen > maxBytes) {
+        controller.error(onExceed(seen));
+        return;
+      }
+      controller.enqueue(chunk);
+    },
+  });
+  return source.pipeThrough(transform);
+}
 
 export const importRssEpisode = inngest.createFunction(
   {
@@ -220,37 +260,90 @@ export const importRssEpisode = inngest.createFunction(
     }
 
     const audioKey = await step.run("download-audio-to-r2", async () => {
+      // AbortController covers the whole fetch + streaming download —
+      // once the timer fires, the fetch aborts, the response body
+      // errors, and (via `streamR2Object`'s signal wiring below) the
+      // in-flight multipart upload calls its own `.abort()` so R2's
+      // side cleans up + no `UploadPart` teardown leaks as a stray
+      // socket error.
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), AUDIO_FETCH_TIMEOUT_MS);
       let res: Response;
       try {
         res = await fetch(indexEpisode.enclosureUrl, { signal: controller.signal });
+      } catch (err) {
+        clearTimeout(timer);
+        // Rewrap so the failing phase reads clearly in Sentry / logs —
+        // without this the caller sees a bare `ECONNABORTED` / `fetch
+        // failed` with no idea whether it was the download or the
+        // upload that broke.
+        throw new Error(
+          `RSS audio fetch failed for ${indexEpisode.enclosureUrl}: ${err instanceof Error ? err.message : String(err)}`,
+          { cause: err },
+        );
+      }
+      try {
+        if (!res.ok) {
+          // Publisher 404s here are common (URL rotated). Retries are pointless.
+          if (res.status >= 400 && res.status < 500) {
+            throw new NonRetriableError(
+              `Audio enclosure returned ${res.status} ${res.statusText} for ${indexEpisode.enclosureUrl}`,
+            );
+          }
+          throw new Error(`Audio enclosure returned ${res.status} ${res.statusText}`);
+        }
+
+        // Preflight when the server declared a Content-Length. Rejects
+        // before a single byte streams through — cheaper than watching
+        // the ceiling breach mid-download, and produces a cleaner error
+        // message that names the declared size.
+        const declaredLen = Number(res.headers.get("content-length") ?? "");
+        if (Number.isFinite(declaredLen) && declaredLen > MAX_AUDIO_BYTES) {
+          throw new NonRetriableError(
+            `Audio enclosure declares ${declaredLen} bytes — exceeds the ${MAX_AUDIO_BYTES} byte ceiling`,
+          );
+        }
+        if (!res.body) {
+          throw new Error(`Audio enclosure at ${indexEpisode.enclosureUrl} returned no body`);
+        }
+
+        const contentType =
+          indexEpisode.enclosureType ?? res.headers.get("content-type") ?? "audio/mpeg";
+        const filenameHint =
+          indexEpisode.enclosureUrl.split("?")[0]!.split("/").pop() ?? "audio.mp3";
+        const ext = audioExtensionFor(contentType, filenameHint);
+        const key = `audio/${agencyId}/${episode.showId}/${episodeId}.${ext}`;
+
+        // For feeds without Content-Length, watch the running byte total
+        // and abort past the ceiling; feeds with Content-Length already
+        // cleared the preflight above but keeping the counter costs
+        // nothing and defends against a lying header.
+        const limited = throwOnByteOverflow(
+          res.body,
+          MAX_AUDIO_BYTES,
+          (seen) =>
+            new NonRetriableError(
+              `Audio enclosure exceeded the ${MAX_AUDIO_BYTES} byte ceiling (saw ${seen} bytes so far)`,
+            ),
+        );
+
+        // Threading `controller.signal` in gives lib-storage a chance
+        // to call `Upload.abort()` itself when the timeout fires,
+        // rather than only reacting to the source stream erroring.
+        // That's what stops the `ECONNABORTED` writes from leaking to
+        // Node's async void on timeout / overflow paths.
+        try {
+          await streamR2Object(key, limited, contentType, controller.signal);
+        } catch (err) {
+          throw new Error(
+            `RSS audio R2 upload failed for ${key} (${declaredLen || "unknown"} bytes declared): ${err instanceof Error ? err.message : String(err)}`,
+            { cause: err },
+          );
+        }
+        return key;
       } finally {
         clearTimeout(timer);
       }
-      if (!res.ok) {
-        // Publisher 404s here are common (URL rotated). Retries are pointless.
-        if (res.status >= 400 && res.status < 500) {
-          throw new NonRetriableError(
-            `Audio enclosure returned ${res.status} ${res.statusText} for ${indexEpisode.enclosureUrl}`,
-          );
-        }
-        throw new Error(`Audio enclosure returned ${res.status} ${res.statusText}`);
-      }
-      const buffer = Buffer.from(await res.arrayBuffer());
-      if (buffer.byteLength > MAX_AUDIO_BYTES) {
-        throw new NonRetriableError(
-          `Audio enclosure is ${buffer.byteLength} bytes — exceeds the ${MAX_AUDIO_BYTES} byte ceiling`,
-        );
-      }
-
-      const contentType =
-        indexEpisode.enclosureType ?? res.headers.get("content-type") ?? "audio/mpeg";
-      const filenameHint = indexEpisode.enclosureUrl.split("?")[0]!.split("/").pop() ?? "audio.mp3";
-      const ext = audioExtensionFor(contentType, filenameHint);
-      const key = `audio/${agencyId}/${episode.showId}/${episodeId}.${ext}`;
-      await putR2Object(key, buffer, contentType);
-      return key;
     });
 
     await step.run("persist-audio-key", () =>

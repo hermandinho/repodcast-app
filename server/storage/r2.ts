@@ -1,7 +1,9 @@
 import "server-only";
 
+import { Readable } from "node:stream";
 import { S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { Upload } from "@aws-sdk/lib-storage";
 import {
   CopyObjectCommand,
   DeleteObjectCommand,
@@ -82,6 +84,82 @@ export async function putR2Object(
       ContentType: contentType,
     }),
   );
+}
+
+/**
+ * Streams `body` to R2 via S3-multipart upload — the caller never has to
+ * buffer the whole payload into Node's heap. Right choice for anything
+ * that could plausibly be >50 MB (podcast enclosures, large branded
+ * exports).
+ *
+ * Accepts either a Node `Readable` or a Web `ReadableStream<Uint8Array>`
+ * (e.g. `res.body` off `fetch`). Web streams get bridged via
+ * `Readable.fromWeb`; if the input stream errors mid-upload,
+ * lib-storage's `Upload` aborts the multipart cleanly so no orphaned
+ * partial object survives.
+ *
+ * Part size 8 MB (S3 minimum is 5 MB, and R2 mirrors that). At 8 MB per
+ * part with `queueSize: 4`, a 2 GB upload is 250 parts × 4 concurrent —
+ * bounded memory, network-limited throughput.
+ *
+ * `abortSignal` — pass through the same `AbortController.signal` that
+ * gates the source fetch. When it aborts we call `upload.abort()`
+ * explicitly, which lets lib-storage:
+ *   (a) `AbortMultipartUpload` the R2-side session cleanly, and
+ *   (b) attach its own error listeners to the in-flight `UploadPart`
+ *       rejections so their socket-write cancellations don't leak as
+ *       unhandled `ECONNABORTED` errors.
+ * Without this wiring, the source stream still errors and the Upload
+ * eventually rejects, but the tear-down of the 3–4 concurrent part
+ * uploads happens in an uncoordinated way and a stray socket error
+ * escapes to Node's async void.
+ */
+export async function streamR2Object(
+  key: string,
+  body: Readable | ReadableStream<Uint8Array>,
+  contentType?: string,
+  abortSignal?: AbortSignal,
+): Promise<void> {
+  const { client, bucket } = requireR2Client();
+  const stream =
+    body instanceof Readable
+      ? body
+      : // Node 18+ has Readable.fromWeb; the type overlap between the
+        // built-in `ReadableStream` and Node's stream-web import is
+        // narrow enough that a cast is cleaner than the alternative.
+        Readable.fromWeb(body as never);
+  const upload = new Upload({
+    client,
+    params: {
+      Bucket: bucket,
+      Key: key,
+      Body: stream,
+      ContentType: contentType,
+    },
+    partSize: 8 * 1024 * 1024,
+    queueSize: 4,
+  });
+
+  // Wire the caller's abort signal to lib-storage's own abort path.
+  // Doing it as a `once` listener so a resolved upload doesn't leave a
+  // dangling reference on a long-lived AbortController.
+  const onAbort = () => {
+    // `.abort()` returns a promise; we intentionally don't await it here
+    // — the primary `upload.done()` rejection is what the caller cares
+    // about, and the abort is fire-and-forget cleanup on top of that.
+    // Swallow the resulting rejection so it doesn't leak.
+    upload.abort().catch(() => {});
+  };
+  if (abortSignal) {
+    if (abortSignal.aborted) onAbort();
+    else abortSignal.addEventListener("abort", onAbort, { once: true });
+  }
+
+  try {
+    await upload.done();
+  } finally {
+    if (abortSignal) abortSignal.removeEventListener("abort", onAbort);
+  }
 }
 
 export async function deleteR2Object(key: string): Promise<void> {

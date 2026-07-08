@@ -156,8 +156,29 @@ export const generateEpisode = inngest.createFunction(
       throw new NonRetriableError(`Episode ${episodeId} not found`);
     }
     const wordCount = episode.transcript.trim().split(/\s+/).filter(Boolean).length;
-    if (wordCount < 500) {
-      throw new NonRetriableError(`Transcript too short — ${wordCount} words (need ≥ 500)`);
+    // Duration-scaled floor. A flat 500-word threshold passes anything
+    // over ~3 minutes of speech but doesn't catch the failure mode this
+    // guard actually exists for — a 4-hour import where Deepgram
+    // hallucinated 424 words out of nothing coherent. Human speech runs
+    // 100–150 words/minute; anything under ~20 WPM is almost always
+    // music / silence / non-speech that Deepgram mis-transcribed, and
+    // Claude will produce garbage regardless of prompt.
+    //
+    // Formula: max(500, 20 × durationMinutes). Ceiling at 500 stays as
+    // the absolute minimum for short episodes; the density check kicks
+    // in past 25 minutes of audio. Falls back to the flat 500 when
+    // `durationSec` is null (imports predating duration capture).
+    const durationMin =
+      episode.durationSec != null && episode.durationSec > 0 ? episode.durationSec / 60 : null;
+    const minWords = durationMin != null ? Math.max(500, Math.round(20 * durationMin)) : 500;
+    if (wordCount < minWords) {
+      const suffix =
+        durationMin != null
+          ? ` — ${(wordCount / durationMin).toFixed(1)} words/min over ${durationMin.toFixed(0)}m of audio`
+          : "";
+      throw new NonRetriableError(
+        `Transcript too short — ${wordCount} words (need ≥ ${minWords})${suffix}`,
+      );
     }
 
     const agencyId = episode.show.client.agencyId;

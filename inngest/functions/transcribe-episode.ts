@@ -109,9 +109,30 @@ export const transcribeEpisode = inngest.createFunction(
     const transcribeResult = await step.run("deepgram-transcribe", async () => {
       try {
         const result = await transcribeUrl(audioUrl, { diarize: true });
+        // Metadata surfaced back through the step return so it's visible
+        // in the Inngest dashboard AND written to stdout for Vercel /
+        // dev-terminal logs. The word/minute ratio is the diagnostic
+        // signal — <10 WPM is almost always "audio is mostly music /
+        // silence / non-speech," even when Deepgram happily reports a
+        // non-empty transcript full of hallucinated repetitions.
+        const wordCount = result.transcript.trim().split(/\s+/).filter(Boolean).length;
+        const wordsPerMinute =
+          result.durationSec != null && result.durationSec > 0
+            ? wordCount / (result.durationSec / 60)
+            : null;
+        console.log(
+          `[transcribe-episode] episodeId=${episodeId} deepgram-ok ` +
+            `language=${result.language ?? "unknown"} ` +
+            `durationSec=${result.durationSec ?? "unknown"} ` +
+            `wordCount=${wordCount} ` +
+            `wordsPerMinute=${wordsPerMinute != null ? wordsPerMinute.toFixed(1) : "unknown"}`,
+        );
         return {
           transcript: result.transcript,
           durationSec: result.durationSec,
+          language: result.language,
+          wordCount,
+          wordsPerMinute,
         };
       } catch (err) {
         // 4xx → input is broken (bad URL, unsupported codec, auth). Don't
@@ -154,6 +175,9 @@ export const transcribeEpisode = inngest.createFunction(
       episodeId,
       transcriptChars: transcribeResult.transcript.length,
       durationSec: transcribeResult.durationSec,
+      language: transcribeResult.language,
+      wordCount: transcribeResult.wordCount,
+      wordsPerMinute: transcribeResult.wordsPerMinute,
     };
   },
 );
