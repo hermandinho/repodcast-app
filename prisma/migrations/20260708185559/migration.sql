@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "BlogPost" ALTER COLUMN "tags" DROP DEFAULT,
+ALTER COLUMN "keywords" DROP DEFAULT;

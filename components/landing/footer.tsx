@@ -11,6 +11,7 @@ const COLUMNS = [
       { label: "Voice Engine", href: "/#voice" },
       { label: "How it works", href: "/#how" },
       { label: "Pricing", href: "/pricing" },
+      { label: "Blog", href: "/blog" },
     ],
   },
   {

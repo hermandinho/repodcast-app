@@ -68,6 +68,7 @@ export function LandingNav({
     { label: "How it works", href: anchor("how"), internal: false },
     { label: "Voice Engine", href: anchor("voice"), internal: false },
     { label: "Pricing", href: "/pricing", internal: true },
+    { label: "Blog", href: "/blog", internal: true },
     { label: "FAQ", href: anchor("faq"), internal: false },
   ];
 

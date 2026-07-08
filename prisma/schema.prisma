@@ -1139,6 +1139,11 @@ model SystemAdmin {
   assignedAbuseReports   AbuseReport[]         @relation("AbuseAssignee")
   /// In-app suggestions this admin resolved / shipped / rejected.
   resolvedSuggestions    Suggestion[]          @relation("SuggestionResolver")
+  /// Public blog posts this admin is credited as the author on.
+  authoredBlogPosts      BlogPost[]            @relation("BlogPostAuthor")
+  /// Public blog posts this admin last edited. Separate from author so a
+  /// co-owner editing an existing post doesn't overwrite the byline.
+  editedBlogPosts        BlogPost[]            @relation("BlogPostEditor")
 
   @@index([role])
   @@index([deactivatedAt])
@@ -1485,4 +1490,96 @@ model Suggestion {
   /// "All feedback from agency X" drill-in.
   @@index([agencyId, createdAt])
   @@index([resolvedBySystemAdminId])
+}
+
+// ============================================================
+// Public blog — SEO-optimised marketing surface
+// ============================================================
+//
+// Authored ONLY by SystemAdmins from `/root/blog`. There is no user-generated
+// content path; the XSS surface is limited to what the authoring admin types
+// in themselves, and the Markdown renderer never emits raw HTML.
+//
+// Every write flows through `withSystemAudit` (see `server/db/system/blog.ts`)
+// so the SystemAuditLog captures the before/after row.
+
+/// Lifecycle state of a `BlogPost`. `PUBLISHED` = live on `/blog/[slug]`,
+/// `SCHEDULED` = has a future `publishedAt`; the public reader treats
+/// scheduled + past-scheduled rows the same as `PUBLISHED` (no cron; a
+/// scheduled row goes live when its publishedAt passes).
+enum BlogPostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+  ARCHIVED
+}
+
+model BlogPost {
+  id                String         @id @default(cuid())
+  /// URL slug. Kebab-case, unique across the whole table — surfaces at
+  /// `/blog/<slug>` so the shape has to match a URL segment. Enforced via
+  /// regex at the input layer.
+  slug              String         @unique
+  /// Public title. Renders as `<h1>` on the post page and in `<title>` when
+  /// `metaTitle` is empty.
+  title             String
+  /// Short summary shown on the index card, in the OG description fallback,
+  /// and inside the `<meta name="description">` when `metaDescription`
+  /// is blank.
+  excerpt           String
+  /// Markdown body. Rendered to HTML on the server via `lib/markdown.ts` — a
+  /// deliberately narrow safe-subset renderer (no raw HTML). If we ever open
+  /// the authoring surface to lower-trust roles, this stops being safe.
+  bodyMarkdown      String
+  /// R2 / CDN URL for the hero image. Used as OG image fallback. Optional so
+  /// the earliest posts can ship without imagery.
+  coverImageUrl     String?
+  /// Author-set category tag ("engineering", "voice", "case-study"). Free-form
+  /// String — no relation — so a rename is a string edit, not a migration.
+  category          String?
+  /// Free-form tag list. Rendered on the post + used for the "related posts"
+  /// heuristic (shared tag count).
+  tags              String[]
+  /// Rough English-content read-time in minutes; the admin can override, else
+  /// we compute from `bodyMarkdown.split(/\s+/).length / 220`.
+  readingMinutes    Int?
+  status            BlogPostStatus @default(DRAFT)
+  /// Original publish timestamp. When status = PUBLISHED and this is in the
+  /// past, the post is live. When status = SCHEDULED with a future date, the
+  /// public reader ignores it until the date passes.
+  publishedAt       DateTime?
+  /// SEO override for the `<title>`. Falls back to `title` when null.
+  metaTitle         String?
+  /// SEO override for `<meta name="description">`. Falls back to `excerpt`.
+  metaDescription   String?
+  /// Overrides the canonical link when the post is syndicated from / to
+  /// another site. Absolute URL. Null → the post's own `/blog/<slug>` URL.
+  canonicalUrl      String?
+  /// Explicit noindex flag. When true, `robots: { index: false, follow: true }`
+  /// is emitted on the post's metadata.
+  noindex           Boolean        @default(false)
+  /// SEO keyword list (`<meta name="keywords">`). Advisory only for modern
+  /// engines; still surfaced because niche crawlers use it.
+  keywords          String[]
+  /// Optional override for the JSON-LD `<script>` block. When null, the page
+  /// emits the default Article schema built from the row itself. When set,
+  /// this JSON is emitted as-is — used when the author needs to add
+  /// `FAQPage`, `HowTo`, or fine-grained authors.
+  structuredDataJson Json?
+
+  authorAdminId    String?
+  updatedByAdminId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author    SystemAdmin? @relation("BlogPostAuthor", fields: [authorAdminId], references: [id], onDelete: SetNull)
+  updatedBy SystemAdmin? @relation("BlogPostEditor", fields: [updatedByAdminId], references: [id], onDelete: SetNull)
+
+  /// Public reader hot path: recent PUBLISHED posts in publish order.
+  @@index([status, publishedAt(sort: Desc)])
+  /// Category-drilldown hot path.
+  @@index([category, publishedAt(sort: Desc)])
+  @@index([authorAdminId])
+  @@index([updatedByAdminId])
 }

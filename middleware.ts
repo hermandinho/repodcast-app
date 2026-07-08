@@ -15,6 +15,10 @@ const isPublicRoute = createRouteMatcher([
   // footer and must render for logged-out visitors.
   "/about",
   "/contact",
+  // Public blog (index + posts + RSS feed). Marketing surface, must
+  // render for logged-out visitors and crawlers alike.
+  "/blog",
+  "/blog/(.*)",
   "/sign-in(.*)",
   "/sign-up(.*)",
   // Invite acceptance lands on /invite/[token] BEFORE the recipient has an

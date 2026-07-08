@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { listPublicBlogPostSlugsForSitemap } from "@/server/db/blog-public";
 
 /**
  * Phase 3.1 — public sitemap.
@@ -16,14 +17,18 @@ import type { MetadataRoute } from "next";
  * `changeFrequency` is a soft hint to crawlers, not a promise. Update
  * cadence tracks reality: landing + pricing move on marketing pushes,
  * legal moves rarely.
+ *
+ * Blog posts are folded in dynamically — every live post lands as its own
+ * `<url>` entry, using `updatedAt` for `lastModified`.
  */
-export default function sitemap(): MetadataRoute.Sitemap {
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base =
     process.env.NEXT_PUBLIC_APP_URL ??
     (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "https://repodcastapp.com");
   const cleanBase = base.replace(/\/$/, "");
   const now = new Date();
-  return [
+
+  const staticEntries: MetadataRoute.Sitemap = [
     {
       url: `${cleanBase}/`,
       lastModified: now,
@@ -47,6 +52,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       lastModified: now,
       changeFrequency: "monthly",
       priority: 0.6,
+    },
+    {
+      url: `${cleanBase}/blog`,
+      lastModified: now,
+      changeFrequency: "weekly",
+      priority: 0.8,
     },
     {
       url: `${cleanBase}/legal/privacy`,
@@ -85,4 +96,23 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.6,
     },
   ];
+
+  // Blog posts flow through Prisma → sitemap. `listPublicBlogPostSlugsForSitemap`
+  // filters to live rows (PUBLISHED / SCHEDULED-past-date). A blip in the DB
+  // shouldn't take the whole sitemap down, so we swallow failures and let the
+  // static list ship on its own.
+  let blogEntries: MetadataRoute.Sitemap = [];
+  try {
+    const posts = await listPublicBlogPostSlugsForSitemap();
+    blogEntries = posts.map((post) => ({
+      url: `${cleanBase}/blog/${post.slug}`,
+      lastModified: post.updatedAt,
+      changeFrequency: "monthly" as const,
+      priority: 0.7,
+    }));
+  } catch {
+    blogEntries = [];
+  }
+
+  return [...staticEntries, ...blogEntries];
 }

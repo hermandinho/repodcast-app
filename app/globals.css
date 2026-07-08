@@ -296,3 +296,107 @@ body {
   border-top: 1px solid #eceef3;
   margin: 40px 0;
 }
+
+/* ============================================================
+   Blog body — public /blog/[slug] rendered Markdown
+   ============================================================ */
+.blog-body h2 {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  color: #0a1633;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  margin: 40px 0 12px;
+}
+.blog-body h3 {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  color: #0a1633;
+  letter-spacing: -0.01em;
+  margin: 32px 0 10px;
+}
+.blog-body h4 {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  color: #0a1633;
+  margin: 24px 0 8px;
+}
+.blog-body p {
+  margin: 0 0 18px;
+}
+.blog-body a {
+  color: #3a5ba0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.blog-body a:hover {
+  color: #1a2a4a;
+}
+.blog-body strong {
+  color: #0a1633;
+  font-weight: 600;
+}
+.blog-body ul,
+.blog-body ol {
+  padding-left: 22px;
+  margin: 0 0 20px;
+}
+.blog-body li {
+  margin: 6px 0;
+}
+.blog-body ul li {
+  list-style: disc;
+}
+.blog-body ol li {
+  list-style: decimal;
+}
+.blog-body blockquote {
+  border-left: 3px solid #3a5ba0;
+  background: #f7f9fc;
+  padding: 14px 20px;
+  margin: 24px 0;
+  color: #2a3550;
+  border-radius: 0 6px 6px 0;
+}
+.blog-body blockquote p {
+  margin: 0;
+}
+.blog-body code {
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  background: #eef2fb;
+  color: #1a2a4a;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.blog-body pre {
+  background: #0a1633;
+  color: #e8ecf5;
+  padding: 18px 20px;
+  border-radius: 10px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 22px 0;
+}
+.blog-body pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font-size: inherit;
+}
+.blog-body img {
+  border-radius: 12px;
+  border: 1px solid #eceef3;
+  margin: 24px 0;
+  max-width: 100%;
+  height: auto;
+}
+.blog-body hr {
+  border: 0;
+  border-top: 1px solid #eceef3;
+  margin: 40px 0;
+}

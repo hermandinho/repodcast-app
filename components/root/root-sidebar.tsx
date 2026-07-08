@@ -20,6 +20,7 @@ const navItems: readonly RootNavItem[] = [
   { href: "/root/feedback", label: "Feedback", ready: true },
   { href: "/root/config", label: "Config", ready: true },
   { href: "/root/emails", label: "Emails", ready: true },
+  { href: "/root/blog", label: "Blog", ready: true },
   { href: "/root/audit", label: "Audit log", ready: true },
   { href: "/root/system", label: "System health", ready: true },
 ];

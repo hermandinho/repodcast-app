@@ -18,7 +18,7 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: "*",
-        allow: ["/", "/pricing", "/legal/", "/sign-in", "/sign-up"],
+        allow: ["/", "/pricing", "/blog", "/blog/", "/legal/", "/sign-in", "/sign-up"],
         // Everything under these prefixes is either auth-gated or an
         // internal surface we don't want spidered. Also cuts crawl
         // budget waste on server-only paths that return 404s to bots.

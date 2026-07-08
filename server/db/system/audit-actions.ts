@@ -58,6 +58,11 @@ export const SYSTEM_AUDIT_ACTIONS = {
   IMPERSONATE_END: "impersonate.end",
   IMPERSONATE_PROMOTE_WRITE: "impersonate.promote_write",
   TENANT_PROXY_WRITE: "tenant.proxy_write",
+
+  BLOG_CREATE: "blog.create",
+  BLOG_UPDATE: "blog.update",
+  BLOG_STATUS_CHANGE: "blog.status_change",
+  BLOG_DELETE: "blog.delete",
 } as const;
 
 export type SystemAuditAction = (typeof SYSTEM_AUDIT_ACTIONS)[keyof typeof SYSTEM_AUDIT_ACTIONS];
