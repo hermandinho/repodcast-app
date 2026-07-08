@@ -46,6 +46,16 @@ export type SampleShow = {
   lastActivity: string;
   platformSamples: Record<PlatformKey, number>;
   episodes: SampleEpisode[];
+  /**
+   * Per-show voice-progress result — powers the sparkline + headline %
+   * on the shows-list card. Optional so sample-data fixtures and shows
+   * without any shipped outputs since edit tracking landed can omit it
+   * (the card renders nothing then rather than a misleading empty
+   * chart). Populated by `listShowsForUI` from a single batched Prisma
+   * query grouped by showId (`listShippedOutputsForAgencyByShow`), so
+   * per-show cards cost one query total, not N.
+   */
+  voiceProgress?: import("@/lib/voice-progress-shape").VoiceProgressResult;
 };
 
 export const sampleShows: SampleShow[] = [

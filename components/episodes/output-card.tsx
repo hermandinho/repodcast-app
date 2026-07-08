@@ -71,6 +71,13 @@ export type OutputState = {
    *  when the show has no parseable rules. Surfaces as a small warning
    *  chip in the drawer so reviewers see which rules were ignored. */
   ruleViolations?: string[];
+  /** Cumulative Levenshtein delta from the model's original draft on
+   *  this row's current version. `0` = shipped unedited. Powers the
+   *  drawer's "shipped X% unedited" readout on approved/published rows;
+   *  also fed into the `output_approved` PostHog payload so the
+   *  "% posted unedited" north-star metric is queryable at the product
+   *  level. See `server/ai/voice-progress.ts`. */
+  editDistance?: number;
 };
 
 export type OutputCardActions = {

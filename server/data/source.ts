@@ -23,8 +23,11 @@ import {
 } from "@/server/db/episodes";
 import {
   listOutputsForEpisode as dbListOutputsForEpisode,
+  listShippedOutputsForAgencyByShow as dbListShippedOutputsForAgencyByShow,
+  listShippedOutputsForShow as dbListShippedOutputsForShow,
   qualityByPlatformForEpisode as dbQualityByPlatformForEpisode,
 } from "@/server/db/outputs";
+import { computeVoiceProgress, type VoiceProgressResult } from "@/server/ai/voice-progress";
 import {
   listRecentTransitions as dbListRecentTransitions,
   type TransitionWithContext,
@@ -170,7 +173,18 @@ export async function getClientForUI(
 export async function listShowsForUI(ctx: TenantContext): Promise<SampleShow[]> {
   if (!isLiveDb()) return sampleShows;
   const rows = await dbListShows(ctx);
-  return Promise.all(rows.map((s) => showToUI(ctx, s)));
+  // Pull the whole agency's shipped outputs once, grouped by showId, so
+  // each card's voice-progress sparkline reuses the same data — N cards
+  // cost one query total, not N.
+  const [shows, byShow] = await Promise.all([
+    Promise.all(rows.map((s) => showToUI(ctx, s))),
+    dbListShippedOutputsForAgencyByShow(ctx),
+  ]);
+  return shows.map((show) => {
+    const shipped = byShow.get(show.key);
+    if (!shipped || shipped.length === 0) return show;
+    return { ...show, voiceProgress: computeVoiceProgress(shipped) };
+  });
 }
 
 export async function listShowsForClientUI(
@@ -645,6 +659,7 @@ export async function getEpisodeForUI(
         clientRevisionRequestedAtIso: revision?.at ?? null,
         clientRevisionNote: revision?.note ?? null,
         ruleViolations: o.ruleViolations,
+        editDistance: o.editDistance,
       };
     }),
   };
@@ -673,12 +688,16 @@ function outputMetaFor(p: Platform): string {
 export async function getVoiceProfileForUI(
   ctx: TenantContext,
   idOrKey: string,
-): Promise<{ show: SampleShow; profile: VoiceProfile } | null> {
+): Promise<{
+  show: SampleShow;
+  profile: VoiceProfile;
+  progress: VoiceProgressResult;
+} | null> {
   if (!isLiveDb()) {
     const show = sampleShows.find((s) => s.key === idOrKey);
     const profile = voiceProfiles[idOrKey];
     if (!show || !profile) return null;
-    return { show, profile };
+    return { show, profile, progress: sampleProgressForDemo(profile) };
   }
 
   let show: Awaited<ReturnType<typeof dbGetShow>>;
@@ -688,10 +707,11 @@ export async function getVoiceProfileForUI(
     return null;
   }
 
-  const [samples, showUI, instructions] = await Promise.all([
+  const [samples, showUI, instructions, shippedRows] = await Promise.all([
     dbListVoiceSamplesForShow(ctx, show.id),
     showToUI(ctx, show),
     prisma.showPlatformInstruction.findMany({ where: { showId: show.id } }),
+    dbListShippedOutputsForShow(ctx, show.id),
   ]);
 
   const perPlatform: Record<PlatformKey, string> = {
@@ -727,7 +747,54 @@ export async function getVoiceProfileForUI(
     },
   };
 
-  return { show: showUI, profile };
+  return { show: showUI, profile, progress: computeVoiceProgress(shippedRows) };
+}
+
+/**
+ * Synthetic voice-progress curve for sample-data mode. The design
+ * preview shouldn't render an empty chart on shows that have obvious
+ * "training data" in the sample fixtures — the story only lands if the
+ * curve is visibly climbing. We fake up one point per episode implied
+ * by the sample's `samples[]` list, ramping post-ready rate from ~40%
+ * to ~90% so the shape mirrors what a real show would look like.
+ */
+function sampleProgressForDemo(profile: VoiceProfile): VoiceProgressResult {
+  const totalSamples = profile.samples.length;
+  if (totalSamples === 0) {
+    return {
+      series: [],
+      headline: { postReadyRate: null, sampleCount: 0, window: 30 },
+      milestones: { developing: null, strong: null },
+    };
+  }
+  // Bucket the samples into ~5 pseudo-episodes so the curve is legible
+  // even on shows with only a dozen samples.
+  const buckets = Math.min(6, Math.max(2, Math.ceil(totalSamples / 3)));
+  const perBucket = Math.max(1, Math.floor(totalSamples / buckets));
+  const series = Array.from({ length: buckets }, (_, i) => {
+    // Ramp from 0.40 → 0.92 across the buckets.
+    const t = buckets === 1 ? 1 : i / (buckets - 1);
+    return {
+      episodeIndex: i + 1,
+      episodeId: `demo_ep_${i + 1}`,
+      title: `Ep ${i + 1}`,
+      postReadyRate: 0.4 + (0.92 - 0.4) * t,
+      sampleCount: perBucket,
+    };
+  });
+  const headline = series[series.length - 1]?.postReadyRate ?? null;
+  return {
+    series,
+    headline: {
+      postReadyRate: headline,
+      sampleCount: Math.min(30, totalSamples),
+      window: 30,
+    },
+    milestones: {
+      developing: totalSamples >= 6 ? Math.min(buckets, 2) : null,
+      strong: totalSamples >= 16 ? Math.min(buckets, buckets - 1) : null,
+    },
+  };
 }
 
 // ============================================================
@@ -823,13 +890,14 @@ export async function getDashboardForUI(ctx: TenantContext): Promise<DashboardDa
 
   const kpis: DashboardKpi[] = [
     {
-      label: "Posted with no edits",
+      label: "Posted unedited",
       value: `${summary.unedited}%`,
-      // Lifetime metric — leave delta empty until 1.9 lands an edit-distance
-      // field that lets us scope this to the current month meaningfully.
+      // Last-30-shipped window (see `percentPostedUnedited` in dashboard.ts)
+      // — a rolling number, not lifetime. Deltas aren't meaningful for a
+      // trailing window that already re-averages every day.
       delta: "",
       progress: summary.unedited,
-      caption: "First-draft accept rate — the clearest sign the voice engine is working",
+      caption: "Share of the last 30 shipped outputs you shipped without meaningful edits",
     },
     {
       label: "Episodes this month",

@@ -7,6 +7,7 @@ import { VoiceStrengthBars } from "@/components/ui/voice-strength-bars";
 import { Input } from "@/components/ui/input";
 import type { SampleShow } from "@/lib/sample-data/shows";
 import { voiceLabel, voiceTextColor } from "@/lib/sample-data/voice-strength";
+import type { VoiceProgressResult } from "@/lib/voice-progress-shape";
 
 type ClientLite = { key: string; name: string };
 type SortKey = "active" | "voice" | "name";
@@ -283,6 +284,8 @@ export function ShowsBrowser({ shows, clients }: { shows: SampleShow[]; clients:
                     </span>
                   </div>
 
+                  <ShowVoiceProgressStrip progress={show.voiceProgress} />
+
                   <div className="mt-[14px] flex items-center justify-between border-t border-[#F0F3F8] pt-[10px] text-[12px]">
                     <span className="text-muted-2">
                       {show.samples} voice sample{show.samples === 1 ? "" : "s"}
@@ -298,6 +301,70 @@ export function ShowsBrowser({ shows, clients }: { shows: SampleShow[]; clients:
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * Compact "% posted unedited" strip for each show card — a tiny inline
+ * SVG line + a headline percentage. Shares its aggregation with the
+ * full `<VoiceProgressCard>` on `/voice/[showKey]` (both consume
+ * `computeVoiceProgress`) so the sparkline and the big chart tell the
+ * same story.
+ *
+ * Renders nothing when the show has no shipped outputs since
+ * `EDIT_TRACKING_SINCE`, or fewer than 2 points — a one-point line is
+ * meaningless.
+ */
+function ShowVoiceProgressStrip({ progress }: { progress: VoiceProgressResult | undefined }) {
+  if (!progress) return null;
+  const { series, headline } = progress;
+  if (series.length < 2 || headline.postReadyRate === null) return null;
+  const pct = Math.round(headline.postReadyRate * 100);
+  const tone = pct >= 80 ? "#1E7A47" : pct >= 50 ? "#3A5BA0" : "#A06D12";
+
+  // Inline-SVG path — the series' postReadyRate mapped into a fixed
+  // 60×18 viewport. `preserveAspectRatio="none"` lets the line stretch
+  // to whatever width the flex row gives us.
+  const W = 60;
+  const H = 18;
+  const step = series.length === 1 ? 0 : W / (series.length - 1);
+  const path = series
+    .map((p, i) => {
+      const x = i * step;
+      const y = H - p.postReadyRate * H;
+      return `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+    })
+    .join(" ");
+
+  return (
+    <div className="mt-[10px] flex items-center gap-[8px] text-[11.5px]">
+      <span
+        className="text-muted-2 font-mono"
+        style={{ fontSize: 9.5, letterSpacing: "0.06em", fontWeight: 600 }}
+      >
+        UNEDITED
+      </span>
+      <svg
+        role="img"
+        aria-label={`Voice progress across ${series.length} episodes`}
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        className="flex-1"
+        style={{ height: 18 }}
+      >
+        <path
+          d={path}
+          fill="none"
+          stroke={tone}
+          strokeWidth={1.4}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+      <span className="font-sans font-semibold tabular-nums" style={{ color: tone, fontSize: 12 }}>
+        {pct}%
+      </span>
+    </div>
   );
 }
 

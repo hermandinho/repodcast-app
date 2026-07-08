@@ -40,6 +40,13 @@ export type SampleOutput = {
    *  with an optional short note from the client (transition audit note). */
   clientRevisionRequestedAtIso?: string | null;
   clientRevisionNote?: string | null;
+  /**
+   * Cumulative Levenshtein delta on this row's current version — powers
+   * the "shipped X% unedited" readout on the drawer for approved /
+   * published rows. Optional so sample-data fixtures can omit it; live
+   * rows always carry a number (column default `0`).
+   */
+  editDistance?: number;
 };
 
 export type SampleEpisode = {

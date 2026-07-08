@@ -376,6 +376,17 @@ export function OutputDrawer({
           </div>
         )}
 
+        {/* Shipped-unedited readout — only for rows that actually shipped
+            (approved / published), where "how much did the operator have
+            to rewrite" is a meaningful signal. Feeds off `editDistance`
+            + current content length; ratio is server-defined in
+            `voice-progress.ts` so this always agrees with the chart. */}
+        <ShippedUneditedRow
+          editDistance={state.editDistance}
+          contentLength={displayedContent.length}
+          show={approved || isScheduled || isPublished}
+        />
+
         {/* Rule-adherence flags — surfaces when the model broke one of
             the show's parseable voice rules (no hashtags, banned phrase,
             length limit, etc.). Not blocking; the reviewer decides
@@ -838,6 +849,66 @@ function ClientRevisionPanel({
 /** Bordered white "card" used inside the signal strip. Keeps the two
  *  metric groupings visually parallel and centered so the pattern reads
  *  as a pair rather than two loose rows. */
+/**
+ * "Shipped X% unedited" — the drawer's per-row expression of the voice
+ * progress north-star (see `components/voice/voice-progress-card.tsx`).
+ * Renders on approved / scheduled / published rows only; earlier
+ * statuses are pre-ship, so the metric isn't meaningful yet.
+ *
+ * The pct is `100 - editRatio*100` where editRatio is clamped in
+ * [0, 1] to match the aggregation in `server/ai/voice-progress.ts`.
+ * When the row predates `editDistance` tracking, `editDistance` is
+ * undefined — we hide the row rather than showing a misleading 100%.
+ */
+function ShippedUneditedRow({
+  editDistance,
+  contentLength,
+  show,
+}: {
+  editDistance: number | undefined;
+  contentLength: number;
+  show: boolean;
+}) {
+  if (!show) return null;
+  if (editDistance === undefined) return null;
+  const len = Math.max(contentLength, 1);
+  const rawRatio = editDistance / len;
+  const clamped = !Number.isFinite(rawRatio) || rawRatio < 0 ? 0 : Math.min(1, rawRatio);
+  const uneditedPct = Math.round((1 - clamped) * 100);
+  const postReady = clamped <= 0.1;
+  const color = postReady ? "#1E7A47" : uneditedPct >= 50 ? "#3A5BA0" : "#A06D12";
+  return (
+    <div
+      className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-zinc-100 bg-white px-6 py-[10px]"
+      style={{ fontFamily: "var(--font-revamp-sans)" }}
+    >
+      <div className="flex items-baseline gap-2">
+        <span className="text-[13px] font-semibold" style={{ color }}>
+          Shipped {uneditedPct}% unedited
+        </span>
+        {postReady && (
+          <span
+            className="font-mono text-[9.5px]"
+            style={{
+              letterSpacing: "0.08em",
+              color: "#1E7A47",
+              background: "#E4F3EC",
+              padding: "2px 7px",
+              borderRadius: 99,
+              fontWeight: 700,
+            }}
+          >
+            POST-READY
+          </span>
+        )}
+      </div>
+      <span className="font-mono text-[10.5px] text-[#8A97AD]">
+        {editDistance} of {contentLength} chars changed
+      </span>
+    </div>
+  );
+}
+
 function SignalCard({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div

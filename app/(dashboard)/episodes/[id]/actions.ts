@@ -93,7 +93,7 @@ export async function updateOutputContentAction(
 
 export async function approveOutputAction(
   raw: unknown,
-): Promise<ActionResult<{ outputId: string; editDistance: number }>> {
+): Promise<ActionResult<{ outputId: string; editDistance: number; showId: string | null }>> {
   const parsed = idInput.safeParse(raw);
   if (!parsed.success) {
     throw new ValidationError("Invalid approve input", parsed.error.issues);
@@ -101,7 +101,7 @@ export async function approveOutputAction(
   const { outputId } = parsed.data;
 
   if (!isLiveDb()) {
-    return noopOk({ outputId, editDistance: 0 });
+    return noopOk({ outputId, editDistance: 0, showId: null });
   }
 
   const auth = await requireAuthContext();
@@ -208,7 +208,7 @@ export async function approveOutputAction(
   revalidatePath("/episodes", "layout");
   revalidatePath("/voice", "layout");
   revalidatePath("/clients", "layout");
-  return noopOk({ outputId, editDistance });
+  return noopOk({ outputId, editDistance, showId });
 }
 
 // ============================================================

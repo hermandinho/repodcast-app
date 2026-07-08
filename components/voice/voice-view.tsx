@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { Platform } from "@/lib/enums";
 import { PlatformBadge } from "@/components/ui/platform-badge";
+import { VoiceProgressCard } from "@/components/voice/voice-progress-card";
 import type { SampleShow } from "@/lib/sample-data/shows";
 import { platforms, type PlatformKey, type PlatformMeta } from "@/lib/sample-data/platforms";
 import type { VoiceInstructions, VoiceProfile } from "@/lib/sample-data/voice-profiles";
 import { voiceLabel } from "@/lib/sample-data/voice-strength";
+import type { VoiceProgressResult } from "@/lib/voice-progress-shape";
 import {
   rateVoiceDescriptionAction,
   saveVoiceInstructionsAction,
@@ -56,7 +58,15 @@ const platformByKey = new Map<PlatformKey, PlatformMeta>(platforms.map((p) => [p
 
 type FilterKey = "all" | PlatformKey;
 
-export function VoiceView({ show, profile }: { show: SampleShow; profile: VoiceProfile }) {
+export function VoiceView({
+  show,
+  profile,
+  progress,
+}: {
+  show: SampleShow;
+  profile: VoiceProfile;
+  progress: VoiceProgressResult;
+}) {
   // Legacy alias — the underlying entity is a Show but every downstream
   // helper still uses `client`.
   const client = show;
@@ -374,6 +384,11 @@ export function VoiceView({ show, profile }: { show: SampleShow; profile: VoiceP
                 )}
               </div>
             </div>
+
+            {/* Voice progress — the north-star metric, right under the
+                strength hero so "the number that climbs" is the first
+                thing after "how many samples do I have." */}
+            <VoiceProgressCard progress={progress} />
 
             {/* Next best actions */}
             <div className="rounded-[14px] border border-[#E4E9F1] bg-white px-[22px] py-5">

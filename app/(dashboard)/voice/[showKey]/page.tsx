@@ -13,5 +13,5 @@ export default async function VoiceProfilePage({
   const result = await getVoiceProfileForUI(tenant, showKey);
   if (!result) notFound();
 
-  return <VoiceView show={result.show} profile={result.profile} />;
+  return <VoiceView show={result.show} profile={result.profile} progress={result.progress} />;
 }

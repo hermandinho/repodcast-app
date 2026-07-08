@@ -2,6 +2,11 @@ import "server-only";
 
 import { MemberRole, OutputStatus } from "@prisma/client";
 import { requireReadRole, type TenantContext } from "@/server/auth/tenant";
+import {
+  EDIT_TRACKING_SINCE,
+  HEADLINE_WINDOW,
+  POST_READY_MAX_RATIO,
+} from "@/server/ai/voice-progress";
 import { prisma } from "./client";
 
 const READ_ROLES = [
@@ -136,37 +141,52 @@ export async function approvalRate(ctx: TenantContext): Promise<number> {
 }
 
 /**
- * "Posted with no edits" = approved outputs the user accepted exactly as
- * the model wrote them. Driven by `GeneratedOutput.editDistance` (cumulative
- * Levenshtein distance of every in-place edit), which 1.9 added — superseded
- * the prior `version == 1` proxy that mis-classified edited-then-approved
- * v1 rows as untouched.
+ * "% posted unedited" — the voice-engine north-star. Share of the
+ * agency's last `HEADLINE_WINDOW` (30) shipped outputs whose
+ * `editDistance / max(contentLength, 1)` sits at or below
+ * `POST_READY_MAX_RATIO` (10%). This is the same definition
+ * `<VoiceProgressCard>` renders per-show — dashboard hero and voice
+ * page tell one story.
  *
- * Counts every past-approval status (not just the momentary `APPROVED`)
- * so the KPI doesn't collapse to 0 once scheduled / published rows
- * accumulate. The `editDistance` field lives on the row itself and
- * survives status transitions, so an approved-then-published row still
- * reports its accumulated edit distance.
+ * Why the change from exact-zero:
+ *   - A one-character typo fix used to disqualify an output from
+ *     "unedited," which was noise dressed up as signal.
+ *   - The voice card + drawer + PostHog `output_approved` event all use
+ *     the ≤10% ratio; the dashboard KPI reporting exact-zero would
+ *     silently contradict them.
+ *
+ * Why the change from lifetime to last-30:
+ *   - Lifetime doesn't move once history dwarfs recent activity — a
+ *     show that just crossed 90% post-ready would still show its 3-year
+ *     average.
+ *   - 30 rows is ~2 weeks at typical volume; enough to smooth a bad
+ *     episode, small enough that improvement is visible.
+ *
+ * `EDIT_TRACKING_SINCE` guard: rows older than 2026-06-29 have
+ * `editDistance = 0` because the column defaulted, not because they
+ * shipped clean. Counting them would inflate the metric on shows with
+ * pre-migration history.
  */
 export async function percentPostedUnedited(ctx: TenantContext): Promise<number> {
   requireReadRole(ctx, READ_ROLES);
-  const [approved, untouched] = await Promise.all([
-    prisma.generatedOutput.count({
-      where: {
-        episode: { show: { client: { agencyId: ctx.agencyId } } },
-        status: { in: [...PAST_APPROVAL_STATUSES] },
-      },
-    }),
-    prisma.generatedOutput.count({
-      where: {
-        episode: { show: { client: { agencyId: ctx.agencyId } } },
-        status: { in: [...PAST_APPROVAL_STATUSES] },
-        editDistance: 0,
-      },
-    }),
-  ]);
-  if (approved === 0) return 0;
-  return Math.round((untouched / approved) * 100);
+  const rows = await prisma.generatedOutput.findMany({
+    where: {
+      episode: { show: { client: { agencyId: ctx.agencyId } } },
+      status: { in: [...PAST_APPROVAL_STATUSES] },
+      supersededAt: null,
+      createdAt: { gte: EDIT_TRACKING_SINCE },
+    },
+    select: { editDistance: true, content: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+    take: HEADLINE_WINDOW,
+  });
+  if (rows.length === 0) return 0;
+  const postReady = rows.filter((r) => {
+    const len = Math.max(r.content.length, 1);
+    const ratio = r.editDistance / len;
+    return Number.isFinite(ratio) && ratio >= 0 && Math.min(1, ratio) <= POST_READY_MAX_RATIO;
+  }).length;
+  return Math.round((postReady / rows.length) * 100);
 }
 
 // ============================================================

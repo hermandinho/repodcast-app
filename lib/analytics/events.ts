@@ -56,6 +56,14 @@ export type EventMap = {
    * Fired client-side from `OutputsView` after `approveOutputAction` returns
    * ok. `edited` is the read-only signal we surface on the dashboard hero
    * KPI — `editDistance > 0` means the user touched the model's draft.
+   *
+   * `showId`, `editRatio`, and `postReady` power the "% posted unedited"
+   * north-star at the product level — PostHog can now compute per-show
+   * post-ready rate directly, matching what
+   * `server/ai/voice-progress.ts` renders in-app. `showId` is `null`
+   * when the approval routed through the client portal (portal approves
+   * don't hit the tenant-side approve action's showId lookup) and in
+   * sample-data / no-op paths.
    */
   output_approved: {
     outputId: string;
@@ -63,6 +71,11 @@ export type EventMap = {
     platform: string;
     edited: boolean;
     editDistance: number;
+    showId: string | null;
+    /** `editDistance / max(contentLength, 1)`, clamped to [0, 1]. */
+    editRatio: number;
+    /** True when `editRatio <= POST_READY_MAX_RATIO` (0.10). */
+    postReady: boolean;
   };
 
   /**

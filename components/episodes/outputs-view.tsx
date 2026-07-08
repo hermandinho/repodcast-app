@@ -123,6 +123,7 @@ function mergeOutputFromProp(
     clientApprovedAtIso: incoming.clientApprovedAtIso ?? null,
     clientRevisionRequestedAtIso: incoming.clientRevisionRequestedAtIso ?? null,
     clientRevisionNote: incoming.clientRevisionNote ?? null,
+    editDistance: incoming.editDistance,
     progress: stillGenerating ? prev.progress : 100,
     _startAt: stillGenerating ? prev._startAt : undefined,
     _target: stillGenerating ? prev._target : undefined,
@@ -156,6 +157,7 @@ function buildNewRowFromProp(incoming: SampleEpisode["outputs"][number]): LiveOu
     clientApprovedAtIso: incoming.clientApprovedAtIso ?? null,
     clientRevisionRequestedAtIso: incoming.clientRevisionRequestedAtIso ?? null,
     clientRevisionNote: incoming.clientRevisionNote ?? null,
+    editDistance: incoming.editDistance,
   };
 }
 
@@ -259,6 +261,7 @@ export function OutputsView({
       clientApprovedAtIso: o.clientApprovedAtIso ?? null,
       clientRevisionRequestedAtIso: o.clientRevisionRequestedAtIso ?? null,
       clientRevisionNote: o.clientRevisionNote ?? null,
+      editDistance: o.editDistance,
     })),
   );
 
@@ -703,11 +706,22 @@ export function OutputsView({
           rollback();
           return;
         }
+        // Derived north-star metrics — the aggregation module owns the
+        // ratio math (`voice-progress.ts#editRatioFor` / `isPostReady`);
+        // mirror the same clamp + threshold here so PostHog and the
+        // in-app chart agree. `contentLength` is taken from the local
+        // row, which already reflects any user edits the operator made
+        // before hitting approve.
+        const contentLength = Math.max(o.content.length, 1);
+        const editRatio = Math.min(1, Math.max(0, result.data.editDistance / contentLength));
         track("output_approved", {
           outputId: result.data.outputId,
           platform: o.key,
           edited: result.data.editDistance > 0,
           editDistance: result.data.editDistance,
+          showId: result.data.showId,
+          editRatio,
+          postReady: editRatio <= 0.1,
         });
       })
       .catch((err) => {

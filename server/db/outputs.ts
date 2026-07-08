@@ -1207,6 +1207,109 @@ export async function listInFlightScheduledOutputs(limit = 500): Promise<
 }
 
 // ============================================================
+// Voice-progress rows — shipped outputs for one show, shaped for
+// `server/ai/voice-progress.ts#computeVoiceProgress`.
+// ============================================================
+
+import { EDIT_TRACKING_SINCE, type ShippedOutputRow } from "@/server/ai/voice-progress";
+
+/**
+ * Tenant-scoped fetch of shipped `GeneratedOutput` rows for one show,
+ * ready to hand to `computeVoiceProgress`. Filters to guarantee the
+ * aggregation is honest:
+ *
+ *   - `status ∈ { APPROVED, PUBLISHED }` — the population that actually
+ *     went out. Rejected / superseded drafts are excluded.
+ *   - `supersededAt IS NULL` — only the current version of each slot
+ *     counts, so a chain of `regenerate → approve` doesn't double-count.
+ *   - `createdAt >= EDIT_TRACKING_SINCE` — rows older than the migration
+ *     that added `editDistance` report `0` by column default, not by
+ *     clean ship. Counting them would inflate the metric.
+ *
+ * Returns rows ordered by episode `createdAt` then output `id` so
+ * downstream aggregation gets deterministic input.
+ */
+export async function listShippedOutputsForShow(
+  ctx: TenantContext,
+  showId: string,
+): Promise<ShippedOutputRow[]> {
+  requireReadRole(ctx, READ_ROLES);
+  const rows = await prisma.generatedOutput.findMany({
+    where: {
+      episode: { showId, show: { client: { agencyId: ctx.agencyId } } },
+      status: { in: [OutputStatus.APPROVED, OutputStatus.PUBLISHED] },
+      supersededAt: null,
+      createdAt: { gte: EDIT_TRACKING_SINCE },
+    },
+    select: {
+      id: true,
+      platform: true,
+      editDistance: true,
+      content: true,
+      episode: {
+        select: { id: true, title: true, createdAt: true },
+      },
+    },
+    orderBy: [{ episode: { createdAt: "asc" } }, { id: "asc" }],
+  });
+  return rows.map((r) => ({
+    outputId: r.id,
+    episodeId: r.episode.id,
+    episodeTitle: r.episode.title,
+    episodeCreatedAt: r.episode.createdAt,
+    platform: r.platform,
+    editDistance: r.editDistance,
+    contentLength: r.content.length,
+  }));
+}
+
+/**
+ * Same shape as `listShippedOutputsForShow`, but grouped by showId for
+ * every show under the tenant in one query. Used by the shows list
+ * card grid to render the per-show voice-progress sparkline without
+ * firing N queries. Empty map when the agency has no shipped outputs.
+ */
+export async function listShippedOutputsForAgencyByShow(
+  ctx: TenantContext,
+): Promise<Map<string, ShippedOutputRow[]>> {
+  requireReadRole(ctx, READ_ROLES);
+  const rows = await prisma.generatedOutput.findMany({
+    where: {
+      episode: { show: { client: { agencyId: ctx.agencyId } } },
+      status: { in: [OutputStatus.APPROVED, OutputStatus.PUBLISHED] },
+      supersededAt: null,
+      createdAt: { gte: EDIT_TRACKING_SINCE },
+    },
+    select: {
+      id: true,
+      platform: true,
+      editDistance: true,
+      content: true,
+      episode: {
+        select: { id: true, title: true, createdAt: true, showId: true },
+      },
+    },
+    orderBy: [{ episode: { createdAt: "asc" } }, { id: "asc" }],
+  });
+  const byShow = new Map<string, ShippedOutputRow[]>();
+  for (const r of rows) {
+    const row: ShippedOutputRow = {
+      outputId: r.id,
+      episodeId: r.episode.id,
+      episodeTitle: r.episode.title,
+      episodeCreatedAt: r.episode.createdAt,
+      platform: r.platform,
+      editDistance: r.editDistance,
+      contentLength: r.content.length,
+    };
+    const list = byShow.get(r.episode.showId);
+    if (list) list.push(row);
+    else byShow.set(r.episode.showId, [row]);
+  }
+  return byShow;
+}
+
+// ============================================================
 // Quality metrics — used by the Output Quality rail
 // ============================================================
 

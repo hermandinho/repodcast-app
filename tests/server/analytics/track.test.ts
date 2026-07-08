@@ -87,7 +87,15 @@ describe("trackServer", () => {
 
     await trackServer(
       "output_approved",
-      { outputId: "o1", platform: "li", edited: false, editDistance: 0 },
+      {
+        outputId: "o1",
+        platform: "li",
+        edited: false,
+        editDistance: 0,
+        showId: "sh_1",
+        editRatio: 0,
+        postReady: true,
+      },
       { distinctId: "agency:a1" },
     );
 
@@ -123,7 +131,15 @@ describe("trackServer", () => {
     await expect(
       trackServer(
         "output_approved",
-        { outputId: "o1", platform: "x", edited: true, editDistance: 14 },
+        {
+          outputId: "o1",
+          platform: "x",
+          edited: true,
+          editDistance: 14,
+          showId: "sh_1",
+          editRatio: 0.07,
+          postReady: true,
+        },
         { distinctId: "agency:a1" },
       ),
     ).resolves.toBeUndefined();
