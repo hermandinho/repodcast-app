@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { auth } from "@clerk/nextjs/server";
 import { LandingPage } from "@/components/landing/landing-page";
-import { getLandingSocialLinks } from "@/lib/landing-social-links";
 import { getLandingTrustedBy } from "@/lib/landing-trusted-by";
 
 export const metadata: Metadata = {
@@ -21,10 +20,6 @@ export const metadata: Metadata = {
 };
 
 export default async function HomePage() {
-  const [{ userId }, trustedBy, socialLinks] = await Promise.all([
-    auth(),
-    getLandingTrustedBy(),
-    getLandingSocialLinks(),
-  ]);
-  return <LandingPage isSignedIn={!!userId} trustedBy={trustedBy} socialLinks={socialLinks} />;
+  const [{ userId }, trustedBy] = await Promise.all([auth(), getLandingTrustedBy()]);
+  return <LandingPage isSignedIn={!!userId} trustedBy={trustedBy} />;
 }

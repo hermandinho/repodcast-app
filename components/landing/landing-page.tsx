@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { PricingPicker } from "@/components/pricing/pricing-picker";
-import { DEFAULT_SOCIAL_LINKS, type LandingSocialLinks } from "@/lib/landing-social-links";
 import { DEFAULT_TRUSTED_BY, type LandingTrustedBy } from "@/lib/landing-trusted-by";
 import { FAQAccordion } from "./faq-accordion";
 import { LandingFooter } from "./footer";
@@ -30,7 +29,6 @@ import { LandingNav } from "./nav";
 export function LandingPage({
   isSignedIn = false,
   trustedBy = DEFAULT_TRUSTED_BY,
-  socialLinks = DEFAULT_SOCIAL_LINKS,
 }: {
   isSignedIn?: boolean;
   /**
@@ -39,13 +37,6 @@ export function LandingPage({
    * landing page itself just renders what it's given.
    */
   trustedBy?: LandingTrustedBy & { heading: string };
-  /**
-   * Managed from `/root/config` under the `LANDING_SOCIAL_LINKS` key.
-   * Reader lives in `lib/landing-social-links.ts`. Passed through to
-   * `LandingFooter`, which renders the icons (or hides the row when
-   * the list is empty).
-   */
-  socialLinks?: LandingSocialLinks;
 }) {
   return (
     <div className="w-full overflow-x-hidden bg-white">
@@ -62,7 +53,7 @@ export function LandingPage({
       <Pricing isSignedIn={isSignedIn} />
       <FAQ />
       <FinalCTA isSignedIn={isSignedIn} />
-      <LandingFooter socialLinks={socialLinks} />
+      <LandingFooter />
     </div>
   );
 }

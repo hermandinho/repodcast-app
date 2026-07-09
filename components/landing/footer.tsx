@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { CookiePreferencesButton } from "@/components/consent/cookie-preferences-button";
-import { DEFAULT_SOCIAL_LINKS, type LandingSocialLinks } from "@/lib/landing-social-links";
+import { getLandingSocialLinks } from "@/lib/landing-social-links";
 import { BrandMark } from "./nav";
 import { SocialIcon, socialLabel } from "./social-icon";
 
@@ -32,17 +32,14 @@ const COLUMNS = [
   },
 ];
 
-export function LandingFooter({
-  socialLinks = DEFAULT_SOCIAL_LINKS,
-}: {
-  /**
-   * Managed from `/root/config` under the `LANDING_SOCIAL_LINKS` key.
-   * Server fetch + fallback lives in `lib/landing-social-links.ts`; the
-   * footer itself just renders what it's given. Absent / empty →
-   * the row is hidden entirely (no placeholder icons).
-   */
-  socialLinks?: LandingSocialLinks;
-} = {}) {
+/**
+ * Async server component — self-fetches the `LANDING_SOCIAL_LINKS` config
+ * so every page that renders the footer (landing, /pricing, /blog, legal,
+ * etc.) gets the icons without each caller re-doing the plumbing. Empty
+ * list → the social row is hidden entirely (no placeholder icons).
+ */
+export async function LandingFooter() {
+  const socialLinks = await getLandingSocialLinks();
   return (
     <footer className="px-5 pt-12 pb-8 sm:px-7 sm:pt-14 sm:pb-10" style={{ background: "#13203B" }}>
       <div className="mx-auto" style={{ maxWidth: 1180 }}>
