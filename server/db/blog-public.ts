@@ -23,6 +23,7 @@ export type PublicBlogListItem = {
   publishedAt: Date;
   readingMinutes: number | null;
   viewCount: number;
+  upvoteCount: number;
   author: { name: string | null } | null;
 };
 
@@ -62,7 +63,12 @@ export async function listPublicBlogPosts(opts?: {
   const rows = await prisma.blogPost.findMany({
     where: {
       ...livePostsWhere(),
-      ...(opts?.category ? { category: opts.category } : {}),
+      // Case-insensitive match so the chip UI on `/blog` doesn't require the
+      // operator to type exact casing when authoring — "Voice" chip finds
+      // "voice", "VOICE", etc.
+      ...(opts?.category
+        ? { category: { equals: opts.category, mode: "insensitive" as const } }
+        : {}),
     },
     orderBy: [{ publishedAt: "desc" }],
     take: opts?.take ?? 50,
@@ -76,6 +82,7 @@ export async function listPublicBlogPosts(opts?: {
       publishedAt: true,
       readingMinutes: true,
       viewCount: true,
+      upvoteCount: true,
       author: { select: { name: true } },
     },
   });
@@ -89,6 +96,7 @@ export async function listPublicBlogPosts(opts?: {
     publishedAt: r.publishedAt as Date,
     readingMinutes: r.readingMinutes,
     viewCount: r.viewCount,
+    upvoteCount: r.upvoteCount,
     author: r.author,
   }));
 }
@@ -107,6 +115,7 @@ export async function getPublicBlogPostBySlug(slug: string): Promise<PublicBlogP
       publishedAt: true,
       readingMinutes: true,
       viewCount: true,
+      upvoteCount: true,
       metaTitle: true,
       metaDescription: true,
       canonicalUrl: true,
@@ -129,6 +138,7 @@ export async function getPublicBlogPostBySlug(slug: string): Promise<PublicBlogP
     publishedAt: row.publishedAt as Date,
     readingMinutes: row.readingMinutes,
     viewCount: row.viewCount,
+    upvoteCount: row.upvoteCount,
     metaTitle: row.metaTitle,
     metaDescription: row.metaDescription,
     canonicalUrl: row.canonicalUrl,
@@ -154,6 +164,38 @@ export async function recordPublicBlogView(slug: string): Promise<number> {
   const res = await prisma.blogPost.updateMany({
     where: { slug, ...livePostsWhere() },
     data: { viewCount: { increment: 1 } },
+  });
+  return res.count;
+}
+
+/**
+ * Anonymous upvote increment / decrement. Called by the client toggle button
+ * via `POST` (+1) and `DELETE` (-1) on `/api/blog/[slug]/upvote`.
+ *
+ * The decrement path guards on `upvoteCount > 0` inside the same WHERE
+ * clause so a rogue DELETE loop can't push the counter negative — no
+ * separate read/write round-trip, no transaction needed. The increment
+ * path has no ceiling (Int max is ~2B, well past anything a blog can
+ * realistically accumulate).
+ *
+ * Returns the number of rows touched. `0` = slug not live, OR (for the
+ * decrement path) counter was already at 0. The caller treats both cases
+ * as "silent success" — same posture as `recordPublicBlogView`.
+ */
+export async function recordPublicBlogUpvote(
+  slug: string,
+  direction: "add" | "remove",
+): Promise<number> {
+  if (direction === "add") {
+    const res = await prisma.blogPost.updateMany({
+      where: { slug, ...livePostsWhere() },
+      data: { upvoteCount: { increment: 1 } },
+    });
+    return res.count;
+  }
+  const res = await prisma.blogPost.updateMany({
+    where: { slug, upvoteCount: { gt: 0 }, ...livePostsWhere() },
+    data: { upvoteCount: { decrement: 1 } },
   });
   return res.count;
 }
@@ -201,6 +243,7 @@ export async function listRelatedPublicPosts(opts: {
       publishedAt: true,
       readingMinutes: true,
       viewCount: true,
+      upvoteCount: true,
       author: { select: { name: true } },
     },
   });
@@ -227,6 +270,7 @@ export async function listRelatedPublicPosts(opts: {
     publishedAt: row.publishedAt as Date,
     readingMinutes: row.readingMinutes,
     viewCount: row.viewCount,
+    upvoteCount: row.upvoteCount,
     author: row.author,
   }));
 }

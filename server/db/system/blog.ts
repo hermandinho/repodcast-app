@@ -47,6 +47,7 @@ export type BlogPostRow = {
   keywords: string[];
   structuredDataJson: Prisma.JsonValue | null;
   viewCount: number;
+  upvoteCount: number;
   createdAt: Date;
   updatedAt: Date;
   author: { id: string; email: string; name: string | null } | null;
@@ -72,6 +73,7 @@ const rowSelect = {
   keywords: true,
   structuredDataJson: true,
   viewCount: true,
+  upvoteCount: true,
   createdAt: true,
   updatedAt: true,
   author: { select: { id: true, email: true, name: true } },
@@ -98,6 +100,7 @@ function toRow(r: Prisma.BlogPostGetPayload<{ select: typeof rowSelect }>): Blog
     keywords: r.keywords,
     structuredDataJson: r.structuredDataJson ?? null,
     viewCount: r.viewCount,
+    upvoteCount: r.upvoteCount,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     author: r.author,

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
+import { BlogUpvoteButton } from "@/components/blog/upvote-button";
 import { BlogViewBeacon } from "@/components/blog/view-beacon";
 import { LandingFooter } from "@/components/landing/footer";
 import { LandingNav } from "@/components/landing/nav";
@@ -140,8 +141,15 @@ export default async function PublicBlogPostPage({ params }: { params: Promise<R
           dangerouslySetInnerHTML={{ __html: bodyHtml }}
         />
 
+        <div className="mt-10 flex flex-wrap items-center gap-4 border-t border-[#ECEEF3] pt-8">
+          <BlogUpvoteButton slug={post.slug} initialCount={post.upvoteCount} />
+          <p className="text-[12.5px] text-[#6B7BA3]">
+            Found this useful? Give it an upvote so we know to keep writing on this.
+          </p>
+        </div>
+
         {post.tags.length > 0 ? (
-          <div className="mt-10 flex flex-wrap items-center gap-2 border-t border-[#ECEEF3] pt-6">
+          <div className="mt-8 flex flex-wrap items-center gap-2">
             <span
               className="text-[11px] font-semibold tracking-wider text-[#6B7BA3] uppercase"
               style={{ fontFamily: "var(--font-mono)" }}

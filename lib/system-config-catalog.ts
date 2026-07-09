@@ -1,4 +1,5 @@
 import type { ZodType } from "zod";
+import { BLOG_INDEX_OG_IMAGE_KEY, blogIndexOgImageSchema } from "./blog-index-og";
 import { LANDING_SOCIAL_LINKS_KEY, landingSocialLinksSchema } from "./landing-social-links";
 import {
   DEFAULT_TRUSTED_BY,
@@ -91,6 +92,20 @@ export const KNOWN_SYSTEM_CONFIG: readonly KnownConfigEntry[] = [
     },
     revalidatePaths: ["/"],
     schema: landingSocialLinksSchema,
+  },
+  {
+    key: BLOG_INDEX_OG_IMAGE_KEY,
+    label: "Blog index social share image",
+    purpose:
+      "OpenGraph / Twitter card image rendered when /blog is shared. Managed from /root/blog (upload widget) rather than /root/config, but stored here so the audit trail + revalidation live alongside the other landing keys.",
+    readAt: "lib/blog-index-og.ts",
+    defaultBehavior:
+      "Share card falls back to no image when the key is unset — a card without an image renders fine on Twitter and LinkedIn; a broken URL does not.",
+    example: {
+      url: "https://pub-xxxxxxxx.r2.dev/blog/index-og.png",
+    },
+    revalidatePaths: ["/blog"],
+    schema: blogIndexOgImageSchema,
   },
 ];
 

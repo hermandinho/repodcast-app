@@ -1,7 +1,10 @@
 import Link from "next/link";
+import { BlogImageField } from "@/components/root/blog-image-field";
 import { formatViewCount } from "@/lib/blog";
+import { getBlogIndexOgImageUrl } from "@/lib/blog-index-og";
 import { requireSystemAdminContext } from "@/server/auth/system";
 import { listBlogPostsForAdmin, type BlogPostRow } from "@/server/db/system/blog";
+import { saveBlogIndexOgImageAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -31,11 +34,14 @@ export default async function RootBlogPage({
 
   const canWrite = ctx.admin.role === "ROOT" || ctx.admin.role === "OPERATOR";
   const statusFilter = coerceStatus(sp.status);
-  const rows = await listBlogPostsForAdmin(ctx, {
-    status: statusFilter ?? undefined,
-    search: sp.q,
-    take: 100,
-  });
+  const [rows, currentOgImage] = await Promise.all([
+    listBlogPostsForAdmin(ctx, {
+      status: statusFilter ?? undefined,
+      search: sp.q,
+      take: 100,
+    }),
+    getBlogIndexOgImageUrl(),
+  ]);
 
   const counts = {
     all: rows.length,
@@ -84,8 +90,42 @@ export default async function RootBlogPage({
       ) : null}
       {sp.ok ? (
         <div className="rounded-xl border border-emerald-900/60 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-100">
-          {sp.ok === "deleted" ? "Post deleted." : "Saved."}
+          {sp.ok === "deleted"
+            ? "Post deleted."
+            : sp.ok === "og_image"
+              ? "Blog index share image updated."
+              : "Saved."}
         </div>
+      ) : null}
+
+      {canWrite ? (
+        <section className="flex flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+          <div>
+            <h2 className="font-display text-sm font-semibold text-white">
+              Blog index share image
+            </h2>
+            <p className="mt-1 text-[12.5px] text-zinc-500">
+              OpenGraph / Twitter card image used when <code className="text-zinc-300">/blog</code>{" "}
+              is shared on social. Recommended size 1200×630. Leave blank to fall back to no image
+              (the card still renders — just without a thumbnail).
+            </p>
+          </div>
+          <form action={saveBlogIndexOgImageAction} className="flex flex-col gap-3">
+            <BlogImageField
+              name="ogImageUrl"
+              initialValue={currentOgImage ?? ""}
+              helpText="Stored as SystemConfig BLOG_INDEX_OG_IMAGE_URL — writes audit."
+            />
+            <div>
+              <button
+                type="submit"
+                className="rounded-md border border-red-500/60 bg-red-500/10 px-3 py-2 text-[12.5px] font-medium text-red-100 hover:bg-red-500/20"
+              >
+                Save share image
+              </button>
+            </div>
+          </form>
+        </section>
       ) : null}
 
       <form
@@ -151,6 +191,7 @@ export default async function RootBlogPage({
                 <th className="px-4 py-3">Author</th>
                 <th className="px-4 py-3">Category</th>
                 <th className="px-4 py-3 text-right">Views</th>
+                <th className="px-4 py-3 text-right">Upvotes</th>
                 <th className="px-4 py-3">Updated</th>
                 <th className="px-4 py-3">Public URL</th>
               </tr>
@@ -183,6 +224,12 @@ export default async function RootBlogPage({
                     title={`${row.viewCount.toLocaleString()} views`}
                   >
                     {formatViewCount(row.viewCount)}
+                  </td>
+                  <td
+                    className="px-4 py-3 text-right font-mono text-[12.5px] text-zinc-300 tabular-nums"
+                    title={`${row.upvoteCount.toLocaleString()} upvotes`}
+                  >
+                    {formatViewCount(row.upvoteCount)}
                   </td>
                   <td className="px-4 py-3 font-mono text-[11px] text-zinc-500">
                     {row.updatedAt.toISOString().slice(0, 16).replace("T", " ")}

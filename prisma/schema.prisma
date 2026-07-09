@@ -1573,6 +1573,13 @@ model BlogPost {
   /// cryptographically hardened) and used for editorial signal only.
   viewCount Int @default(0)
 
+  /// Public upvote counter — anonymous, one vote per browser (dedup via
+  /// `localStorage` on the client). Incremented by `POST` and decremented
+  /// by `DELETE` on `/api/blog/[slug]/upvote`. Same best-effort posture as
+  /// `viewCount`; floored at 0 by the write helper so a rogue DELETE loop
+  /// can't push it negative.
+  upvoteCount Int @default(0)
+
   authorAdminId    String?
   updatedByAdminId String?
 

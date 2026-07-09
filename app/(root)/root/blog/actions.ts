@@ -11,6 +11,8 @@ import {
   SYSTEM_WRITE_ROLES,
 } from "@/server/auth/system";
 import { deleteBlogPost, upsertBlogPost, type UpsertBlogPostInput } from "@/server/db/system/blog";
+import { deleteSystemConfig, upsertSystemConfig } from "@/server/db/system/config";
+import { BLOG_INDEX_OG_IMAGE_KEY } from "@/lib/blog-index-og";
 import { slugify } from "@/lib/blog";
 import { getR2Client, signR2UploadUrl } from "@/server/storage/r2";
 
@@ -89,6 +91,57 @@ export async function deleteBlogPostAction(formData: FormData): Promise<void> {
   revalidatePath("/blog");
   if (slug) revalidatePath(`/blog/${slug}`);
   redirect("/root/blog?ok=deleted");
+}
+
+// ============================================================
+// Blog index social share image — `BLOG_INDEX_OG_IMAGE_URL`
+// ============================================================
+
+/**
+ * Persists the `/blog` OG / Twitter card image URL under the
+ * `BLOG_INDEX_OG_IMAGE_URL` SystemConfig key. Also handles the "clear" case
+ * (empty submission → delete the key so the reader falls back to no image
+ * rather than a persisted empty string).
+ *
+ * Reuses `upsertSystemConfig` / `deleteSystemConfig` so the mutation lands
+ * an audit row exactly like the /root/config surface — the upload UI on
+ * /root/blog is only ergonomics; the storage plumbing is shared.
+ */
+export async function saveBlogIndexOgImageAction(formData: FormData): Promise<void> {
+  const ctx = await requireSystemAdminContext();
+  assertSystemRole(ctx, SYSTEM_WRITE_ROLES);
+
+  const raw = strOrUndef(formData.get("ogImageUrl"));
+
+  try {
+    if (!raw) {
+      // Clearing the field wipes the key. `deleteSystemConfig` requires a
+      // note; supply a canonical one so the operator doesn't have to type
+      // one for a routine reset.
+      await deleteSystemConfig(ctx, {
+        key: BLOG_INDEX_OG_IMAGE_KEY,
+        note: "Cleared blog index OG image via /root/blog upload widget",
+      }).catch((err: unknown) => {
+        // Deleting a key that doesn't exist yet is a no-op from the
+        // operator's perspective — swallow the "not found" and treat the
+        // submission as successful.
+        if (err instanceof NotFoundError) return;
+        throw err;
+      });
+    } else {
+      await upsertSystemConfig(ctx, {
+        key: BLOG_INDEX_OG_IMAGE_KEY,
+        valueJson: JSON.stringify({ url: raw }),
+        description: "Blog index OG / Twitter card image (managed via /root/blog).",
+      });
+    }
+  } catch (err) {
+    redirect(`/root/blog?error=${errCode(err)}`);
+  }
+
+  revalidatePath("/root/blog");
+  revalidatePath("/blog");
+  redirect("/root/blog?ok=og_image");
 }
 
 // ============================================================
