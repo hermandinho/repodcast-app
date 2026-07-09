@@ -7,9 +7,10 @@
  *
  * Re-running is idempotent: `PutBucketCors` replaces the policy wholesale.
  *
- * Origins are derived from:
- *   - `NEXT_PUBLIC_APP_URL` (production, if set)
- *   - `http://localhost:3000`, `http://localhost:3001` (dev defaults)
+ * Origins:
+ *   - `http://localhost:3000`, `http://localhost:3001` (dev)
+ *   - `https://repodcastapp.com`, `https://www.repodcastapp.com` (prod)
+ *   - `NEXT_PUBLIC_APP_URL` if set (for staging / preview overrides)
  */
 
 import { GetBucketCorsCommand, PutBucketCorsCommand, S3Client } from "@aws-sdk/client-s3";
@@ -22,7 +23,12 @@ const accessKeyId = required("R2_ACCESS_KEY_ID");
 const secretAccessKey = required("R2_SECRET_ACCESS_KEY");
 const bucket = required("R2_BUCKET");
 
-const allowedOrigins = new Set<string>(["http://localhost:3000", "http://localhost:3001"]);
+const allowedOrigins = new Set<string>([
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "https://repodcastapp.com",
+  "https://www.repodcastapp.com",
+]);
 if (process.env.NEXT_PUBLIC_APP_URL) {
   allowedOrigins.add(process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, ""));
 }
