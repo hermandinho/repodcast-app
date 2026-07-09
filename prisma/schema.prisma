@@ -55,6 +55,20 @@ enum EpisodeStatus {
   FAILED
 }
 
+/// Fine-grained pipeline sub-state. `status` is the coarse public state
+/// (DRAFT/PROCESSING/READY/ARCHIVED/FAILED); `stage` is the actual thing
+/// running right now — used to drive the SSE stream + the "we're doing X"
+/// panels on the episode page. PROCESSING covers three distinct phases
+/// (IMPORTING/TRANSCRIBING/GENERATING) that used to be indistinguishable.
+enum EpisodePipelineStage {
+  PENDING
+  IMPORTING
+  TRANSCRIBING
+  GENERATING
+  COMPLETED
+  FAILED
+}
+
 enum OutputStatus {
   GENERATING
   READY
@@ -477,6 +491,9 @@ model Episode {
   audioUrl      String?
   externalUrl   String?
   status        EpisodeStatus    @default(DRAFT)
+  /// Fine-grained pipeline sub-state. Drives the SSE stream + panel
+  /// selection on `/episodes/[id]`. See `EpisodePipelineStage`.
+  stage         EpisodePipelineStage @default(PENDING)
   /// Free-text reason populated when a pipeline non-retriable error trips
   /// (RSS import 404, transcribe 4xx, etc.). Pairs with `status = FAILED`
   /// so the episode page can render a "what went wrong" banner with a

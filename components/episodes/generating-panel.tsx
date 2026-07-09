@@ -1,5 +1,6 @@
 "use client";
 
+import { LeaveAndNotifyHint } from "./leave-and-notify-hint";
 import { PipelineStepper } from "./pipeline-stepper";
 
 /**
@@ -35,6 +36,7 @@ export function GeneratingPanel({ source }: { source: "PASTE" | "UPLOAD" | "RSS"
         <span className="text-muted-2 font-sans text-[11.5px] whitespace-nowrap">~20–45 sec</span>
       </div>
       <PipelineStepper source={source} activeStep="generate" />
+      <LeaveAndNotifyHint />
     </div>
   );
 }

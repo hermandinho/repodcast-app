@@ -1,5 +1,6 @@
 "use client";
 
+import { LeaveAndNotifyHint } from "./leave-and-notify-hint";
 import { PipelineStepper } from "./pipeline-stepper";
 
 /**
@@ -37,6 +38,7 @@ export function ImportingPanel({ source }: { source: "RSS" | "YOUTUBE" }) {
         </span>
       </div>
       <PipelineStepper source={source} activeStep="import" />
+      <LeaveAndNotifyHint />
     </div>
   );
 }

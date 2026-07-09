@@ -1,10 +1,17 @@
-import { EpisodeStatus, TranscriptSource } from "@prisma/client";
+import { EpisodePipelineStage, EpisodeStatus, TranscriptSource } from "@prisma/client";
 import { NonRetriableError } from "inngest";
 import { prisma } from "@/server/db/client";
+import { captureInngestFailure } from "@/server/observability/sentry";
 import { signR2DownloadUrl } from "@/server/storage/r2";
 import { DeepgramError, transcribeUrl } from "@/server/transcription/deepgram";
 import type { Events } from "../events";
 import { inngest } from "../client";
+
+function truncateReason(message: string): string {
+  const trimmed = message.trim();
+  if (trimmed.length === 0) return "Transcription failed";
+  return trimmed.length > 500 ? `${trimmed.slice(0, 497)}...` : trimmed;
+}
 
 /**
  * Phase 2.7 — audio → transcript pipeline.
@@ -42,6 +49,29 @@ export const transcribeEpisode = inngest.createFunction(
     id: "transcribe-episode",
     triggers: [{ event: "episode/transcribe.requested" }],
     retries: 3,
+    /**
+     * Terminal failure after retries. Flip stage/status → FAILED so the
+     * SSE stream can close cleanly and the episode page renders the
+     * "what went wrong" banner instead of hanging on <TranscribingPanel>
+     * forever — same escape hatch as the RSS/YouTube/generate handlers.
+     * Best-effort: never let the failure handler poison the queue.
+     */
+    onFailure: async ({ event, error }) => {
+      const { episodeId } = event.data.event.data as Events["episode/transcribe.requested"]["data"];
+      captureInngestFailure("transcribe", error, { episodeId });
+      try {
+        await prisma.episode.update({
+          where: { id: episodeId },
+          data: {
+            status: EpisodeStatus.FAILED,
+            stage: EpisodePipelineStage.FAILED,
+            failureReason: truncateReason(error?.message ?? "Transcription failed"),
+          },
+        });
+      } catch (err) {
+        console.error("transcribe-episode onFailure persistence failed", err);
+      }
+    },
   },
   async ({ event, step }) => {
     const {
@@ -83,7 +113,18 @@ export const transcribeEpisode = inngest.createFunction(
     const agencyId = agencyIdFromEvent ?? episode.show.client.agencyId;
     if (episode.transcript.trim().length > 0) {
       // Already has a transcript. Skip Deepgram + fire generate directly so
-      // a re-fired event still kicks the generation pipeline.
+      // a re-fired event still kicks the generation pipeline. Nudge the
+      // stage forward so the UI doesn't linger on TRANSCRIBING while we
+      // wait for generate to pick up the event.
+      await step.run("mark-generating", () =>
+        prisma.episode.update({
+          where: { id: episodeId },
+          data: {
+            status: EpisodeStatus.PROCESSING,
+            stage: EpisodePipelineStage.GENERATING,
+          },
+        }),
+      );
       await step.sendEvent("emit-generate", {
         name: "episode/generate.requested",
         data: { episodeId, platforms, plan, agencyId },
@@ -91,11 +132,14 @@ export const transcribeEpisode = inngest.createFunction(
       return { episodeId, skippedTranscription: true };
     }
 
-    // ---- 2. Status → PROCESSING ----
+    // ---- 2. Status → PROCESSING, stage → TRANSCRIBING ----
     await step.run("mark-processing", () =>
       prisma.episode.update({
         where: { id: episodeId },
-        data: { status: EpisodeStatus.PROCESSING },
+        data: {
+          status: EpisodeStatus.PROCESSING,
+          stage: EpisodePipelineStage.TRANSCRIBING,
+        },
       }),
     );
 
@@ -152,11 +196,18 @@ export const transcribeEpisode = inngest.createFunction(
       );
     }
 
+    // Persist transcript AND flip stage → GENERATING in one write. The
+    // handoff to `generate-episode` may sit in the priority queue for a
+    // few seconds; during that gap the pipeline is done with
+    // transcription so <TranscribingPanel> should already be down. The
+    // GENERATING panel (via source stage=generating) picks up until the
+    // generate function's own `mark-processing` step confirms it started.
     await step.run("persist-transcript", () =>
       prisma.episode.update({
         where: { id: episodeId },
         data: {
           transcript: transcribeResult.transcript,
+          stage: EpisodePipelineStage.GENERATING,
           durationSec:
             transcribeResult.durationSec != null
               ? Math.round(transcribeResult.durationSec)

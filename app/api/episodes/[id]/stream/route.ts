@@ -1,5 +1,10 @@
 import { type NextRequest } from "next/server";
-import { OutputStatus, type GeneratedOutput, type Platform } from "@prisma/client";
+import {
+  type EpisodePipelineStage,
+  OutputStatus,
+  type GeneratedOutput,
+  type Platform,
+} from "@prisma/client";
 import { requireAuthContext } from "@/server/auth/context";
 import { ForbiddenError, NotFoundError } from "@/server/auth/errors";
 import { toTenantContext } from "@/server/auth/tenant";
@@ -13,10 +18,10 @@ import { listOutputsForEpisode } from "@/server/db/outputs";
  * fallback the outputs grid used while a generation was in flight.
  *
  * Wire format (text/event-stream):
- *   event: snapshot         — first frame: every current-version output
+ *   event: snapshot         — first frame: every current-version output + episode stage/status
  *   event: output           — single platform changed (id / status / content / quality / version / versionCount / failureReason)
- *   event: episode          — episode status flipped (PROCESSING → READY etc.)
- *   event: done             — terminal: no GENERATING outputs left and episode is not PROCESSING
+ *   event: episode          — episode stage or status flipped (e.g. TRANSCRIBING → GENERATING, PROCESSING → READY)
+ *   event: done             — terminal: no GENERATING outputs left and stage ∈ {COMPLETED, FAILED}
  *   : ping                  — heartbeat comment to keep proxies from idling out
  *
  * Tenancy is enforced once at connection setup via `getEpisode(ctx, id)`,
@@ -29,6 +34,14 @@ import { listOutputsForEpisode } from "@/server/db/outputs";
  * while still consolidating updates onto a single SSE connection per
  * viewer — much cheaper than the previous client-side polling pattern.
  * Swap for a pub/sub when scale demands it.
+ *
+ * `stage` is the source of truth for the pipeline sub-state. Before
+ * `stage` existed the terminal detection here checked
+ * `status !== PROCESSING`, but PROCESSING was overloaded across three
+ * distinct phases (IMPORTING / TRANSCRIBING / GENERATING) so the
+ * "Transcribing…" panel never flipped even after Deepgram landed the
+ * transcript. Stage-based detection fires the right delta at the right
+ * moment.
  */
 
 export const dynamic = "force-dynamic";
@@ -167,6 +180,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
       const snap = new Map<string, Snap>();
       let lastEpisodeStatus: string | null = null;
+      let lastEpisodeStage: EpisodePipelineStage | null = null;
+      let lastFailureReason: string | null = null;
       let firstFrame = true;
 
       const buildPayload = (
@@ -193,7 +208,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           listOutputsForEpisode(ctx, id),
           prisma.episode.findUnique({
             where: { id },
-            select: { status: true },
+            select: { status: true, stage: true, failureReason: true },
           }),
           prisma.generatedOutput.groupBy({
             by: ["platform"],
@@ -260,7 +275,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
             });
           }
           lastEpisodeStatus = episode.status;
-          send("snapshot", { episodeStatus: episode.status, outputs: payloads });
+          lastEpisodeStage = episode.stage;
+          lastFailureReason = episode.failureReason ?? null;
+          send("snapshot", {
+            episodeStatus: episode.status,
+            episodeStage: episode.stage,
+            failureReason: episode.failureReason ?? null,
+            outputs: payloads,
+          });
           firstFrame = false;
         } else {
           // Delta frame: one `output` per changed slot, plus an `episode`
@@ -297,17 +319,31 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
               send("output", buildPayload(o, versionCount, failureReason));
             }
           }
-          if (episode.status !== lastEpisodeStatus) {
+          const stageChanged = episode.stage !== lastEpisodeStage;
+          const statusChanged = episode.status !== lastEpisodeStatus;
+          const reasonChanged = (episode.failureReason ?? null) !== lastFailureReason;
+          if (stageChanged || statusChanged || reasonChanged) {
             lastEpisodeStatus = episode.status;
-            send("episode", { status: episode.status });
+            lastEpisodeStage = episode.stage;
+            lastFailureReason = episode.failureReason ?? null;
+            send("episode", {
+              status: episode.status,
+              stage: episode.stage,
+              failureReason: episode.failureReason ?? null,
+            });
           }
         }
 
-        // Terminal detection: no GENERATING outputs left AND parent episode
-        // is not in PROCESSING. Send `done` so the client closes cleanly
-        // instead of waiting for a heartbeat to time out.
+        // Terminal detection: pipeline reached a settled stage AND nothing
+        // is still generating. COMPLETED/FAILED are the two terminal stages;
+        // PENDING/IMPORTING/TRANSCRIBING/GENERATING all keep the stream
+        // alive. This is the fix for the "stuck on transcribing" bug — the
+        // old check leaned on `status !== PROCESSING`, but PROCESSING spans
+        // the whole pipeline so it couldn't distinguish "transcript landed,
+        // still generating" from "everything is done".
         const anyGenerating = outputs.some((o) => o.status === OutputStatus.GENERATING);
-        if (!anyGenerating && episode.status !== "PROCESSING") {
+        const stageIsTerminal = episode.stage === "COMPLETED" || episode.stage === "FAILED";
+        if (!anyGenerating && stageIsTerminal) {
           send("done", { reason: "settled" });
           cleanup();
           return;

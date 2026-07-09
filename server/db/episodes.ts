@@ -1,6 +1,7 @@
 import "server-only";
 
 import {
+  EpisodePipelineStage,
   EpisodeStatus,
   MemberRole,
   Plan,
@@ -548,6 +549,10 @@ export async function bulkGenerateEpisodes(
     },
     data: {
       status: EpisodeStatus.PROCESSING,
+      // Nudge the pipeline stage forward so the UI drops <TranscribingPanel>
+      // /  <ImportFailedPanel> immediately — the generate-episode function's
+      // own `mark-processing` step will overwrite this once it starts.
+      stage: EpisodePipelineStage.GENERATING,
       failureReason: null,
     },
   });

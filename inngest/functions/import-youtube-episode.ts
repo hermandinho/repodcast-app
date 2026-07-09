@@ -1,4 +1,4 @@
-import { EpisodeStatus, TranscriptSource } from "@prisma/client";
+import { EpisodePipelineStage, EpisodeStatus, TranscriptSource } from "@prisma/client";
 import { NonRetriableError } from "inngest";
 import { prisma } from "@/server/db/client";
 import { captureInngestFailure } from "@/server/observability/sentry";
@@ -64,6 +64,7 @@ export const importYoutubeEpisode = inngest.createFunction(
           where: { id: episodeId },
           data: {
             status: EpisodeStatus.FAILED,
+            stage: EpisodePipelineStage.FAILED,
             failureReason: truncateReason(error?.message ?? "YouTube import failed"),
           },
         });
@@ -130,12 +131,13 @@ export const importYoutubeEpisode = inngest.createFunction(
       );
     }
 
-    // ---- 3. Status → PROCESSING ----
+    // ---- 3. Status → PROCESSING, stage → IMPORTING ----
     await step.run("mark-processing", () =>
       prisma.episode.update({
         where: { id: episodeId },
         data: {
           status: EpisodeStatus.PROCESSING,
+          stage: EpisodePipelineStage.IMPORTING,
           // Overwrite externalUrl with the canonical watch URL — the
           // wizard put the raw user paste here; we prefer the yt-dlp-
           // parsed canonical form so the episode page's "watch source"

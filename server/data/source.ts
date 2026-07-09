@@ -629,11 +629,11 @@ export async function getEpisodeForUI(
     keyMoments: (episodeRow.keyMoments as unknown as SampleEpisode["keyMoments"]) ?? undefined,
     pipeline: {
       source: episodeRow.source as "PASTE" | "UPLOAD" | "RSS" | "YOUTUBE",
-      // UPLOAD episodes flow DRAFT → PROCESSING (transcribe) → PROCESSING
-      // (generate) → READY. The transcribing UX kicks in whenever the
-      // transcript hasn't landed — covers both DRAFT (event still in
-      // flight) and PROCESSING (Deepgram running).
-      awaitingTranscript: episodeRow.transcript.trim().length === 0,
+      // `stage` is the authoritative pipeline sub-state — see the
+      // EpisodePipelineStage enum. The SSE stream also emits stage
+      // deltas so the client's local mirror stays fresh mid-run.
+      stage: episodeRow.stage.toLowerCase() as
+        "pending" | "importing" | "transcribing" | "generating" | "completed" | "failed",
       status: episodeRow.status.toLowerCase() as
         "draft" | "processing" | "ready" | "archived" | "failed",
       failureReason: episodeRow.failureReason ?? null,

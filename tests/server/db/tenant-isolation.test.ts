@@ -7,6 +7,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  EpisodePipelineStage,
   EpisodeStatus,
   InviteStatus,
   MemberRole,
@@ -2164,6 +2165,11 @@ describe("episodes repo — bulkGenerateEpisodes", () => {
       },
       data: {
         status: EpisodeStatus.PROCESSING,
+        // Bulk-generate skips ahead to the GENERATING stage so the UI
+        // drops the "Transcribing…" / "Import failed" panels immediately;
+        // the generate-episode function's own `mark-processing` step
+        // overwrites this once it actually starts.
+        stage: EpisodePipelineStage.GENERATING,
         failureReason: null,
       },
     });

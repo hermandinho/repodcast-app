@@ -1,4 +1,4 @@
-import { EpisodeStatus, TranscriptSource } from "@prisma/client";
+import { EpisodePipelineStage, EpisodeStatus, TranscriptSource } from "@prisma/client";
 import { NonRetriableError } from "inngest";
 import { audioExtensionFor } from "@/lib/audio";
 import { prisma } from "@/server/db/client";
@@ -104,6 +104,7 @@ export const importRssEpisode = inngest.createFunction(
           where: { id: episodeId },
           data: {
             status: EpisodeStatus.FAILED,
+            stage: EpisodePipelineStage.FAILED,
             failureReason: truncateReason(error?.message ?? "RSS import failed"),
           },
         });
@@ -155,11 +156,14 @@ export const importRssEpisode = inngest.createFunction(
       return { episodeId, skipped: true };
     }
 
-    // ---- 2. Status → PROCESSING ----
+    // ---- 2. Status → PROCESSING, stage → IMPORTING ----
     await step.run("mark-processing", () =>
       prisma.episode.update({
         where: { id: episodeId },
-        data: { status: EpisodeStatus.PROCESSING },
+        data: {
+          status: EpisodeStatus.PROCESSING,
+          stage: EpisodePipelineStage.IMPORTING,
+        },
       }),
     );
 

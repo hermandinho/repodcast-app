@@ -6,6 +6,7 @@ import {
   retranscribeEpisodeAction,
   updateEpisodeTranscriptAction,
 } from "@/app/(dashboard)/episodes/[id]/actions";
+import { LeaveAndNotifyHint } from "./leave-and-notify-hint";
 import { PipelineStepper } from "./pipeline-stepper";
 
 /**
@@ -113,6 +114,8 @@ export function TranscribingPanel({ episodeId }: { episodeId: string }) {
       </div>
 
       <PipelineStepper source="UPLOAD" activeStep="transcribe" />
+
+      <LeaveAndNotifyHint />
 
       {showEditor && (
         <div className="mt-[14px]">

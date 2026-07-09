@@ -130,22 +130,35 @@ function ShowFormBody(props: ShowFormModalProps) {
             setError(result.error);
             return;
           }
-        } else {
-          // Edit mode never re-parents — we omit clientId so the partial
-          // update schema accepts the payload.
-          const payload = {
-            showId: props.showId,
-            name: trimmedName,
-            host: trimmedHost,
-            description: description.trim() || null,
-            artworkUrl: artworkUrl.trim() === "" ? null : artworkUrl.trim(),
-            rssUrl: trimmedRss === "" ? null : trimmedRss,
-          };
-          const result = await updateShowAction(payload);
-          if (!result.ok) {
-            setError(result.error);
-            return;
+          // Jump straight into the new show so the user can start
+          // recording voice samples, wiring integrations, or importing
+          // an episode without hunting for the row on `/shows`.
+          // `demo-new` is the sample-data-mode sentinel from
+          // `createShowAction` — no matching page exists there, so we
+          // just refresh + close instead.
+          props.onClose();
+          const newShowId = result.data.showId;
+          if (newShowId !== "demo-new") {
+            router.push(`/shows/${newShowId}`);
+          } else {
+            router.refresh();
           }
+          return;
+        }
+        // Edit mode never re-parents — we omit clientId so the partial
+        // update schema accepts the payload.
+        const payload = {
+          showId: props.showId,
+          name: trimmedName,
+          host: trimmedHost,
+          description: description.trim() || null,
+          artworkUrl: artworkUrl.trim() === "" ? null : artworkUrl.trim(),
+          rssUrl: trimmedRss === "" ? null : trimmedRss,
+        };
+        const result = await updateShowAction(payload);
+        if (!result.ok) {
+          setError(result.error);
+          return;
         }
         router.refresh();
         props.onClose();

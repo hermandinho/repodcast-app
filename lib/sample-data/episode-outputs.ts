@@ -82,16 +82,27 @@ export type SampleEpisode = {
   pipeline?: {
     /** Episode.source — drives which in-progress panel renders. */
     source: "PASTE" | "UPLOAD" | "RSS" | "YOUTUBE";
-    /** True when we're waiting on the transcribe pipeline to fill it in. */
-    awaitingTranscript: boolean;
+    /**
+     * Fine-grained pipeline sub-state (Episode.stage). This is the
+     * authoritative signal for panel selection — `pending` /
+     * `importing` / `transcribing` / `generating` each map to a
+     * distinct empty-state panel, `completed` and `failed` are the two
+     * terminal states.
+     *
+     * The SSE stream at `/api/episodes/[id]/stream` emits stage deltas
+     * so the client's local copy stays fresh without a full
+     * `router.refresh()` per transition — which was the root cause of
+     * the "stuck on transcribing" bug.
+     */
+    stage: "pending" | "importing" | "transcribing" | "generating" | "completed" | "failed";
     /**
      * Coarse Episode.status surfaced as a discriminator for the empty-
-     * state UX. `failed` triggers the error banner with the reason
-     * below; `processing` triggers the spinner panel when there are no
-     * outputs yet.
+     * state UX. Kept alongside `stage` for backwards-compat with the
+     * dashboard KPIs / list filtering. `failed` triggers the error
+     * banner with the reason below.
      */
     status: "draft" | "processing" | "ready" | "archived" | "failed";
-    /** Populated when status === "failed" — short prose from the pipeline. */
+    /** Populated when stage === "failed" — short prose from the pipeline. */
     failureReason: string | null;
   };
 };

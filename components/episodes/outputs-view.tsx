@@ -35,6 +35,39 @@ type LiveOutput = OutputState & {
   _startAt?: number;
 };
 
+/**
+ * Client-side mirror of `Episode.stage` (see EpisodePipelineStage on the
+ * server). Seeded from the RSC prop and thereafter driven by the SSE
+ * stream — that's the whole point of the redesign: the panel selection
+ * on this page no longer waits for a full `router.refresh()` to notice
+ * that transcription is done.
+ */
+type PipelineStage =
+  "pending" | "importing" | "transcribing" | "generating" | "completed" | "failed";
+
+const ACTIVE_STAGES: readonly PipelineStage[] = [
+  "pending",
+  "importing",
+  "transcribing",
+  "generating",
+];
+
+function normalizeStage(raw: string | null | undefined): PipelineStage | null {
+  if (!raw) return null;
+  const s = raw.toLowerCase();
+  if (
+    s === "pending" ||
+    s === "importing" ||
+    s === "transcribing" ||
+    s === "generating" ||
+    s === "completed" ||
+    s === "failed"
+  ) {
+    return s;
+  }
+  return null;
+}
+
 const REGEN_ALL_TARGETS: EpisodeStatus[] = [
   "approved",
   "approved",
@@ -265,6 +298,32 @@ export function OutputsView({
     })),
   );
 
+  // Local mirror of the pipeline stage. Seeded from the RSC prop, kept
+  // fresh by the SSE stream (snapshot + episode events). This is the
+  // authoritative signal for panel selection on this page — prior to the
+  // stage redesign the panels read `episode.pipeline.awaitingTranscript`
+  // directly from the prop and got stuck showing "Transcribing…" until
+  // the whole pipeline flipped Episode.status → READY (the one and only
+  // status change SSE surfaced), which was the "stuck on transcribing"
+  // bug. See `/api/episodes/[id]/stream/route.ts` for the wire format.
+  const [pipelineStage, setPipelineStage] = useState<PipelineStage | null>(() =>
+    normalizeStage(episode.pipeline?.stage),
+  );
+  const [pipelineFailureReason, setPipelineFailureReason] = useState<string | null>(
+    () => episode.pipeline?.failureReason ?? null,
+  );
+  // Prop-sync — if the RSC tree re-renders (router.refresh from another
+  // effect, mutation revalidation, back/forward nav), reconcile the
+  // incoming stage so we don't drift from server truth.
+  const lastSyncedStageRef = useRef(episode.pipeline?.stage);
+  useEffect(() => {
+    const incoming = episode.pipeline?.stage;
+    if (lastSyncedStageRef.current === incoming) return;
+    lastSyncedStageRef.current = incoming;
+    setPipelineStage(normalizeStage(incoming));
+    setPipelineFailureReason(episode.pipeline?.failureReason ?? null);
+  }, [episode.pipeline?.stage, episode.pipeline?.failureReason]);
+
   const [samples, setSamples] = useState(client.samples);
   const [platformSamples, setPlatformSamples] = useState<Record<PlatformKey, number>>(() => ({
     ...client.platformSamples,
@@ -356,14 +415,13 @@ export function OutputsView({
 
   // Episode is in a pre-generation state (RSS / upload pipeline running
   // before any outputs have been created). We still want the SSE channel
-  // open so a status flip to FAILED / READY (or the first GENERATING
-  // placeholder rows landing) reaches the page without a hard refresh.
-  const awaitingPipeline =
-    episode.pipeline?.status === "draft" || episode.pipeline?.status === "processing";
-  // Broader "pipeline is still doing something" flag used to disable
-  // Generate all — a user clicking regen before transcript / import finishes
-  // would race against the initial generation pass.
-  const pipelineRunning = awaitingPipeline || episode.pipeline?.awaitingTranscript === true;
+  // open so a stage transition (e.g. TRANSCRIBING → GENERATING → COMPLETED)
+  // reaches the page without a hard refresh. Driven off the local mirror
+  // — that's what fixes the "stuck on transcribing" bug.
+  const awaitingPipeline = pipelineStage !== null && ACTIVE_STAGES.includes(pipelineStage);
+  // "Pipeline is still doing something" — used to disable Generate all so
+  // a user can't race their own regen against the initial pass.
+  const pipelineRunning = awaitingPipeline;
   const generateAllDisabled = readOnly || generatingAll || pipelineRunning || outputs.length === 0;
 
   // ----------------------------------------------------------------
@@ -408,7 +466,11 @@ export function OutputsView({
       };
 
       es.addEventListener("snapshot", (ev) => {
-        const data = safeParse<{ outputs: StreamOutputPayload[] }>((ev as MessageEvent).data);
+        const data = safeParse<{
+          outputs: StreamOutputPayload[];
+          episodeStage?: string | null;
+          failureReason?: string | null;
+        }>((ev as MessageEvent).data);
         if (!data) return;
         consecutiveErrors = 0;
         setOutputs((prev) => {
@@ -418,12 +480,14 @@ export function OutputsView({
             return old ? mergeOutput(old, p) : buildNewRowFromPayload(p);
           });
         });
-        // Vercel serverless caps stream length, so a long RSS import
-        // cycles the SSE connection every 60–300s. `episode.pipeline`
-        // (awaitingTranscript, source, status) is a server-computed prop
-        // — only a `router.refresh()` refetches it. Piggybacking on the
-        // reconnect's fresh snapshot avoids the panel getting stuck on
-        // "Importing…" after transcript lands mid-cycle.
+        // Stage-first: apply the wire stage straight to local state so
+        // the panels flip immediately, no RSC round-trip required. The
+        // `router.refresh()` below is retained for the ancillary props
+        // that the SSE stream *doesn't* carry (voice strength, key
+        // moments, KPI counts on the surrounding layout).
+        const nextStage = normalizeStage(data.episodeStage);
+        if (nextStage) setPipelineStage(nextStage);
+        setPipelineFailureReason(data.failureReason ?? null);
         router.refresh();
       });
 
@@ -440,7 +504,17 @@ export function OutputsView({
         });
       });
 
-      es.addEventListener("episode", () => {
+      es.addEventListener("episode", (ev) => {
+        const data = safeParse<{
+          status: string;
+          stage: string;
+          failureReason: string | null;
+        }>((ev as MessageEvent).data);
+        if (data) {
+          const nextStage = normalizeStage(data.stage);
+          if (nextStage) setPipelineStage(nextStage);
+          setPipelineFailureReason(data.failureReason ?? null);
+        }
         // Voice-strength badges in the right rail + the parent layout's
         // KPI counts go stale once an episode-level flip lands. Soft refresh
         // the surrounding RSC tree without reloading our local state.
@@ -473,6 +547,48 @@ export function OutputsView({
       es?.close();
     };
   }, [streamUrl, tickerActive, awaitingPipeline, awaitingServer, router]);
+
+  // Fire a browser notification when the pipeline settles on a terminal
+  // stage while the user isn't looking. Only fires on transitions
+  // out of an active stage — a fresh page load where the episode is
+  // already COMPLETED shouldn't ping the user again. Gated on
+  // `document.hidden` so we don't disturb the user when they're
+  // actively watching this tab.
+  const lastNotifiedStageRef = useRef<PipelineStage | null>(pipelineStage);
+  useEffect(() => {
+    const prev = lastNotifiedStageRef.current;
+    lastNotifiedStageRef.current = pipelineStage;
+    if (prev === pipelineStage) return;
+    const prevWasActive = prev !== null && ACTIVE_STAGES.includes(prev);
+    const nowTerminal = pipelineStage === "completed" || pipelineStage === "failed";
+    if (!prevWasActive || !nowTerminal) return;
+    if (typeof window === "undefined") return;
+    if (!("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+    if (!document.hidden) return;
+    try {
+      const title =
+        pipelineStage === "completed" ? "Your episode is ready" : "Your episode couldn't finish";
+      const body =
+        pipelineStage === "completed"
+          ? `"${episode.episode}" — outputs are waiting for review.`
+          : `"${episode.episode}" — the pipeline stopped. Open the page for details.`;
+      const notification = new Notification(title, {
+        body,
+        tag: `episode-${episode.id}`,
+        icon: "/favicon.ico",
+      });
+      notification.onclick = () => {
+        window.focus();
+        notification.close();
+      };
+    } catch (err) {
+      // Browsers occasionally throw on constructor in obscure states
+      // (e.g. private mode, permissions revoked between check + call).
+      // Silently drop — the completion email is the durable fallback.
+      console.warn("[episodes] notification fire failed", err);
+    }
+  }, [pipelineStage, episode.id, episode.episode]);
 
   // Drive progress animation while any output is generating.
   //
@@ -987,33 +1103,42 @@ export function OutputsView({
           </div>
         </div>
 
-        {/* Pre-generation empty states so the page never looks blank while
-            the pipeline is doing its work. Priority:
-              1. FAILED  → render the error banner (always, even if some
-                 outputs landed before the failure tripped).
-              2. UPLOAD awaiting transcript → Deepgram is running.
-              3. RSS / YOUTUBE before outputs exist → import in flight.
-              4. Transcript in hand, no outputs yet → generation in flight.
-                 Covers PASTE end-to-end and the UPLOAD/RSS/YOUTUBE window
-                 after transcript lands but before generate-episode
-                 persists the first row. Without this the page fell to
-                 `null` and looked broken for 15–45s. */}
-        {episode.pipeline?.status === "failed" ? (
+        {/* Pre-generation empty states so the page never looks blank
+            while the pipeline is doing its work. Driven by the local
+            `pipelineStage` mirror — the SSE stream keeps it in sync so
+            transitions (TRANSCRIBING → GENERATING → COMPLETED) flip the
+            panel immediately, no RSC refresh required.
+
+            Priority:
+              1. FAILED → error banner (always, even if some outputs
+                 landed before the failure tripped).
+              2. UPLOAD in pending/transcribing → Deepgram is running.
+              3. RSS/YOUTUBE in pending/importing/transcribing before
+                 outputs exist → import (+ optional audio-fallback
+                 transcribe) in flight.
+              4. GENERATING with no outputs yet → the initial fan-out
+                 hasn't landed. Covers PASTE end-to-end and the
+                 UPLOAD/RSS/YOUTUBE window after transcript lands but
+                 before generate-episode persists the first row. */}
+        {pipelineStage === "failed" && episode.pipeline ? (
           <ImportFailedPanel
             source={episode.pipeline.source}
-            reason={episode.pipeline.failureReason}
+            reason={pipelineFailureReason}
             showId={client.key}
             clientId={client.clientKey}
           />
-        ) : episode.pipeline?.awaitingTranscript && episode.pipeline.source === "UPLOAD" ? (
+        ) : episode.pipeline?.source === "UPLOAD" &&
+          (pipelineStage === "pending" || pipelineStage === "transcribing") &&
+          outputs.length === 0 ? (
           <TranscribingPanel episodeId={episode.id} />
-        ) : episode.pipeline?.awaitingTranscript &&
+        ) : episode.pipeline &&
           (episode.pipeline.source === "RSS" || episode.pipeline.source === "YOUTUBE") &&
+          (pipelineStage === "pending" ||
+            pipelineStage === "importing" ||
+            pipelineStage === "transcribing") &&
           outputs.length === 0 ? (
           <ImportingPanel source={episode.pipeline.source} />
-        ) : (episode.pipeline?.status === "draft" || episode.pipeline?.status === "processing") &&
-          !episode.pipeline.awaitingTranscript &&
-          outputs.length === 0 ? (
+        ) : pipelineStage === "generating" && outputs.length === 0 && episode.pipeline ? (
           <GeneratingPanel source={episode.pipeline.source} />
         ) : null}
 

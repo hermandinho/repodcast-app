@@ -1,6 +1,13 @@
-import { EpisodeStatus, OutputStatus, type Platform, type Prisma } from "@prisma/client";
+import {
+  EpisodePipelineStage,
+  EpisodeStatus,
+  OutputStatus,
+  type Platform,
+  type Prisma,
+} from "@prisma/client";
 import { NonRetriableError } from "inngest";
 import { CLAUDE_MODEL, requireClaudeClient } from "@/server/ai/claude";
+import { isPlaceholderTitle, suggestEpisodeTitle } from "@/server/ai/episode-title";
 import { extractKeyMoments } from "@/server/ai/key-moments";
 import { buildMessages, extractText, type VoiceContext } from "@/server/ai/prompt-builder";
 import { scoreOutput } from "@/server/ai/quality-score";
@@ -85,6 +92,7 @@ export const generateEpisode = inngest.createFunction(
           where: { id: episodeId },
           data: {
             status: EpisodeStatus.FAILED,
+            stage: EpisodePipelineStage.FAILED,
             failureReason: truncateReason(error?.message ?? "Generation failed"),
           },
         });
@@ -206,11 +214,14 @@ export const generateEpisode = inngest.createFunction(
       );
     }
 
-    // ---- 3. Status → PROCESSING ----
+    // ---- 3. Status → PROCESSING, stage → GENERATING ----
     await step.run("mark-processing", () =>
       prisma.episode.update({
         where: { id: episodeId },
-        data: { status: EpisodeStatus.PROCESSING },
+        data: {
+          status: EpisodeStatus.PROCESSING,
+          stage: EpisodePipelineStage.GENERATING,
+        },
       }),
     );
 
@@ -227,6 +238,39 @@ export const generateEpisode = inngest.createFunction(
         data: { keyMoments: moments as unknown as Prisma.InputJsonValue },
       }),
     );
+
+    // ---- 4b. Auto-title if the wizard didn't capture a real one ----
+    // The wizard falls back to "Untitled episode" when the user skips
+    // step 4 (or PASTE flows with no title). Piggyback one small Claude
+    // call here — cheap next to the platform fan-out — so the dashboard
+    // doesn't fill up with placeholder rows. Best-effort: if the call
+    // errors or returns nothing usable, we keep the placeholder.
+    if (isPlaceholderTitle(episode.title)) {
+      await step.run("auto-title", async () => {
+        const suggested = await suggestEpisodeTitle(episode.transcript, {
+          showName: episode.show.name,
+          hostName: episode.show.host,
+        });
+        if (!suggested) return { skipped: true } as const;
+        // Guard against the row being renamed in-flight (user edited
+        // the title while generate was running) — only overwrite if
+        // it's still the placeholder we saw at step start. `updateMany`
+        // + tenant/status conditions would be safer, but this is a
+        // best-effort cosmetic fill so a race just means we skip.
+        const current = await prisma.episode.findUnique({
+          where: { id: episodeId },
+          select: { title: true },
+        });
+        if (!current || !isPlaceholderTitle(current.title)) {
+          return { skipped: true } as const;
+        }
+        await prisma.episode.update({
+          where: { id: episodeId },
+          data: { title: suggested },
+        });
+        return { title: suggested };
+      });
+    }
 
     // ---- 5. Voice context ----
     const samples = await prisma.voiceSample.findMany({
@@ -413,7 +457,10 @@ export const generateEpisode = inngest.createFunction(
     const wasFirstReadyEpisode = await step.run("mark-ready", async () => {
       await prisma.episode.update({
         where: { id: episodeId },
-        data: { status: EpisodeStatus.READY },
+        data: {
+          status: EpisodeStatus.READY,
+          stage: EpisodePipelineStage.COMPLETED,
+        },
       });
       const readyCount = await prisma.episode.count({
         where: {

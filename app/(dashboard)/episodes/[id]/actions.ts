@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { Platform, TranscriptSource } from "@prisma/client";
+import { EpisodePipelineStage, EpisodeStatus, Platform, TranscriptSource } from "@prisma/client";
 import { z } from "zod";
 import { requireAuthContext } from "@/server/auth/context";
 import { NotFoundError, ValidationError } from "@/server/auth/errors";
@@ -525,6 +525,16 @@ export async function updateEpisodeTranscriptAction(
   await updateEpisodeTranscript(tenant, episodeId, { transcript });
 
   if (wasAwaiting) {
+    // Nudge the pipeline stage → GENERATING so the SSE stream drops the
+    // <TranscribingPanel> immediately; the generate-episode function's
+    // own `mark-processing` step will overwrite this once it starts.
+    await prisma.episode.update({
+      where: { id: episodeId },
+      data: {
+        status: EpisodeStatus.PROCESSING,
+        stage: EpisodePipelineStage.GENERATING,
+      },
+    });
     await inngest.send({
       name: "episode/generate.requested",
       data: {
