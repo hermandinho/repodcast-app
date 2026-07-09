@@ -14,6 +14,7 @@ import {
 } from "@/server/db/shows";
 import { isLiveDb } from "@/server/data/source";
 import { resolveTenantContext } from "@/server/data/tenant";
+import { validateRssUrl } from "@/server/imports/rss-validate";
 
 export type ActionResult<T = void> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -31,6 +32,11 @@ export async function createShowAction(raw: unknown): Promise<ActionResult<{ sho
     // Sample-data mode — no DB write. Synthetic id keeps the modal closing
     // cleanly while the seeded fixtures keep rendering.
     return { ok: true, data: { showId: "demo-new" } };
+  }
+
+  if (parsed.data.rssUrl) {
+    const validation = await validateRssUrl(parsed.data.rssUrl);
+    if (!validation.ok) return { ok: false, error: validation.error };
   }
 
   const auth = await requireAuthContext();
@@ -58,6 +64,11 @@ export async function updateShowAction(raw: unknown): Promise<ActionResult<{ sho
 
   if (!isLiveDb()) {
     return { ok: true, data: { showId } };
+  }
+
+  if (patch.rssUrl) {
+    const validation = await validateRssUrl(patch.rssUrl);
+    if (!validation.ok) return { ok: false, error: validation.error };
   }
 
   const tenant = await resolveTenantContext();
