@@ -1567,6 +1567,12 @@ model BlogPost {
   /// `FAQPage`, `HowTo`, or fine-grained authors.
   structuredDataJson Json?
 
+  /// Public page-view counter. Incremented atomically by
+  /// `POST /api/blog/[slug]/view` on beacon requests from the reader; the
+  /// counter is best-effort (bot-guarded + session-deduped, not
+  /// cryptographically hardened) and used for editorial signal only.
+  viewCount Int @default(0)
+
   authorAdminId    String?
   updatedByAdminId String?
 

@@ -22,6 +22,7 @@ export type PublicBlogListItem = {
   tags: string[];
   publishedAt: Date;
   readingMinutes: number | null;
+  viewCount: number;
   author: { name: string | null } | null;
 };
 
@@ -74,6 +75,7 @@ export async function listPublicBlogPosts(opts?: {
       tags: true,
       publishedAt: true,
       readingMinutes: true,
+      viewCount: true,
       author: { select: { name: true } },
     },
   });
@@ -86,6 +88,7 @@ export async function listPublicBlogPosts(opts?: {
     tags: r.tags,
     publishedAt: r.publishedAt as Date,
     readingMinutes: r.readingMinutes,
+    viewCount: r.viewCount,
     author: r.author,
   }));
 }
@@ -103,6 +106,7 @@ export async function getPublicBlogPostBySlug(slug: string): Promise<PublicBlogP
       tags: true,
       publishedAt: true,
       readingMinutes: true,
+      viewCount: true,
       metaTitle: true,
       metaDescription: true,
       canonicalUrl: true,
@@ -124,6 +128,7 @@ export async function getPublicBlogPostBySlug(slug: string): Promise<PublicBlogP
     tags: row.tags,
     publishedAt: row.publishedAt as Date,
     readingMinutes: row.readingMinutes,
+    viewCount: row.viewCount,
     metaTitle: row.metaTitle,
     metaDescription: row.metaDescription,
     canonicalUrl: row.canonicalUrl,
@@ -133,6 +138,24 @@ export async function getPublicBlogPostBySlug(slug: string): Promise<PublicBlogP
     updatedAt: row.updatedAt,
     author: row.author,
   };
+}
+
+/**
+ * Atomic view-count increment. Called by `POST /api/blog/[slug]/view` from
+ * the client beacon. Uses `updateMany` (not `update`) so an unknown or
+ * unpublished slug is a silent no-op rather than a P2025 exception — the
+ * beacon is fire-and-forget from the client's perspective.
+ *
+ * Guards on the `livePostsWhere` filter so drafts and archived posts can't
+ * accumulate views from stale tabs after unpublish. Returns the number of
+ * rows touched (0 when the slug is not live).
+ */
+export async function recordPublicBlogView(slug: string): Promise<number> {
+  const res = await prisma.blogPost.updateMany({
+    where: { slug, ...livePostsWhere() },
+    data: { viewCount: { increment: 1 } },
+  });
+  return res.count;
 }
 
 /**
@@ -177,6 +200,7 @@ export async function listRelatedPublicPosts(opts: {
       tags: true,
       publishedAt: true,
       readingMinutes: true,
+      viewCount: true,
       author: { select: { name: true } },
     },
   });
@@ -202,6 +226,7 @@ export async function listRelatedPublicPosts(opts: {
     tags: row.tags,
     publishedAt: row.publishedAt as Date,
     readingMinutes: row.readingMinutes,
+    viewCount: row.viewCount,
     author: row.author,
   }));
 }

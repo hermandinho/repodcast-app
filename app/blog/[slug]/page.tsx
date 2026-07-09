@@ -2,10 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
+import { BlogViewBeacon } from "@/components/blog/view-beacon";
 import { LandingFooter } from "@/components/landing/footer";
 import { LandingNav } from "@/components/landing/nav";
 import { getPublicBlogPostBySlug, listRelatedPublicPosts } from "@/server/db/blog-public";
-import { publicBlogUrl, renderMarkdown } from "@/lib/blog";
+import { formatViewCount, publicBlogUrl, renderMarkdown } from "@/lib/blog";
 
 /**
  * `/blog/[slug]` — public post page.
@@ -121,6 +122,10 @@ export default async function PublicBlogPostPage({ params }: { params: Promise<R
           <time dateTime={post.publishedAt.toISOString()}>{DATE_FMT.format(post.publishedAt)}</time>
           {post.readingMinutes ? <span>·</span> : null}
           {post.readingMinutes ? <span>{post.readingMinutes} min read</span> : null}
+          <span>·</span>
+          <span aria-label={`${post.viewCount} views`}>
+            {formatViewCount(post.viewCount)} views
+          </span>
         </div>
 
         {post.coverImageUrl ? (
@@ -210,6 +215,8 @@ export default async function PublicBlogPostPage({ params }: { params: Promise<R
       ) : null}
 
       <LandingFooter />
+
+      <BlogViewBeacon slug={post.slug} />
 
       <script
         type="application/ld+json"

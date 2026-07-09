@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { formatViewCount } from "@/lib/blog";
 import { requireSystemAdminContext } from "@/server/auth/system";
 import { listBlogPostsForAdmin, type BlogPostRow } from "@/server/db/system/blog";
 
@@ -149,6 +150,7 @@ export default async function RootBlogPage({
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Author</th>
                 <th className="px-4 py-3">Category</th>
+                <th className="px-4 py-3 text-right">Views</th>
                 <th className="px-4 py-3">Updated</th>
                 <th className="px-4 py-3">Public URL</th>
               </tr>
@@ -176,6 +178,12 @@ export default async function RootBlogPage({
                     {row.author?.name ?? row.author?.email ?? "—"}
                   </td>
                   <td className="px-4 py-3 text-[12.5px] text-zinc-400">{row.category ?? "—"}</td>
+                  <td
+                    className="px-4 py-3 text-right font-mono text-[12.5px] text-zinc-300 tabular-nums"
+                    title={`${row.viewCount.toLocaleString()} views`}
+                  >
+                    {formatViewCount(row.viewCount)}
+                  </td>
                   <td className="px-4 py-3 font-mono text-[11px] text-zinc-500">
                     {row.updatedAt.toISOString().slice(0, 16).replace("T", " ")}
                   </td>
