@@ -162,6 +162,21 @@ async function podcastIndexFetch<T>(path: string, params: Record<string, string>
   const res = await fetch(url, { headers: buildAuthHeaders(key, secret, timestamp) });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    // Podcast Index answers "unknown feed/episode" with 400 + a JSON body of
+    // `{"status":"false","description":"Feed url not found."}` — not 404.
+    // Surface that as an empty envelope so parseFeedEnvelope/parseEpisodeEnvelope
+    // return null/[] and callers hit their normal "not-found" branch instead
+    // of the generic error path.
+    if (res.status === 400) {
+      try {
+        const parsed = JSON.parse(body) as { status?: string | boolean };
+        if (parsed && (parsed.status === "false" || parsed.status === false)) {
+          return parsed as T;
+        }
+      } catch {
+        // Non-JSON 400 falls through to the thrown error below.
+      }
+    }
     throw new PodcastIndexError(
       `Podcast Index returned ${res.status} ${res.statusText} for ${path}`,
       res.status,

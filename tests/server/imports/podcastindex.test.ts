@@ -1,10 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import {
   buildAuthHeaders,
+  lookupEpisodeByGuid,
+  lookupFeedByUrl,
   parseEpisodeEnvelope,
   parseFeedEnvelope,
   pickTranscriptUrl,
+  PodcastIndexError,
 } from "@/server/imports/podcastindex";
 
 describe("buildAuthHeaders", () => {
@@ -166,6 +169,70 @@ describe("parseEpisodeEnvelope", () => {
     const after = Date.now();
     expect(rows[0]?.datePublished.getTime()).toBeGreaterThanOrEqual(before);
     expect(rows[0]?.datePublished.getTime()).toBeLessThanOrEqual(after);
+  });
+});
+
+describe("podcastIndexFetch — 400 as not-found", () => {
+  // Podcast Index signals "we don't know this feed" with 400 + a JSON body of
+  // `{"status":"false","description":"Feed url not found."}` instead of 404.
+  // The client must collapse that to a normal empty envelope so callers see
+  // `null` instead of a thrown PodcastIndexError.
+  const ORIGINAL_KEY = process.env.PODCAST_INDEX_KEY;
+  const ORIGINAL_SECRET = process.env.PODCAST_INDEX_SECRET;
+
+  beforeEach(() => {
+    process.env.PODCAST_INDEX_KEY = "test-key";
+    process.env.PODCAST_INDEX_SECRET = "test-secret";
+  });
+
+  afterEach(() => {
+    process.env.PODCAST_INDEX_KEY = ORIGINAL_KEY;
+    process.env.PODCAST_INDEX_SECRET = ORIGINAL_SECRET;
+    vi.unstubAllGlobals();
+  });
+
+  function stubFetch(response: Response): void {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => response),
+    );
+  }
+
+  it("returns null from lookupFeedByUrl on 400 + status:'false' (feed not indexed)", async () => {
+    stubFetch(
+      new Response(JSON.stringify({ status: "false", description: "Feed url not found." }), {
+        status: 400,
+        statusText: "Bad Request",
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    await expect(lookupFeedByUrl("https://feeds.example.com/unknown.xml")).resolves.toBeNull();
+  });
+
+  it("returns null from lookupEpisodeByGuid on 400 + status:'false'", async () => {
+    stubFetch(
+      new Response(JSON.stringify({ status: "false", description: "No items." }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    await expect(
+      lookupEpisodeByGuid("unknown-guid", "https://feeds.example.com/x.xml"),
+    ).resolves.toBeNull();
+  });
+
+  it("still throws PodcastIndexError on non-JSON 400 bodies", async () => {
+    stubFetch(new Response("upstream is on fire", { status: 400 }));
+    await expect(lookupFeedByUrl("https://feeds.example.com/x.xml")).rejects.toBeInstanceOf(
+      PodcastIndexError,
+    );
+  });
+
+  it("still throws on 500-class responses (real server errors, not not-found)", async () => {
+    stubFetch(new Response("internal error", { status: 502, statusText: "Bad Gateway" }));
+    await expect(lookupFeedByUrl("https://feeds.example.com/x.xml")).rejects.toBeInstanceOf(
+      PodcastIndexError,
+    );
   });
 });
 

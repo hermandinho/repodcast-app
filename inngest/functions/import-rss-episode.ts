@@ -5,13 +5,12 @@ import { prisma } from "@/server/db/client";
 import { captureInngestFailure } from "@/server/observability/sentry";
 import { streamR2Object } from "@/server/storage/r2";
 import {
-  listEpisodesByFeedId,
   lookupEpisodeByGuid,
-  lookupFeedByUrl,
   pickTranscriptUrl,
   PodcastIndexError,
   type PodcastIndexEpisode,
 } from "@/server/imports/podcastindex";
+import { resolveFeed, RssFeedError } from "@/server/imports/rss-feed";
 import { fetchAndNormaliseTranscript, TranscriptFetchError } from "@/server/imports/transcripts";
 import type { Events } from "../events";
 import { inngest } from "../client";
@@ -167,34 +166,34 @@ export const importRssEpisode = inngest.createFunction(
       }),
     );
 
-    // ---- 3. Re-lookup the episode on Podcast Index ----
+    // ---- 3. Re-lookup the episode ----
     // We re-fetch on every run rather than caching on the event — the
     // publisher may add a transcript or fix an enclosure between dispatch
     // and the function actually running.
     //
-    // Strategy: try the direct `/episodes/byguid` lookup first (cheap,
-    // O(1)); if it returns nothing — which happens when Podcast Index's
-    // byguid index is out of sync with byfeedid for this feed — fall
-    // back to scanning the feed's episode list for a guid match. The
-    // wizard's picker already showed the episode from that scan, so a
-    // local match here is the strongest signal we have.
+    // Strategy: try Podcast Index's direct `/episodes/byguid` first (cheap,
+    // O(1)); if that misses — Podcast Index's byguid index is sometimes out
+    // of sync with byfeedid for a given feed, and it doesn't index every
+    // publisher (Substack, Patreon, self-hosted) — fall back to resolving
+    // the feed and scanning for a guid match. `resolveFeed` handles the
+    // PI-or-direct-RSS branch internally.
     let indexEpisode: PodcastIndexEpisode | null = null;
     try {
       indexEpisode = await lookupEpisodeByGuid(guid, feedUrl);
     } catch (err) {
-      if (!(err instanceof PodcastIndexError) || err.status < 400 || err.status >= 500) {
-        throw err;
-      }
-      // 4xx on byguid is recoverable via the fallback below.
+      if (err instanceof PodcastIndexError && err.status >= 500) throw err;
+      // 4xx / non-PI errors are recoverable via the fallback below.
     }
     if (!indexEpisode) {
       try {
-        const feed = await lookupFeedByUrl(feedUrl);
-        if (feed) {
-          const episodes = await listEpisodesByFeedId(feed.id, 200);
-          indexEpisode = episodes.find((e) => e.guid === guid) ?? null;
+        const resolved = await resolveFeed(feedUrl, 500);
+        if (resolved) {
+          indexEpisode = resolved.episodes.find((e) => e.guid === guid) ?? null;
         }
       } catch (err) {
+        if (err instanceof RssFeedError) {
+          throw new NonRetriableError(err.message);
+        }
         if (err instanceof PodcastIndexError && err.status >= 400 && err.status < 500) {
           throw new NonRetriableError(
             `Podcast Index ${err.status}: ${err.message}. Body: ${err.body.slice(0, 200)}`,
@@ -205,7 +204,7 @@ export const importRssEpisode = inngest.createFunction(
     }
     if (!indexEpisode) {
       throw new NonRetriableError(
-        `Podcast Index has no episode matching guid=${guid} on feed ${feedUrl}. ` +
+        `Feed ${feedUrl} has no episode matching guid=${guid}. ` +
           `The publisher may have removed it, or the GUID changed since the wizard listed it. ` +
           `Try a different episode from the feed.`,
       );
