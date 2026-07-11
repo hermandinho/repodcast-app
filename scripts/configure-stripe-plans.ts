@@ -81,7 +81,11 @@ async function main(): Promise<void> {
   for (const plan of PLAN_ORDER) {
     // One Product per plan; two Prices per product (monthly + annual).
     const display = PLAN_DISPLAY[plan];
-    const product = await findOrCreateProduct(stripe, plan, display.name, display.tagline);
+    // Prefix the Stripe product name so it groups with other Repodcast SKUs
+    // in the Stripe dashboard (e.g. "Repodcast - Solo"). The in-app name
+    // stays plain (`display.name`); this prefix is dashboard-only.
+    const stripeProductName = `Repodcast - ${display.name}`;
+    const product = await findOrCreateProduct(stripe, plan, stripeProductName, display.tagline);
     for (const cadence of CADENCES) {
       const result = await syncPlanPrice(stripe, plan, cadence, product);
       results.push(result);
