@@ -1158,6 +1158,11 @@ export async function applyAgencyDiscount(
     promo.promotion.coupon && typeof promo.promotion.coupon !== "string"
       ? promo.promotion.coupon
       : null;
+  if (!promoCoupon) {
+    throw new ValidationError(
+      `Couldn't resolve the underlying coupon for "${input.promotionCode}". Refresh the code in Stripe or try a different one.`,
+    );
+  }
 
   let resolvedLabel = "";
   let resolvedEndsAt: Date | null = null;
@@ -1176,8 +1181,15 @@ export async function applyAgencyDiscount(
         activeDiscountEndsAt: agency.activeDiscountEndsAt?.toISOString() ?? null,
       });
 
+      // Attach the underlying Coupon rather than the Promotion Code. Promo
+      // codes carry customer-facing restrictions (e.g. `first_time_transaction`)
+      // that Stripe enforces on `subscriptions.update` — those restrictions
+      // exist to gate self-serve checkout redemption, not admin-initiated
+      // grafts. Operators applying a code here have already decided; going
+      // via the coupon id skips the redemption gate the same way a manual
+      // Stripe dashboard "Add discount" click does.
       const updated = await stripe.subscriptions.update(agency.stripeSubscriptionId!, {
-        discounts: [{ promotion_code: promo.id }],
+        discounts: [{ coupon: promoCoupon.id }],
         expand: ["discounts.source.coupon"],
       });
 
@@ -1188,7 +1200,7 @@ export async function applyAgencyDiscount(
       const label =
         coupon && typeof coupon !== "string"
           ? (coupon.name ?? coupon.id)
-          : (promoCoupon?.name ?? promoCoupon?.id ?? input.promotionCode);
+          : (promoCoupon.name ?? promoCoupon.id);
       const endsAt =
         first && typeof first !== "string" && first.end ? new Date(first.end * 1000) : null;
       resolvedLabel = label;
@@ -1204,8 +1216,12 @@ export async function applyAgencyDiscount(
 
       audit.setAfter({
         stripeSubscriptionId: updated.id,
+        // Operator-typed code + resolved coupon are both recorded so the
+        // audit row survives a future coupon/code rename in Stripe.
         promotionCodeId: promo.id,
-        couponId: promoCoupon?.id ?? null,
+        promotionCode: promo.code,
+        couponId: promoCoupon.id,
+        attachedVia: "coupon",
         activeDiscountLabel: label,
         activeDiscountEndsAt: endsAt?.toISOString() ?? null,
       });
