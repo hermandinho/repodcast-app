@@ -212,6 +212,7 @@ describe("read-only impersonation — assertRole chokepoint (AuthContext layer)"
       compAccessExpiresAt: null,
       trialStatus: "NONE",
       trialEndsAt: null,
+      suspendedAt: null,
     },
     member: { id: "mem_1", role: MemberRole.OWNER },
     impersonation: null,

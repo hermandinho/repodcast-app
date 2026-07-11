@@ -46,6 +46,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const isSettingsPath = pathname.startsWith("/settings");
   if (isLiveDb()) {
     if (!auth) redirect("/onboarding");
+    // Suspension bounces the whole dashboard (no /settings exemption — the
+    // point is a total lockout, unlike canceled subs where the user needs
+    // to reach Billing to resubscribe). Impersonating operators pass through
+    // so ROOT can still investigate a suspended tenant.
+    if (auth.agency.suspendedAt !== null && !auth.impersonation) redirect("/suspended");
     if (!hasActiveAccess(auth.agency) && !isSettingsPath) redirect("/onboarding");
   }
 

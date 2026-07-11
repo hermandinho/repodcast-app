@@ -61,6 +61,13 @@ export type AuthContext = {
      */
     trialStatus: TrialStatus;
     trialEndsAt: Date | null;
+    /**
+     * ROOT-side suspension tombstone. Non-null = the agency is currently
+     * suspended; the dashboard layout bounces to `/suspended` and
+     * `assertActiveSubscription` refuses writes. Impersonating operators
+     * bypass both gates so ROOT can still investigate a suspended tenant.
+     */
+    suspendedAt: Date | null;
   };
   member: {
     id: string;
@@ -156,6 +163,7 @@ export async function getAuthContext(): Promise<AuthContext | null> {
             compAccessExpiresAt: true,
             trialStatus: true,
             trialEndsAt: true,
+            suspendedAt: true,
           },
         },
       },
@@ -179,6 +187,7 @@ export async function getAuthContext(): Promise<AuthContext | null> {
       compAccessExpiresAt: member.agency.compAccessExpiresAt,
       trialStatus: member.agency.trialStatus,
       trialEndsAt: member.agency.trialEndsAt,
+      suspendedAt: member.agency.suspendedAt,
     },
     member: {
       id: member.id,
@@ -218,6 +227,7 @@ async function resolveImpersonatedContext(
             compAccessExpiresAt: true,
             trialStatus: true,
             trialEndsAt: true,
+            suspendedAt: true,
           },
         },
       },
@@ -246,6 +256,7 @@ async function resolveImpersonatedContext(
       compAccessExpiresAt: impersonatedMember.agency.compAccessExpiresAt,
       trialStatus: impersonatedMember.agency.trialStatus,
       trialEndsAt: impersonatedMember.agency.trialEndsAt,
+      suspendedAt: impersonatedMember.agency.suspendedAt,
     },
     member: {
       id: impersonatedMember.id,
@@ -311,6 +322,13 @@ export function assertRole(ctx: AuthContext, allowed: readonly MemberRole[]): vo
  * the redirect.
  */
 export function assertActiveSubscription(ctx: AuthContext): void {
+  // Suspension trumps subscription state — a suspended agency's writes are
+  // refused with a distinct message even if their sub is fine. Operators
+  // impersonating a suspended tenant bypass the gate so ROOT can still
+  // investigate + take corrective action.
+  if (ctx.agency.suspendedAt !== null && !ctx.impersonation) {
+    throw new ForbiddenError("This workspace is suspended. Contact support to restore access.");
+  }
   if (!hasActiveAccess(ctx.agency)) {
     throw new ForbiddenError(
       "Your subscription isn't active. Resume it (or pick a plan) in Settings → Billing before creating new content.",
