@@ -281,6 +281,15 @@ model Agency {
   /// button that flips the Stripe flag back to false. Cleared on
   /// resume and on final subscription deletion.
   subscriptionCancelAt    DateTime?
+  /// Populated by `syncSubscription` when Stripe reports an active
+  /// discount on the sub (custom-priced deals for launch clients). Label
+  /// is the Coupon's human `name`; endsAt is the Discount's `end` for
+  /// `repeating` coupons (null for `forever` / `once`). Both are cleared
+  /// when the sub no longer has an active discount. `/settings/billing`
+  /// surfaces them as a banner so buyers see the negotiated rate + when
+  /// the sticker price kicks in.
+  activeDiscountLabel     String?
+  activeDiscountEndsAt    DateTime?
   createdAt               DateTime       @default(now())
   updatedAt               DateTime       @updatedAt
 

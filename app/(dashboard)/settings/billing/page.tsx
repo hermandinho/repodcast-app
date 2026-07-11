@@ -44,6 +44,8 @@ export default async function BillingPage() {
             stripeCustomerId: true,
             stripeSubscriptionId: true,
             subscriptionCancelAt: true,
+            activeDiscountLabel: true,
+            activeDiscountEndsAt: true,
             preferredCurrency: true,
             trialStatus: true,
             trialEndsAt: true,
@@ -73,6 +75,8 @@ export default async function BillingPage() {
     : agency?.stripeCustomerId
       ? "canceled"
       : null;
+  const discountLabel = agency?.activeDiscountLabel ?? null;
+  const discountEndsAt = agency?.activeDiscountEndsAt ?? null;
 
   const live = isLiveDb();
   const [shows, members, episodes, generations, invoices] = live
@@ -214,6 +218,19 @@ export default async function BillingPage() {
           <DarkMeter label="Generations" used={generations.used} limit={generations.limit} />
         </div>
       </div>
+
+      {/* Active-discount banner. Renders when Stripe reports a Coupon
+          attached to the sub (custom-priced launch deals). Sits above
+          the lifecycle status so buyers see the negotiated rate + when
+          the sticker price kicks in before any cancel/trial messaging. */}
+      {discountLabel ? (
+        <DiscountBanner
+          label={discountLabel}
+          endsAt={discountEndsAt}
+          plan={plan}
+          currency={currency}
+        />
+      ) : null}
 
       {/* Subscription lifecycle status. Priority (first match wins):
           1. Scheduled cancel on an active sub → SubscriptionStatusCard
@@ -572,6 +589,59 @@ function TrialStatusCard({
               }}
             >
               {pillLabel}
+            </span>
+          </div>
+          <p style={{ fontSize: 13, color: MUTED, marginTop: 6 }}>{body}</p>
+        </div>
+      </div>
+    </LightCard>
+  );
+}
+
+function DiscountBanner({
+  label,
+  endsAt,
+  plan,
+  currency,
+}: {
+  label: string;
+  endsAt: Date | null;
+  plan: Plan;
+  currency: ReturnType<typeof asSupportedCurrency>;
+}) {
+  const resolvedCurrency = currency ?? DEFAULT_CURRENCY;
+  const stickerPrice = `${formatPlanPrice(priceFor(plan, resolvedCurrency), resolvedCurrency)}/mo`;
+  const dateLabel = endsAt
+    ? new Intl.DateTimeFormat(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }).format(endsAt)
+    : null;
+
+  const body = dateLabel
+    ? `Discounted rate active until ${dateLabel}. The listed ${stickerPrice} sticker price takes over on the next invoice after that.`
+    : `Discounted rate active with no set end date. Contact us to change the terms.`;
+
+  return (
+    <LightCard style={{ marginTop: 16 }}>
+      <div className="flex flex-wrap items-start justify-between" style={{ gap: 16 }}>
+        <div>
+          <div className="flex flex-wrap items-center" style={{ gap: 10 }}>
+            <span style={{ fontSize: 15.5, fontWeight: 700, color: INK }}>{label}</span>
+            <span
+              className="rounded-full"
+              style={{
+                background: ACCENT_SOFT,
+                color: ACCENT,
+                padding: "3px 9px",
+                fontFamily: "var(--font-revamp-mono)",
+                fontSize: 11,
+                fontWeight: 700,
+                letterSpacing: "0.04em",
+              }}
+            >
+              SPECIAL PRICING
             </span>
           </div>
           <p style={{ fontSize: 13, color: MUTED, marginTop: 6 }}>{body}</p>

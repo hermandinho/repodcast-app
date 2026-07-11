@@ -187,6 +187,8 @@ async function syncSubscription(
         ? new Date(sub.items.data[0].current_period_end * 1000)
         : null;
 
+  const discount = await resolveActiveDiscount(sub);
+
   await prisma.agency.update({
     where: { id: agencyId },
     data: {
@@ -195,6 +197,8 @@ async function syncSubscription(
       stripeCustomerId: customerId,
       stripeSubscriptionId: sub.id,
       subscriptionCancelAt: cancelAt,
+      activeDiscountLabel: discount.label,
+      activeDiscountEndsAt: discount.endsAt,
       ...trialUpdate,
     },
   });
@@ -249,6 +253,46 @@ async function syncSubscription(
     // analytics event above.
     await sendTrialConvertedForAgency(agencyId, { plan });
   }
+}
+
+/**
+ * Read the active Stripe Coupon attached to the subscription (if any) so
+ * `/settings/billing` can surface "Special pricing — reverts to $X on Y"
+ * to buyers on a custom-priced deal.
+ *
+ * `sub.discounts` is an array of Discount IDs (or expanded objects). The
+ * subscription-webhook payloads Stripe delivers don't expand it, so a
+ * second retrieve is needed to reach `discount.source.coupon.name` and
+ * `discount.end`. That retrieve only fires when discounts are actually
+ * present — the vast majority of subs pay zero extra Stripe calls.
+ *
+ * Returns nulls when there's no discount (which is also the clear-both-
+ * columns signal for `syncSubscription`, so an expired coupon flips the
+ * banner off automatically).
+ */
+async function resolveActiveDiscount(
+  sub: Stripe.Subscription,
+): Promise<{ label: string | null; endsAt: Date | null }> {
+  if (!sub.discounts || sub.discounts.length === 0) {
+    return { label: null, endsAt: null };
+  }
+  const stripe = requireStripeClient();
+  const expanded = await stripe.subscriptions.retrieve(sub.id, {
+    expand: ["discounts.source.coupon"],
+  });
+  const first = expanded.discounts?.[0];
+  if (!first || typeof first === "string") return { label: null, endsAt: null };
+  const coupon = first.source?.coupon;
+  const label =
+    coupon && typeof coupon !== "string"
+      ? (coupon.name ?? coupon.id)
+      : typeof coupon === "string"
+        ? coupon
+        : null;
+  return {
+    label,
+    endsAt: first.end ? new Date(first.end * 1000) : null,
+  };
 }
 
 /**
