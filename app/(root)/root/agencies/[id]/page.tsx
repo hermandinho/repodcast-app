@@ -211,6 +211,8 @@ export default async function RootAgencyDrilldownPage({
         latestInvoice={latestInvoice}
         trialStatus={agency.trialStatus}
         trialEndsAt={agency.trialEndsAt}
+        activeDiscountLabel={agency.activeDiscountLabel}
+        activeDiscountEndsAt={agency.activeDiscountEndsAt}
         viewerRole={ctx.admin.role}
       />
 
@@ -274,6 +276,9 @@ const ACTION_OK_COPY: Record<string, string> = {
   comp_access_revoked: "Comp access revoked. Standard billing gate applies again.",
   subscription_canceled: "Stripe subscription canceled; local plan downgraded to STUDIO.",
   trial_extended: "Trial extended. Stripe and local trialEndsAt updated.",
+  discount_applied:
+    "Discount attached to the Stripe subscription. Buyer sees it on their billing page.",
+  discount_removed: "Discount removed. The sticker price applies again on the next invoice.",
 };
 
 function StatTile({

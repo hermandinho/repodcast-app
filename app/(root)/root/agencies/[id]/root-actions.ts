@@ -7,6 +7,7 @@ import type { Plan } from "@prisma/client";
 import { ForbiddenError, NotFoundError, ValidationError } from "@/server/auth/errors";
 import { requireSystemAdminContext } from "@/server/auth/system";
 import {
+  applyAgencyDiscount,
   extendAgencyCompAccess,
   extendAgencyTrial,
   forceCancelAgencySubscription,
@@ -14,6 +15,7 @@ import {
   grantAgencyPlanOverride,
   hardDeleteAgency,
   recordInvoiceRefundIntent,
+  removeAgencyDiscount,
   revokeAgencyCompAccess,
   revokeAgencyPlanOverride,
   suspendAgency,
@@ -229,6 +231,40 @@ export async function extendAgencyTrialAction(formData: FormData): Promise<void>
   }
   revalidatePath(`/root/agencies/${id}`);
   redirect(`/root/agencies/${id}?action_ok=trial_extended`);
+}
+
+// ============================================================
+// Discount attach / remove (custom-priced launch deals)
+// ============================================================
+
+export async function applyAgencyDiscountAction(formData: FormData): Promise<void> {
+  const ctx = await requireSystemAdminContext();
+  const id = strOrEmpty(formData.get("id"));
+
+  try {
+    await applyAgencyDiscount(ctx, {
+      id,
+      promotionCode: strOrEmpty(formData.get("promotionCode")),
+      note: strOrEmpty(formData.get("note")),
+    });
+  } catch (err) {
+    redirect(`/root/agencies/${id}?action_error=${errCode(err)}`);
+  }
+  revalidatePath(`/root/agencies/${id}`);
+  redirect(`/root/agencies/${id}?action_ok=discount_applied`);
+}
+
+export async function removeAgencyDiscountAction(formData: FormData): Promise<void> {
+  const ctx = await requireSystemAdminContext();
+  const id = strOrEmpty(formData.get("id"));
+
+  try {
+    await removeAgencyDiscount(ctx, { id, note: strOrEmpty(formData.get("note")) });
+  } catch (err) {
+    redirect(`/root/agencies/${id}?action_error=${errCode(err)}`);
+  }
+  revalidatePath(`/root/agencies/${id}`);
+  redirect(`/root/agencies/${id}?action_ok=discount_removed`);
 }
 
 // ============================================================

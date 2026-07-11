@@ -1,5 +1,6 @@
 import type { InvoiceStatus, Plan, SystemAdminRole, TrialStatus } from "@prisma/client";
 import {
+  applyAgencyDiscountAction,
   extendAgencyCompAccessAction,
   extendAgencyTrialAction,
   forceCancelAgencySubscriptionAction,
@@ -7,6 +8,7 @@ import {
   grantAgencyPlanOverrideAction,
   hardDeleteAgencyAction,
   recordInvoiceRefundIntentAction,
+  removeAgencyDiscountAction,
   revokeAgencyCompAccessAction,
   revokeAgencyPlanOverrideAction,
   suspendAgencyAction,
@@ -44,6 +46,8 @@ export function AgencyActionsPanel({
   latestInvoice,
   trialStatus,
   trialEndsAt,
+  activeDiscountLabel,
+  activeDiscountEndsAt,
   viewerRole,
 }: {
   agencyId: string;
@@ -63,6 +67,8 @@ export function AgencyActionsPanel({
   } | null;
   trialStatus: TrialStatus;
   trialEndsAt: Date | null;
+  activeDiscountLabel: string | null;
+  activeDiscountEndsAt: Date | null;
   viewerRole: SystemAdminRole;
 }) {
   const canWrite = viewerRole === "ROOT" || viewerRole === "OPERATOR";
@@ -104,6 +110,11 @@ export function AgencyActionsPanel({
               Comp active
             </span>
           ) : null}
+          {activeDiscountLabel ? (
+            <span className="rounded bg-sky-500/20 px-2 py-0.5 font-mono text-[10.5px] tracking-wider text-sky-200 uppercase">
+              Discount: {activeDiscountLabel}
+            </span>
+          ) : null}
         </div>
       </div>
 
@@ -114,6 +125,12 @@ export function AgencyActionsPanel({
           agencyId={agencyId}
           compAccessExpiresAt={compAccessExpiresAt}
           hasSub={hasSub}
+        />
+        <DiscountCard
+          agencyId={agencyId}
+          hasSub={hasSub}
+          activeDiscountLabel={activeDiscountLabel}
+          activeDiscountEndsAt={activeDiscountEndsAt}
         />
         <ForceCancelCard agencyId={agencyId} agencyName={agencyName} hasSub={hasSub} />
         <RefundCard agencyId={agencyId} latestInvoice={latestInvoice} />
@@ -395,6 +412,100 @@ function CompAccessCard({
             </button>
           </form>
         </>
+      ) : null}
+    </ActionCard>
+  );
+}
+
+// ============================================================
+// Discount attach / remove (custom-priced launch deals)
+// ============================================================
+
+function DiscountCard({
+  agencyId,
+  hasSub,
+  activeDiscountLabel,
+  activeDiscountEndsAt,
+}: {
+  agencyId: string;
+  hasSub: boolean;
+  activeDiscountLabel: string | null;
+  activeDiscountEndsAt: Date | null;
+}) {
+  if (!hasSub) {
+    return (
+      <ActionCard
+        label="Custom-price discount"
+        description="No active Stripe subscription. A discount can only attach to a live sub — start one via checkout first."
+      >
+        <div className="rounded border border-dashed border-zinc-800 bg-zinc-900/20 p-3 text-[12px] text-zinc-500">
+          The agency isn&rsquo;t on a paid plan.
+        </div>
+      </ActionCard>
+    );
+  }
+
+  const activeUntil = activeDiscountEndsAt
+    ? `until ${activeDiscountEndsAt.toISOString().slice(0, 10)}`
+    : "with no set end date";
+
+  return (
+    <ActionCard
+      label="Custom-price discount"
+      description={
+        activeDiscountLabel
+          ? `Active: "${activeDiscountLabel}" ${activeUntil}. Buyer sees the "Special pricing" banner on /settings/billing. Attach a different code to replace, or remove to revert to sticker.`
+          : "Paste the human promotion code (e.g. LAUNCH-ACME) minted in the Stripe dashboard. Attaches to the live sub; the tenant sees a 'Special pricing' banner and pays the discounted rate on the next invoice."
+      }
+    >
+      <form action={applyAgencyDiscountAction} className="flex flex-col gap-2">
+        <input type="hidden" name="id" value={agencyId} />
+        <input
+          type="text"
+          name="promotionCode"
+          required
+          minLength={1}
+          maxLength={120}
+          autoComplete="off"
+          placeholder="Promotion code (e.g. LAUNCH-ACME)"
+          className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-[12.5px] text-zinc-100 placeholder:text-zinc-500"
+        />
+        <input
+          type="text"
+          name="note"
+          required
+          minLength={3}
+          maxLength={500}
+          placeholder="Reason (call w/ Acme 2026-07-10, launch deal, ...)"
+          className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-[12.5px] text-zinc-100 placeholder:text-zinc-500"
+        />
+        <button
+          type="submit"
+          className="rounded border border-sky-500/60 bg-sky-500/10 px-3 py-2 text-[12.5px] font-medium text-sky-100 hover:bg-sky-500/20"
+        >
+          {activeDiscountLabel ? "Replace discount" : "Attach discount"}
+        </button>
+      </form>
+
+      {activeDiscountLabel ? (
+        <form action={removeAgencyDiscountAction} className="mt-2 flex items-center gap-2">
+          <input type="hidden" name="id" value={agencyId} />
+          <input
+            type="text"
+            name="note"
+            required
+            minLength={3}
+            maxLength={500}
+            placeholder="Reason to remove"
+            className="flex-1 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-[12.5px] text-zinc-100 placeholder:text-zinc-500"
+          />
+          <button
+            type="submit"
+            className="rounded border border-zinc-700 px-3 py-2 text-[12.5px] text-zinc-300 hover:bg-zinc-800"
+          >
+            Remove
+          </button>
+        </form>
       ) : null}
     </ActionCard>
   );

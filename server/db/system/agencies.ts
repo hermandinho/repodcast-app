@@ -99,6 +99,11 @@ export type AgencyDetailForRoot = {
    *  status pill on the ROOT drilldown. */
   trialStatus: TrialStatus;
   trialEndsAt: Date | null;
+  /** Currently attached Stripe Coupon on the sub (custom-priced deals).
+   *  Populated by the Stripe webhook; surfaces on the ROOT drilldown so an
+   *  operator can see + revoke the discount without hopping to Stripe. */
+  activeDiscountLabel: string | null;
+  activeDiscountEndsAt: Date | null;
   /** Owner of the agency (first OWNER row). May be missing on misconfigured rows. */
   owner: { id: string; email: string; name: string | null } | null;
   /** Counts across the whole agency lifetime. */
@@ -349,6 +354,8 @@ export async function getAgencyForRoot(
       renewalRemindersEnabled: true,
       trialStatus: true,
       trialEndsAt: true,
+      activeDiscountLabel: true,
+      activeDiscountEndsAt: true,
       members: {
         where: { role: "OWNER" },
         orderBy: { createdAt: "asc" },
@@ -431,6 +438,8 @@ export async function getAgencyForRoot(
     renewalRemindersEnabled: agency.renewalRemindersEnabled,
     trialStatus: agency.trialStatus,
     trialEndsAt: agency.trialEndsAt,
+    activeDiscountLabel: agency.activeDiscountLabel,
+    activeDiscountEndsAt: agency.activeDiscountEndsAt,
     owner,
     totals: {
       members: agency._count.members,
@@ -1058,6 +1067,207 @@ export async function extendAgencyTrial(
   );
 
   return { newTrialEndsAt: newEnd };
+}
+
+// ============================================================
+// Discount attach / remove (custom-priced launch deals)
+// ============================================================
+//
+// Attaches a Stripe Coupon to an agency's live subscription by resolving a
+// Promotion Code (the human-facing "LAUNCH-ACME" string) to its Stripe id
+// and calling `subscriptions.update({ discounts: [{ promotion_code }] })`.
+//
+// The Stripe call runs INSIDE the audit TX so a Stripe failure rolls the
+// audit row back — no orphan grant, no orphan log. Same "acceptable
+// because it's rare + human-initiated" caveat as `forceCancelAgencySubscription`.
+//
+// The `customer.subscription.updated` webhook picks up the mutation and
+// stamps `activeDiscountLabel` + `activeDiscountEndsAt` via `syncSubscription`.
+// We also write those two columns eagerly here so the ROOT drilldown +
+// tenant billing page reflect the grant on next paint without waiting for
+// the webhook round-trip.
+
+export const applyAgencyDiscountInput = z.object({
+  id: z.string().trim().min(1),
+  /** Human promotion code the operator got from the client (e.g. "LAUNCH-ACME").
+   *  Case-insensitive on Stripe's side; upstream stored/matched in uppercase. */
+  promotionCode: z.string().trim().min(1).max(120),
+  /** Required — audit note referencing the deal ("call w/ Acme 2026-07-10"). */
+  note: z.string().trim().min(3).max(500),
+});
+export type ApplyAgencyDiscountInput = z.input<typeof applyAgencyDiscountInput>;
+
+export async function applyAgencyDiscount(
+  ctx: SystemAdminContext,
+  rawInput: ApplyAgencyDiscountInput,
+): Promise<{ couponLabel: string; endsAt: Date | null }> {
+  assertSystemRole(ctx, SYSTEM_WRITE_ROLES);
+  const input = applyAgencyDiscountInput.parse(rawInput);
+
+  const agency = await prisma.agency.findUnique({
+    where: { id: input.id },
+    select: {
+      id: true,
+      name: true,
+      stripeSubscriptionId: true,
+      activeDiscountLabel: true,
+      activeDiscountEndsAt: true,
+    },
+  });
+  if (!agency) throw new NotFoundError(`Agency ${input.id} not found`);
+  if (!agency.stripeSubscriptionId) {
+    throw new ValidationError(
+      `Agency ${input.id} has no active Stripe subscription — a discount can only attach to a live sub.`,
+    );
+  }
+
+  const stripe = requireStripeClient();
+
+  // Resolve the human code → Stripe id. Only active codes are considered so
+  // an expired / archived code fails cleanly rather than silently attaching
+  // an unusable discount. Codes are unique per code+active combo, so list
+  // limit=1 is enough.
+  const promoLookup = await stripe.promotionCodes.list({
+    code: input.promotionCode.trim(),
+    active: true,
+    limit: 1,
+    expand: ["data.promotion.coupon"],
+  });
+  const promo = promoLookup.data[0];
+  if (!promo) {
+    throw new ValidationError(
+      `No active Stripe promotion code matches "${input.promotionCode}". Check the code or activate it in the Stripe dashboard first.`,
+    );
+  }
+  const promoCoupon =
+    promo.promotion.coupon && typeof promo.promotion.coupon !== "string"
+      ? promo.promotion.coupon
+      : null;
+
+  let resolvedLabel = "";
+  let resolvedEndsAt: Date | null = null;
+
+  await withSystemAudit(
+    ctx,
+    {
+      action: SYSTEM_AUDIT_ACTIONS.SUBSCRIPTION_APPLY_DISCOUNT,
+      targetAgencyId: input.id,
+      note: input.note,
+    },
+    async (tx, audit) => {
+      audit.setBefore({
+        stripeSubscriptionId: agency.stripeSubscriptionId,
+        activeDiscountLabel: agency.activeDiscountLabel,
+        activeDiscountEndsAt: agency.activeDiscountEndsAt?.toISOString() ?? null,
+      });
+
+      const updated = await stripe.subscriptions.update(agency.stripeSubscriptionId!, {
+        discounts: [{ promotion_code: promo.id }],
+        expand: ["discounts.source.coupon"],
+      });
+
+      // Extract label + end from the just-updated sub so the eager DB write
+      // matches what the webhook would eventually stamp.
+      const first = updated.discounts?.[0];
+      const coupon = first && typeof first !== "string" ? first.source?.coupon : null;
+      const label =
+        coupon && typeof coupon !== "string"
+          ? (coupon.name ?? coupon.id)
+          : (promoCoupon?.name ?? promoCoupon?.id ?? input.promotionCode);
+      const endsAt =
+        first && typeof first !== "string" && first.end ? new Date(first.end * 1000) : null;
+      resolvedLabel = label;
+      resolvedEndsAt = endsAt;
+
+      await tx.agency.update({
+        where: { id: input.id },
+        data: {
+          activeDiscountLabel: label,
+          activeDiscountEndsAt: endsAt,
+        },
+      });
+
+      audit.setAfter({
+        stripeSubscriptionId: updated.id,
+        promotionCodeId: promo.id,
+        couponId: promoCoupon?.id ?? null,
+        activeDiscountLabel: label,
+        activeDiscountEndsAt: endsAt?.toISOString() ?? null,
+      });
+    },
+  );
+
+  return { couponLabel: resolvedLabel, endsAt: resolvedEndsAt };
+}
+
+export const removeAgencyDiscountInput = z.object({
+  id: z.string().trim().min(1),
+  note: z.string().trim().min(3).max(500),
+});
+export type RemoveAgencyDiscountInput = z.input<typeof removeAgencyDiscountInput>;
+
+export async function removeAgencyDiscount(
+  ctx: SystemAdminContext,
+  rawInput: RemoveAgencyDiscountInput,
+): Promise<void> {
+  assertSystemRole(ctx, SYSTEM_WRITE_ROLES);
+  const input = removeAgencyDiscountInput.parse(rawInput);
+
+  const agency = await prisma.agency.findUnique({
+    where: { id: input.id },
+    select: {
+      id: true,
+      name: true,
+      stripeSubscriptionId: true,
+      activeDiscountLabel: true,
+      activeDiscountEndsAt: true,
+    },
+  });
+  if (!agency) throw new NotFoundError(`Agency ${input.id} not found`);
+  if (!agency.stripeSubscriptionId) {
+    throw new ValidationError(
+      `Agency ${input.id} has no active Stripe subscription — nothing to remove.`,
+    );
+  }
+  if (agency.activeDiscountLabel === null) {
+    throw new ValidationError(`Agency ${input.id} has no active discount to remove.`);
+  }
+
+  const stripe = requireStripeClient();
+
+  await withSystemAudit(
+    ctx,
+    {
+      action: SYSTEM_AUDIT_ACTIONS.SUBSCRIPTION_REMOVE_DISCOUNT,
+      targetAgencyId: input.id,
+      note: input.note,
+    },
+    async (tx, audit) => {
+      audit.setBefore({
+        stripeSubscriptionId: agency.stripeSubscriptionId,
+        activeDiscountLabel: agency.activeDiscountLabel,
+        activeDiscountEndsAt: agency.activeDiscountEndsAt?.toISOString() ?? null,
+      });
+
+      // Emptying the discounts array clears every sub-level discount. There
+      // may be only one in our data model, but being explicit here means a
+      // future multi-discount case doesn't leak a stale coupon.
+      await stripe.subscriptions.update(agency.stripeSubscriptionId!, {
+        discounts: [],
+      });
+
+      await tx.agency.update({
+        where: { id: input.id },
+        data: { activeDiscountLabel: null, activeDiscountEndsAt: null },
+      });
+
+      audit.setAfter({
+        stripeSubscriptionId: agency.stripeSubscriptionId,
+        activeDiscountLabel: null,
+        activeDiscountEndsAt: null,
+      });
+    },
+  );
 }
 
 export const recordInvoiceRefundIntentInput = z.object({

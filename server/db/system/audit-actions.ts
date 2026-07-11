@@ -29,6 +29,8 @@ export const SYSTEM_AUDIT_ACTIONS = {
 
   SUBSCRIPTION_FORCE_CANCEL: "subscription.force_cancel",
   SUBSCRIPTION_EXTEND_TRIAL: "subscription.extend_trial",
+  SUBSCRIPTION_APPLY_DISCOUNT: "subscription.apply_discount",
+  SUBSCRIPTION_REMOVE_DISCOUNT: "subscription.remove_discount",
 
   INVOICE_REFUND_REQUEST: "invoice.refund_request",
 
