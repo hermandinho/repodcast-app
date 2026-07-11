@@ -45,7 +45,7 @@ export default async function RootOverviewPage() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-8">
       <header className="flex flex-col gap-2">
-        <h1 className="font-display text-3xl font-semibold tracking-tight text-white">
+        <h1 className="font-display text-2xl font-semibold tracking-tight text-white sm:text-3xl">
           Platform overview
         </h1>
         <p className="text-sm text-zinc-400">

@@ -182,8 +182,8 @@ export default async function RootBlogPage({
           No posts match. {canWrite ? "Start one with “New post”." : null}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/40">
-          <table className="w-full text-left text-sm">
+        <div className="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900/40">
+          <table className="w-full min-w-[820px] text-left text-sm">
             <thead className="text-[11px] tracking-wider text-zinc-500 uppercase">
               <tr className="border-b border-zinc-800">
                 <th className="px-4 py-3">Title</th>
