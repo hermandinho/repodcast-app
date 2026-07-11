@@ -6,6 +6,7 @@ import { ZodError } from "zod";
 import type { Plan } from "@prisma/client";
 import { ForbiddenError, NotFoundError, ValidationError } from "@/server/auth/errors";
 import { requireSystemAdminContext } from "@/server/auth/system";
+import { Stripe } from "@/server/billing/stripe";
 import {
   applyAgencyDiscount,
   extendAgencyCompAccess,
@@ -241,30 +242,36 @@ export async function applyAgencyDiscountAction(formData: FormData): Promise<voi
   const ctx = await requireSystemAdminContext();
   const id = strOrEmpty(formData.get("id"));
 
+  let redirectUrl: string;
   try {
     await applyAgencyDiscount(ctx, {
       id,
       promotionCode: strOrEmpty(formData.get("promotionCode")),
       note: strOrEmpty(formData.get("note")),
     });
+    revalidatePath(`/root/agencies/${id}`);
+    redirectUrl = `/root/agencies/${id}?action_ok=discount_applied`;
   } catch (err) {
-    redirect(`/root/agencies/${id}?action_error=${errCode(err)}`);
+    logRootActionError("applyAgencyDiscount", id, err);
+    redirectUrl = buildErrorRedirect(id, err);
   }
-  revalidatePath(`/root/agencies/${id}`);
-  redirect(`/root/agencies/${id}?action_ok=discount_applied`);
+  redirect(redirectUrl);
 }
 
 export async function removeAgencyDiscountAction(formData: FormData): Promise<void> {
   const ctx = await requireSystemAdminContext();
   const id = strOrEmpty(formData.get("id"));
 
+  let redirectUrl: string;
   try {
     await removeAgencyDiscount(ctx, { id, note: strOrEmpty(formData.get("note")) });
+    revalidatePath(`/root/agencies/${id}`);
+    redirectUrl = `/root/agencies/${id}?action_ok=discount_removed`;
   } catch (err) {
-    redirect(`/root/agencies/${id}?action_error=${errCode(err)}`);
+    logRootActionError("removeAgencyDiscount", id, err);
+    redirectUrl = buildErrorRedirect(id, err);
   }
-  revalidatePath(`/root/agencies/${id}`);
-  redirect(`/root/agencies/${id}?action_ok=discount_removed`);
+  redirect(redirectUrl);
 }
 
 // ============================================================
@@ -306,5 +313,41 @@ function errCode(err: unknown): string {
   if (err instanceof ValidationError) return "invalid";
   if (err instanceof NotFoundError) return "not_found";
   if (err instanceof ForbiddenError) return "forbidden";
+  if (err instanceof Stripe.errors.StripeError) return "stripe";
   return "unknown";
+}
+
+/**
+ * Build the `?action_error=...` redirect URL, attaching a URL-encoded
+ * message when the underlying error carries one that's safe to show
+ * operators (Stripe messages, ValidationErrors). Keeps the toast informative
+ * instead of the generic "Something went wrong."
+ */
+function buildErrorRedirect(agencyId: string, err: unknown): string {
+  const code = errCode(err);
+  const msg =
+    err instanceof Stripe.errors.StripeError
+      ? err.message
+      : err instanceof ValidationError
+        ? err.message
+        : null;
+  const params = new URLSearchParams({ action_error: code });
+  if (msg) params.set("action_error_msg", msg.slice(0, 500));
+  return `/root/agencies/${agencyId}?${params.toString()}`;
+}
+
+/**
+ * Log the full error server-side (Vercel Function logs) with a stable prefix
+ * so `[root-action]` searches surface every failure. The toast only carries a
+ * short message; operators can pull the stack + Stripe request id here.
+ */
+function logRootActionError(actionName: string, agencyId: string, err: unknown): void {
+  console.error(`[root-action] ${actionName} failed`, {
+    agencyId,
+    errorType: err instanceof Error ? err.constructor.name : typeof err,
+    message: err instanceof Error ? err.message : String(err),
+    stripeCode: err instanceof Stripe.errors.StripeError ? err.code : undefined,
+    stripeRequestId: err instanceof Stripe.errors.StripeError ? err.requestId : undefined,
+    stack: err instanceof Error ? err.stack : undefined,
+  });
 }

@@ -1,6 +1,12 @@
 import "server-only";
 
-import { type MemberRole, type Plan, type Prisma, TrialStatus } from "@prisma/client";
+import {
+  type BillingCadence,
+  type MemberRole,
+  type Plan,
+  type Prisma,
+  TrialStatus,
+} from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/server/db/client";
 import { NotFoundError, ValidationError } from "@/server/auth/errors";
@@ -91,6 +97,11 @@ export type AgencyDetailForRoot = {
   clerkOrgId: string | null;
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
+  /** Monthly or annual — mirrored from the Stripe Price on the sub. */
+  billingCadence: BillingCadence;
+  /** Non-null when Stripe reports `cancel_at_period_end: true`. Matches the
+   *  timestamp used by the tenant billing page's cancel-scheduled banner. */
+  subscriptionCancelAt: Date | null;
   preferredCurrency: string;
   brandLogoUrl: string | null;
   brandAccentColor: string | null;
@@ -348,6 +359,8 @@ export async function getAgencyForRoot(
       clerkOrgId: true,
       stripeCustomerId: true,
       stripeSubscriptionId: true,
+      billingCadence: true,
+      subscriptionCancelAt: true,
       preferredCurrency: true,
       brandLogoUrl: true,
       brandAccentColor: true,
@@ -432,6 +445,8 @@ export async function getAgencyForRoot(
     clerkOrgId: agency.clerkOrgId,
     stripeCustomerId: agency.stripeCustomerId,
     stripeSubscriptionId: agency.stripeSubscriptionId,
+    billingCadence: agency.billingCadence,
+    subscriptionCancelAt: agency.subscriptionCancelAt,
     preferredCurrency: agency.preferredCurrency,
     brandLogoUrl: agency.brandLogoUrl,
     brandAccentColor: agency.brandAccentColor,

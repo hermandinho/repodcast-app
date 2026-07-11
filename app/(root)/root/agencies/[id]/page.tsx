@@ -6,6 +6,7 @@ import { NotFoundError } from "@/server/auth/errors";
 import { requireSystemAdminContext } from "@/server/auth/system";
 import { prisma } from "@/server/db/client";
 import {
+  type AgencyDetailForRoot,
   getAgencyForRoot,
   listAgencyAuditEntries,
   listAgencyMembers,
@@ -20,6 +21,15 @@ function formatCents(cents: number, currency = "USD"): string {
 function formatDate(date: Date | null | undefined): string {
   if (!date) return "—";
   return date.toISOString().slice(0, 10);
+}
+
+/**
+ * Extracted so `Date.now()` doesn't run inline during render (react-hooks/purity).
+ * Mirrors the `isCompAccessActive` helper in `agency-actions-panel.tsx`.
+ */
+function isCompAccessActive(expiresAt: Date | null): boolean {
+  if (!expiresAt) return false;
+  return expiresAt.getTime() > Date.now();
 }
 
 function formatRelative(date: Date | null | undefined): string {
@@ -44,6 +54,7 @@ export default async function RootAgencyDrilldownPage({
     impersonate_error?: string;
     impersonation_ended?: string;
     action_error?: string;
+    action_error_msg?: string;
     action_ok?: string;
   }>;
 }) {
@@ -144,7 +155,10 @@ export default async function RootAgencyDrilldownPage({
       ) : null}
       {sp.action_error ? (
         <div className="rounded-lg border border-red-700/60 bg-red-950/40 px-4 py-3 text-sm text-red-200">
-          {ACTION_ERROR_COPY[sp.action_error] ?? ACTION_ERROR_COPY.unknown}
+          <div>{ACTION_ERROR_COPY[sp.action_error] ?? ACTION_ERROR_COPY.unknown}</div>
+          {sp.action_error_msg ? (
+            <div className="mt-1 font-mono text-[12px] text-red-300/80">{sp.action_error_msg}</div>
+          ) : null}
         </div>
       ) : null}
       {sp.action_ok ? (
@@ -199,6 +213,8 @@ export default async function RootAgencyDrilldownPage({
       </section>
 
       <AgencyMembersPanel agencyId={agency.id} members={members} viewerRole={ctx.admin.role} />
+
+      <SubscriptionSection agency={agency} />
 
       <AgencyActionsPanel
         agencyId={agency.id}
@@ -263,6 +279,7 @@ const ACTION_ERROR_COPY: Record<string, string> = {
   not_found: "The record you targeted no longer exists.",
   invalid_plan: "Choose a valid plan tier.",
   confirm_mismatch: "The agency name you typed doesn't match. Action canceled.",
+  stripe: "Stripe rejected the request.",
   unknown: "Something went wrong. Check the server logs.",
 };
 
@@ -303,6 +320,182 @@ function StatTile({
         {value}
       </div>
       {hint ? <div className="mt-1 text-[11.5px] text-zinc-500">{hint}</div> : null}
+    </div>
+  );
+}
+
+// ============================================================
+// Subscription section — snapshot of Stripe state on this agency,
+// rendered above the ROOT actions panel so operators see the sub
+// state BEFORE they touch it.
+// ============================================================
+
+function SubscriptionSection({ agency }: { agency: AgencyDetailForRoot }) {
+  const hasSub = agency.stripeSubscriptionId !== null;
+  const stripeSubUrl = agency.stripeSubscriptionId
+    ? `https://dashboard.stripe.com/subscriptions/${agency.stripeSubscriptionId}`
+    : null;
+  const stripeCustomerUrl = agency.stripeCustomerId
+    ? `https://dashboard.stripe.com/customers/${agency.stripeCustomerId}`
+    : null;
+
+  const status = deriveSubscriptionStatus(agency);
+
+  return (
+    <section className="flex flex-col gap-4">
+      <h2 className="font-display text-lg font-semibold text-white">Subscription</h2>
+
+      {!hasSub ? (
+        <div className="rounded-xl border border-dashed border-zinc-800 bg-zinc-900/40 p-6 text-sm text-zinc-500">
+          No active Stripe subscription linked to this agency. Local plan defaults to{" "}
+          <span className="font-mono text-zinc-300">{agency.plan}</span>
+          {isCompAccessActive(agency.compAccessExpiresAt) ? (
+            <>
+              , but comp access is granting dashboard entry until{" "}
+              <span className="font-mono text-emerald-300">
+                {agency.compAccessExpiresAt!.toISOString().slice(0, 10)}
+              </span>
+              .
+            </>
+          ) : (
+            "."
+          )}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5">
+          <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
+            <DetailRow label="Plan (paid tier)">
+              <span className="font-mono text-zinc-100">{agency.plan}</span>
+              {agency.planOverride && agency.planOverride !== agency.plan ? (
+                <span className="ml-2 rounded bg-amber-500/20 px-2 py-0.5 font-mono text-[10.5px] tracking-wider text-amber-200 uppercase">
+                  Override → {agency.planOverride}
+                </span>
+              ) : null}
+            </DetailRow>
+            <DetailRow label="Cadence">
+              <span className="font-mono text-zinc-100">{agency.billingCadence}</span>
+            </DetailRow>
+
+            <DetailRow label="Status">
+              <span
+                className={`rounded px-2 py-0.5 font-mono text-[10.5px] tracking-wider uppercase ${status.pillClass}`}
+              >
+                {status.label}
+              </span>
+              {status.detail ? (
+                <span className="ml-2 text-[12.5px] text-zinc-400">{status.detail}</span>
+              ) : null}
+            </DetailRow>
+            <DetailRow label="Preferred currency">
+              <span className="font-mono text-zinc-100">{agency.preferredCurrency}</span>
+            </DetailRow>
+
+            {agency.trialStatus !== "NONE" ? (
+              <DetailRow label="Trial">
+                <span className="font-mono text-zinc-100">{agency.trialStatus}</span>
+                {agency.trialEndsAt ? (
+                  <span className="ml-2 text-[12.5px] text-zinc-400">
+                    ends {agency.trialEndsAt.toISOString().slice(0, 10)}
+                  </span>
+                ) : null}
+              </DetailRow>
+            ) : null}
+
+            {agency.subscriptionCancelAt ? (
+              <DetailRow label="Cancel scheduled">
+                <span className="font-mono text-amber-200">
+                  {agency.subscriptionCancelAt.toISOString().slice(0, 10)}
+                </span>
+              </DetailRow>
+            ) : null}
+
+            {agency.activeDiscountLabel ? (
+              <DetailRow label="Active discount">
+                <span className="font-mono text-sky-200">{agency.activeDiscountLabel}</span>
+                {agency.activeDiscountEndsAt ? (
+                  <span className="ml-2 text-[12.5px] text-zinc-400">
+                    until {agency.activeDiscountEndsAt.toISOString().slice(0, 10)}
+                  </span>
+                ) : (
+                  <span className="ml-2 text-[12.5px] text-zinc-400">no expiry</span>
+                )}
+              </DetailRow>
+            ) : null}
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-4 border-t border-zinc-800 pt-4 text-[12px]">
+            <div className="flex flex-col">
+              <span className="font-mono text-[10px] tracking-wider text-zinc-500 uppercase">
+                Subscription id
+              </span>
+              {stripeSubUrl ? (
+                <a
+                  href={stripeSubUrl}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="font-mono text-[12px] text-sky-300 hover:underline"
+                >
+                  {agency.stripeSubscriptionId} ↗
+                </a>
+              ) : (
+                <span className="font-mono text-zinc-300">{agency.stripeSubscriptionId}</span>
+              )}
+            </div>
+            {stripeCustomerUrl ? (
+              <div className="flex flex-col">
+                <span className="font-mono text-[10px] tracking-wider text-zinc-500 uppercase">
+                  Customer id
+                </span>
+                <a
+                  href={stripeCustomerUrl}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="font-mono text-[12px] text-sky-300 hover:underline"
+                >
+                  {agency.stripeCustomerId} ↗
+                </a>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function deriveSubscriptionStatus(agency: AgencyDetailForRoot): {
+  label: string;
+  detail: string | null;
+  pillClass: string;
+} {
+  if (agency.subscriptionCancelAt) {
+    return {
+      label: "Canceling",
+      detail: `Ends ${agency.subscriptionCancelAt.toISOString().slice(0, 10)}`,
+      pillClass: "bg-amber-500/20 text-amber-200",
+    };
+  }
+  if (agency.trialStatus === "ACTIVE") {
+    return {
+      label: "Trialing",
+      detail: agency.trialEndsAt
+        ? `Charges on ${agency.trialEndsAt.toISOString().slice(0, 10)}`
+        : null,
+      pillClass: "bg-sky-500/20 text-sky-200",
+    };
+  }
+  return {
+    label: "Active",
+    detail: null,
+    pillClass: "bg-emerald-500/20 text-emerald-200",
+  };
+}
+
+function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="font-mono text-[10px] tracking-wider text-zinc-500 uppercase">{label}</span>
+      <div className="text-[13px] text-zinc-100">{children}</div>
     </div>
   );
 }
