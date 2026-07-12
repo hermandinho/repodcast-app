@@ -80,6 +80,17 @@ enum OutputStatus {
   FAILED
 }
 
+/// Q1 — VideoClip lifecycle. The clip row is created up-front once Claude
+/// picks the highlight, so the UI can render a card immediately with a
+/// PENDING pill. The Inngest → render-worker call flips it to RENDERING,
+/// then to READY or FAILED depending on the worker's response.
+enum ClipRenderStatus {
+  PENDING
+  RENDERING
+  READY
+  FAILED
+}
+
 /// Per-client toggle for who signs off on generated outputs before they
 /// can be scheduled. INTERNAL = the agency's own OWNER/ADMIN/REVIEWER
 /// approves via the dashboard (existing behavior). CLIENT = after the
@@ -308,6 +319,7 @@ model Agency {
   integrations         AgencyIntegration[]
   notifications        Notification[]
   suggestions          Suggestion[]
+  videoClips           VideoClip[]
 
   /// Same hot-path index as declared inline in the migration — mirrored here
   /// so `prisma migrate diff` stays clean on the next migration boundary.
@@ -499,6 +511,10 @@ model Episode {
   source        TranscriptSource
   audioUrl      String?
   externalUrl   String?
+  /// Q1 — source video for clip generation. Populated during import for
+  /// YOUTUBE episodes and UPLOAD-with-video. Null for audio-only sources
+  /// (the clip pipeline falls back to an audiogram-style render).
+  sourceVideoUrl String?
   status        EpisodeStatus    @default(DRAFT)
   /// Fine-grained pipeline sub-state. Drives the SSE stream + panel
   /// selection on `/episodes/[id]`. See `EpisodePipelineStage`.
@@ -523,6 +539,7 @@ model Episode {
   usageLogs     UsageLog[]
   voiceSamples  VoiceSample[]
   notifications Notification[]
+  videoClips    VideoClip[]
 
   @@index([showId])
   @@index([status])
@@ -742,6 +759,59 @@ model VoiceSample {
   @@index([showId, platform])
   @@index([generatedOutputId])
   @@index([episodeId])
+}
+
+// ============================================================
+// Video clips (Q1 — short-form clip generation)
+// ============================================================
+
+/// A single vertical clip cut from an episode. The row is created up-front
+/// with `status = PENDING` after Claude picks the highlight span, so the
+/// UI can render the placeholder card immediately. `renderedUrl` /
+/// `posterUrl` fill in when the render worker (VPS + ffmpeg) uploads to
+/// R2 and posts back the result.
+///
+/// `agencyId` is denormalized so tenant-isolation queries can filter
+/// without joining through Episode → Show → Client → Agency.
+model VideoClip {
+  id             String           @id @default(cuid())
+  episodeId      String
+  agencyId       String
+  /// Span within the source, aligned to Deepgram word timestamps.
+  startMs        Int
+  endMs          Int
+  /// Claude's ranking (0–1) — hook strength × standalone comprehension ×
+  /// emotional beat. Used to sort candidates and to A/B against actual
+  /// post-publish engagement once analytics loopback lands (Q2 #2).
+  score          Float
+  /// One-sentence pitch from Claude explaining *why* this moment is a clip.
+  /// Rendered under the poster in the UI so reviewers can skim without
+  /// scrubbing.
+  hookLine       String
+  /// The source video the worker downloads/reads. Null → audiogram-style
+  /// render from the episode's audio (audio-only podcasts, upload-source
+  /// with no video track).
+  sourceVideoUrl String?
+  /// R2 URL of the rendered MP4. Null while status < READY.
+  renderedUrl    String?
+  /// R2 URL of the poster frame (first frame after burn-in). Same lifecycle.
+  posterUrl      String?
+  /// R2 URL of the SRT actually burnt in — kept so the trim editor can
+  /// re-render without recomputing captions.
+  captionsUrl    String?
+  status         ClipRenderStatus @default(PENDING)
+  /// Populated when status = FAILED. Short human-readable reason surfaced
+  /// on the clip card, plus full stack in Sentry.
+  renderError    String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  episode Episode @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  agency  Agency  @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+
+  @@index([episodeId])
+  @@index([agencyId, createdAt])
+  @@index([status])
 }
 
 // ============================================================
