@@ -628,6 +628,20 @@ model GeneratedOutput {
   externalPostId      String?
   externalPostUrl     String?
   publishedAt         DateTime?
+  /// Q1 feature #5 — audiogram (waveform video) attached to this output.
+  /// `audiogramStatus` follows the same PENDING → RENDERING → READY | FAILED
+  /// lifecycle as VideoClip; the four fields are populated together by the
+  /// `generate-audiogram` Inngest fn and its render worker call. Null on
+  /// outputs the user hasn't requested an audiogram for. `audiogramStartMs`
+  /// and `audiogramEndMs` are the window we cut from the source audio
+  /// (defaults to 0-60s until the trim editor lands).
+  audiogramStatus     ClipRenderStatus?
+  audiogramUrl        String?
+  audiogramPosterUrl  String?
+  audiogramError      String?
+  audiogramStartMs    Int?
+  audiogramEndMs      Int?
+  audiogramAspect     String?            // "1:1" or "9:16"
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 

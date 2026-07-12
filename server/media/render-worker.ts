@@ -85,8 +85,8 @@ export type RenderAudiogramRequest = {
   endMs: number;
   captionsSrt: string;
   aspect: "1:1" | "9:16";
-  /** Show artwork URL — used as blurred background */
-  backgroundImageUrl: string;
+  /** Show artwork URL — used as blurred background. Null = solid color. */
+  backgroundImageUrl: string | null;
   outputPrefix: string;
 };
 

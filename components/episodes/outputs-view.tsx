@@ -1043,6 +1043,29 @@ export function OutputsView({
                 block navigation on it. */}
             {streamUrl !== null && <ArtworkTrigger episodeId={episode.id} />}
 
+            {/* Q1 feature #5 — link into the audiogram management page. */}
+            {streamUrl !== null && (
+              <Link
+                href={`/episodes/${episode.id}/audiograms`}
+                className="border-border text-ink hover:bg-canvas shadow-card flex items-center gap-2 rounded-[10px] border bg-white px-4 py-[10px] font-sans text-[13px] font-semibold transition-colors"
+                title="Manage audiograms (waveform videos) for social outputs"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 14 14"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  aria-hidden
+                >
+                  <path d="M2 7h1M4 4.5v5M6 3v8M8 4.5v5M10 5.5v3M12 7h0" />
+                </svg>
+                Audiograms
+              </Link>
+            )}
+
             {/* Q1 wk5+ — link into the vertical-clip management page. Live
                 mode only (clip generation writes VideoClip rows to the DB;
                 sample-data mode has none). */}

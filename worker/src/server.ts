@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import { z } from "zod";
+import { renderAudiogram } from "./jobs/audiogram.js";
 import { renderClip } from "./jobs/clip.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
@@ -79,9 +80,42 @@ app.post("/render/clip", async (req, reply) => {
   }
 });
 
-// Q1 wk10 — audiogram (waveform video). Real implementation lands with #5.
-app.post("/render/audiogram", async (_req, reply) => {
-  return reply.code(501).send({ error: "not implemented yet" });
+// Q1 feature #5 — audiogram render. Full pipeline in ./jobs/audiogram.ts.
+const audiogramRequestSchema = z.object({
+  outputId: z.string().min(1).max(200),
+  audioUrl: z.string().url(),
+  startMs: z.number().int().min(0),
+  endMs: z.number().int().min(1),
+  captionsSrt: z.string(),
+  aspect: z.enum(["1:1", "9:16"]),
+  backgroundImageUrl: z.string().url().nullable(),
+  outputPrefix: z
+    .string()
+    .min(1)
+    .max(500)
+    .refine((s) => !s.includes(".."), "outputPrefix must not contain '..'")
+    .refine((s) => !s.startsWith("/"), "outputPrefix must not start with '/'"),
+});
+
+app.post("/render/audiogram", async (req, reply) => {
+  const parsed = audiogramRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return reply.code(400).send({ error: "invalid request", details: parsed.error.flatten() });
+  }
+  const input = parsed.data;
+  if (input.endMs <= input.startMs) {
+    return reply.code(400).send({ error: "endMs must be greater than startMs" });
+  }
+  try {
+    const result = await renderAudiogram(input);
+    return result;
+  } catch (err) {
+    req.log.error({ err, outputId: input.outputId }, "render/audiogram failed");
+    return reply.code(500).send({
+      error: err instanceof Error ? err.message : String(err),
+      outputId: input.outputId,
+    });
+  }
 });
 
 const shutdown = async (signal: string) => {

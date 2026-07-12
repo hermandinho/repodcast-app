@@ -720,6 +720,98 @@ export async function deleteClipAction(
 }
 
 // ============================================================
+// Q1 feature #5 — Request audiogram for an output
+// ============================================================
+
+const AUDIOGRAM_MIN_SPAN_MS = 15_000;
+const AUDIOGRAM_MAX_SPAN_MS = 90_000;
+const AUDIOGRAM_DEFAULT_END_MS = 60_000;
+
+const requestAudiogramInput = z.object({
+  outputId: z.string().min(1),
+  /** Optional window override. Defaults to 0–60 s of the source audio. */
+  startMs: z.number().int().min(0).optional(),
+  endMs: z.number().int().min(1).optional(),
+  aspect: z.enum(["1:1", "9:16"]).optional(),
+});
+
+export async function requestAudiogramAction(
+  raw: unknown,
+): Promise<ActionResult<{ outputId: string }>> {
+  const parsed = requestAudiogramInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid audiogram-request input", parsed.error.issues);
+  }
+  const { outputId, startMs = 0, endMs = AUDIOGRAM_DEFAULT_END_MS, aspect = "9:16" } = parsed.data;
+
+  if (endMs <= startMs) return { ok: false, error: "End time must be after start time." };
+  const span = endMs - startMs;
+  if (span < AUDIOGRAM_MIN_SPAN_MS) {
+    return {
+      ok: false,
+      error: `Audiogram is too short — minimum ${AUDIOGRAM_MIN_SPAN_MS / 1000}s.`,
+    };
+  }
+  if (span > AUDIOGRAM_MAX_SPAN_MS) {
+    return {
+      ok: false,
+      error: `Audiogram is too long — maximum ${AUDIOGRAM_MAX_SPAN_MS / 1000}s.`,
+    };
+  }
+
+  if (!isLiveDb()) return noopOk({ outputId });
+
+  const auth = await requireAuthContext();
+  // Tenant guard + prereq check: audio present, word timings present.
+  const output = await prisma.generatedOutput.findFirst({
+    where: {
+      id: outputId,
+      episode: { show: { client: { agencyId: auth.agency.id } } },
+    },
+    select: {
+      id: true,
+      episodeId: true,
+      episode: {
+        select: { audioUrl: true, transcriptWords: true },
+      },
+    },
+  });
+  if (!output) throw new NotFoundError(`Output ${outputId} not found`);
+  if (!output.episode.audioUrl) {
+    return { ok: false, error: "This episode has no audio. Audiogram needs source audio." };
+  }
+  if (!output.episode.transcriptWords) {
+    return {
+      ok: false,
+      error: "This episode has no transcript-word timings. Re-transcribe to enable audiogram.",
+    };
+  }
+
+  // Persist window + aspect + PENDING status BEFORE firing the event so a
+  // page refresh mid-render shows the right state.
+  await prisma.generatedOutput.update({
+    where: { id: outputId },
+    data: {
+      audiogramStatus: "PENDING",
+      audiogramUrl: null,
+      audiogramPosterUrl: null,
+      audiogramError: null,
+      audiogramStartMs: startMs,
+      audiogramEndMs: endMs,
+      audiogramAspect: aspect,
+    },
+  });
+
+  await inngest.send({
+    name: "output/audiogram.requested",
+    data: { outputId, agencyId: auth.agency.id },
+  });
+
+  revalidatePath(`/episodes/${output.episodeId}`);
+  return noopOk({ outputId });
+}
+
+// ============================================================
 // Q1 feature #4 — Request AI hero artwork for an episode
 // ============================================================
 
