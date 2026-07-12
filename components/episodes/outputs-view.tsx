@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { MemberRole } from "@/lib/enums";
 import { PlatformBadge } from "@/components/ui/platform-badge";
 import { VoiceStrengthBars } from "@/components/ui/voice-strength-bars";
+import { ArtworkStrip, type ArtworkStripProps } from "@/components/episodes/artwork-strip";
 import { ArtworkTrigger } from "@/components/episodes/artwork-trigger";
 import { ClipMomentsPanel } from "@/components/episodes/clip-moments-panel";
 import { EditableTitle } from "@/components/episodes/editable-title";
@@ -228,9 +229,20 @@ export function OutputsView({
   readOnly = false,
   bufferConnected = false,
   bufferConnectedPlatforms = [],
+  artwork = null,
 }: {
   client: SampleShow;
   episode: SampleEpisode;
+  /**
+   * Q1 feature #4 — hero artwork variants pulled from the Episode row.
+   * Null in sample-data mode. `null` per-URL until Workers AI has run.
+   */
+  artwork?: {
+    heroImageUrl: string | null;
+    squareCoverUrl: string | null;
+    verticalCoverUrl: string | null;
+    concept: Record<string, unknown> | null;
+  } | null;
   /** Defaults to OWNER for sample-data mode so every control stays demoable. */
   viewerRole?: MemberRole;
   /** Parent client's validation flow — controls post-approval edit gating
@@ -1174,6 +1186,18 @@ export function OutputsView({
         ) : pipelineStage === "generating" && outputs.length === 0 && episode.pipeline ? (
           <GeneratingPanel source={episode.pipeline.source} />
         ) : null}
+
+        {/* Q1 feature #4 — hero artwork preview. Hidden until at least
+             one of the three variants has been rendered; the "Artwork"
+             button in the header is the CTA before that. */}
+        {artwork && (
+          <ArtworkStrip
+            heroImageUrl={artwork.heroImageUrl}
+            squareCoverUrl={artwork.squareCoverUrl}
+            verticalCoverUrl={artwork.verticalCoverUrl}
+            concept={artwork.concept as ArtworkStripProps["concept"]}
+          />
+        )}
 
         {/* Clip moments — null/empty rendering handled inside the panel */}
         <ClipMomentsPanel moments={episode.keyMoments} />
