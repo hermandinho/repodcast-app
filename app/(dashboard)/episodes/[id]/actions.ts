@@ -575,3 +575,60 @@ export async function updateEpisodeTitleAction(
   revalidatePath("/episodes");
   return noopOk({ episodeId, title: updated.title });
 }
+
+// ============================================================
+// Q1 wk4 — Request clip generation (episode → highlights → clip rows → renders)
+// ============================================================
+
+const requestClipsInput = z.object({
+  episodeId: z.string().min(1),
+  maxClips: z.number().int().min(1).max(10).optional(),
+});
+
+export async function requestClipsAction(
+  raw: unknown,
+): Promise<ActionResult<{ episodeId: string }>> {
+  const parsed = requestClipsInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid clip-request input", parsed.error.issues);
+  }
+  const { episodeId, maxClips } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ episodeId });
+
+  const auth = await requireAuthContext();
+  // Read-side check: episode must belong to this agency AND have a
+  // sourceVideoUrl AND transcriptWords. The Inngest fn re-verifies
+  // everything, but failing fast here gives the user an actionable
+  // error before we spend an event.
+  const episode = await prisma.episode.findFirst({
+    where: {
+      id: episodeId,
+      show: { client: { agencyId: auth.agency.id } },
+    },
+    select: { id: true, sourceVideoUrl: true, transcriptWords: true },
+  });
+  if (!episode) throw new NotFoundError(`Episode ${episodeId} not found`);
+  if (!episode.sourceVideoUrl) {
+    return {
+      ok: false,
+      error:
+        "This episode has no source video. Clip generation needs a video source (YouTube import or uploaded video file).",
+    };
+  }
+  if (!episode.transcriptWords) {
+    return {
+      ok: false,
+      error:
+        "This episode was transcribed before the clip pipeline shipped. Re-transcribe to enable clips.",
+    };
+  }
+
+  await inngest.send({
+    name: "episode/clips.requested",
+    data: { episodeId, agencyId: auth.agency.id, maxClips },
+  });
+
+  revalidatePath(`/episodes/${episodeId}`);
+  return noopOk({ episodeId });
+}

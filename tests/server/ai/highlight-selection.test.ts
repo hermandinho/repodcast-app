@@ -6,6 +6,7 @@ import {
   formatTimestamp,
   parseHighlights,
   parseTimestamp,
+  wordsToSrt,
 } from "@/server/ai/highlight-selection";
 
 // ---------------------------------------------------------------------------
@@ -86,6 +87,52 @@ describe("buildTimestampedTranscript", () => {
     const t = buildTimestampedTranscript(makeWords(2));
     expect(t).toContain("Word0");
     expect(t).toContain("Word1");
+  });
+});
+
+describe("wordsToSrt", () => {
+  it("returns empty string for empty input", () => {
+    expect(wordsToSrt([])).toBe("");
+  });
+
+  it("emits at least one line for a short word list", () => {
+    const srt = wordsToSrt(makeWords(6));
+    expect(srt.trim().length).toBeGreaterThan(0);
+    // Sequence 1 present, format `00:00:00,000 --> 00:00:XX,XXX`
+    expect(srt).toMatch(/^1\n00:00:00,000 -->/);
+  });
+
+  it("splits on the character limit", () => {
+    // Force short lines — 6 words × ~5 chars each = ~30 chars per word
+    // group; with maxCharsPerLine=15, we should get multiple lines.
+    const srt = wordsToSrt(makeWords(6), { maxCharsPerLine: 15, maxSecPerLine: 60, maxGapSec: 60 });
+    const lineCount = srt.split("\n").filter((l) => /^\d+$/.test(l)).length;
+    expect(lineCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it("splits on time limit", () => {
+    // Words are 0.5s apart. With maxSecPerLine=2, we should get a new
+    // line every ~4 words.
+    const srt = wordsToSrt(makeWords(20), {
+      maxCharsPerLine: 200,
+      maxSecPerLine: 2,
+      maxGapSec: 60,
+    });
+    const lineCount = srt.split("\n").filter((l) => /^\d+$/.test(l)).length;
+    expect(lineCount).toBeGreaterThanOrEqual(3);
+  });
+
+  it("splits on a big pause", () => {
+    // Two clusters of words with a 5s gap between.
+    const words = [...makeWords(3), ...makeWords(3, { startAt: 10 })];
+    const srt = wordsToSrt(words, { maxCharsPerLine: 200, maxSecPerLine: 60, maxGapSec: 0.7 });
+    const lineCount = srt.split("\n").filter((l) => /^\d+$/.test(l)).length;
+    expect(lineCount).toBe(2);
+  });
+
+  it("formats timecodes as HH:MM:SS,mmm", () => {
+    const srt = wordsToSrt(makeWords(3));
+    expect(srt).toMatch(/\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}/);
   });
 });
 

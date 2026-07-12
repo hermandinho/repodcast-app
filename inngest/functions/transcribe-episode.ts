@@ -1,4 +1,4 @@
-import { EpisodePipelineStage, EpisodeStatus, TranscriptSource } from "@prisma/client";
+import { EpisodePipelineStage, EpisodeStatus, TranscriptSource, type Prisma } from "@prisma/client";
 import { NonRetriableError } from "inngest";
 import { prisma } from "@/server/db/client";
 import { captureInngestFailure } from "@/server/observability/sentry";
@@ -173,6 +173,7 @@ export const transcribeEpisode = inngest.createFunction(
         );
         return {
           transcript: result.transcript,
+          words: result.words,
           durationSec: result.durationSec,
           language: result.language,
           wordCount,
@@ -207,11 +208,21 @@ export const transcribeEpisode = inngest.createFunction(
         where: { id: episodeId },
         data: {
           transcript: transcribeResult.transcript,
+          // Q1 wk4 — persist per-word timings for the clip pipeline.
+          // JSON column, cast to Prisma's JsonArray shape at write time.
+          transcriptWords: transcribeResult.words as unknown as Prisma.InputJsonValue,
           stage: EpisodePipelineStage.GENERATING,
           durationSec:
             transcribeResult.durationSec != null
               ? Math.round(transcribeResult.durationSec)
               : undefined,
+          // Q1 wk4 — for UPLOAD sources whose audioUrl file happens to be
+          // a video, populate sourceVideoUrl so the clip pipeline can use
+          // the same object as its render source. Audio-only files will
+          // still populate; the render worker's ffmpeg step surfaces
+          // "no video stream" and the clip row is marked FAILED. Real
+          // audiogram fallback lands in wk8+.
+          sourceVideoUrl: episode.source === TranscriptSource.UPLOAD ? episode.audioUrl : undefined,
         },
       }),
     );

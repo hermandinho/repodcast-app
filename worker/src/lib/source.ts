@@ -47,8 +47,17 @@ async function downloadYouTube(url: string, outputPath: string): Promise<void> {
   await pipeline(stream, createWriteStream(outputPath));
 }
 
+// Some CDNs 403 requests coming from Node's default undici User-Agent.
+// A stable browser-shaped UA + Accept header sidesteps that class of block
+// without pretending to be anything we're not.
+const DIRECT_FETCH_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  Accept: "video/mp4,video/*;q=0.9,*/*;q=0.8",
+};
+
 async function downloadDirect(url: string, outputPath: string): Promise<void> {
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: DIRECT_FETCH_HEADERS, redirect: "follow" });
   if (!res.ok || !res.body) {
     throw new Error(`source fetch failed: ${res.status} ${res.statusText}`);
   }

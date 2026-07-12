@@ -531,6 +531,13 @@ model Episode {
   /// as clip suggestions so the user doesn't have to re-call Claude or
   /// scrub the transcript by hand. Null until generate-episode has run.
   keyMoments    Json?
+  /// Q1 wk4 — Deepgram per-word timestamps kept alongside the flat
+  /// transcript, so `server/ai/highlight-selection.ts` and the clip
+  /// captions pipeline don't have to re-transcribe. Shape:
+  /// `DeepgramWord[]` from server/transcription/deepgram.ts. Null on
+  /// episodes transcribed before wk4 or on RSS/YouTube sources whose
+  /// publisher-supplied transcript path skipped Deepgram entirely.
+  transcriptWords Json?
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 

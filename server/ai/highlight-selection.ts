@@ -159,6 +159,82 @@ export function formatTimestamp(seconds: number): string {
   return hh > 0 ? `${hh}:${pad(mm)}:${pad(ss)}` : `${mm}:${pad(ss)}`;
 }
 
+/**
+ * Convert a Deepgram word list to SRT the render worker can burn in.
+ * Groups consecutive words into subtitle lines targeting `~maxCharsPerLine`
+ * characters and `~maxSecPerLine` seconds, whichever hits first. Long
+ * gaps between words (>0.7 s pause) also force a new line.
+ *
+ * Timestamps are absolute (episode-relative). The worker's `sliceSrt`
+ * then trims + rebases to clip-local time.
+ */
+export function wordsToSrt(
+  words: DeepgramWord[],
+  opts?: { maxCharsPerLine?: number; maxSecPerLine?: number; maxGapSec?: number },
+): string {
+  const maxChars = opts?.maxCharsPerLine ?? 40;
+  const maxSec = opts?.maxSecPerLine ?? 5;
+  const maxGap = opts?.maxGapSec ?? 0.7;
+
+  if (words.length === 0) return "";
+
+  type Line = { startSec: number; endSec: number; text: string };
+  const lines: Line[] = [];
+
+  let currentText = "";
+  let currentStart = words[0].start;
+  let currentEnd = words[0].end;
+  let prevEnd = -Infinity;
+
+  const flush = () => {
+    const trimmed = currentText.trim();
+    if (trimmed.length === 0) return;
+    lines.push({ startSec: currentStart, endSec: currentEnd, text: trimmed });
+    currentText = "";
+  };
+
+  for (const w of words) {
+    const token = w.punctuated_word ?? w.word;
+    const gap = w.start - prevEnd;
+    const wouldExceedChars =
+      currentText.length > 0 && currentText.length + token.length + 1 > maxChars;
+    const wouldExceedTime = currentText.length > 0 && w.end - currentStart > maxSec;
+    const bigPause = currentText.length > 0 && gap > maxGap;
+
+    if (wouldExceedChars || wouldExceedTime || bigPause) {
+      flush();
+    }
+
+    if (currentText.length === 0) {
+      currentStart = w.start;
+    }
+    currentText = currentText.length === 0 ? token : `${currentText} ${token}`;
+    currentEnd = w.end;
+    prevEnd = w.end;
+  }
+  flush();
+
+  return lines
+    .map((line, i) => {
+      const seq = i + 1;
+      const start = formatSrtTimecode(line.startSec);
+      const end = formatSrtTimecode(line.endSec);
+      return `${seq}\n${start} --> ${end}\n${line.text}\n`;
+    })
+    .join("\n");
+}
+
+function formatSrtTimecode(seconds: number): string {
+  const totalMs = Math.max(0, Math.floor(seconds * 1000));
+  const h = Math.floor(totalMs / 3600_000);
+  const m = Math.floor((totalMs % 3600_000) / 60_000);
+  const s = Math.floor((totalMs % 60_000) / 1000);
+  const ms = totalMs % 1000;
+  const pad2 = (n: number) => n.toString().padStart(2, "0");
+  const pad3 = (n: number) => n.toString().padStart(3, "0");
+  return `${pad2(h)}:${pad2(m)}:${pad2(s)},${pad3(ms)}`;
+}
+
 /** Parses `MM:SS`, `M:SS`, `HH:MM:SS`, `H:MM:SS`. Returns null on garbage. */
 export function parseTimestamp(input: string): number | null {
   const trimmed = input.trim();
