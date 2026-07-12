@@ -136,6 +136,12 @@ export const generateClips = inngest.createFunction(
       await step.run(`render-${clip.id}`, async () => {
         await markClipRendering(clip.id);
         try {
+          // Timestamped path so each render lands on a fresh R2 key —
+          // re-renders (wk6 retrim) get a new URL, so browser caches
+          // and any <video> elements holding the old URL flip cleanly
+          // instead of showing stale bytes. Old objects orphan; R2
+          // lifecycle policy handles cleanup.
+          const renderTs = Date.now();
           const result = await renderClip({
             clipId: clip.id,
             sourceUrl: resolvedSourceUrl,
@@ -143,7 +149,7 @@ export const generateClips = inngest.createFunction(
             endMs: clip.endMs,
             captionsSrt,
             aspect: "9:16",
-            outputPrefix: `clips/${agencyId}/${episodeId}/${clip.id}`,
+            outputPrefix: `clips/${agencyId}/${episodeId}/${clip.id}/${renderTs}`,
           });
           await markClipReady(clip.id, {
             renderedUrl: result.renderedUrl,

@@ -137,6 +137,21 @@ export type Events = {
   };
 
   /**
+   * Q1 wk6 — re-render one existing VideoClip with new start/end bounds.
+   * The row keeps its id + hookLine + score; only startMs/endMs update
+   * and the R2 objects at the clip's outputPrefix get overwritten.
+   * Fired by `retrimClipAction`.
+   */
+  "clip/retrim.requested": {
+    data: {
+      clipId: string;
+      agencyId: string;
+      startMs: number;
+      endMs: number;
+    };
+  };
+
+  /**
    * Q1 wk10 — audiogram (waveform video) for a single social output.
    * Fired when the user toggles "publish with audio" on an output; the
    * render worker composes a waveform video from source audio + SRT +

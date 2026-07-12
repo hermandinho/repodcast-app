@@ -10,6 +10,7 @@ import {
 } from "@/app/(dashboard)/episodes/[id]/actions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { TrimClipModal } from "@/components/episodes/trim-clip-modal";
 
 /**
  * Client-side clips grid. Polls the current page every 5 s while any
@@ -46,6 +47,7 @@ export function ClipsList({ episodeId, clips, isReady, notReadyReason, readOnly 
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [trimClipId, setTrimClipId] = useState<string | null>(null);
 
   const inFlightCount = useMemo(
     () =>
@@ -161,9 +163,31 @@ export function ClipsList({ episodeId, clips, isReady, notReadyReason, readOnly 
             clip={clip}
             readOnly={readOnly}
             onDelete={() => onDelete(clip.id)}
+            onTrim={() => setTrimClipId(clip.id)}
           />
         ))}
       </div>
+      {trimClipId !== null &&
+        (() => {
+          const clip = clips.find((c) => c.id === trimClipId);
+          if (!clip) return null;
+          return (
+            <TrimClipModal
+              // Remount when the target clip changes so useState re-initialises
+              // from props without an in-effect reset.
+              key={clip.id}
+              open
+              onClose={() => setTrimClipId(null)}
+              clip={{
+                id: clip.id,
+                episodeId,
+                startMs: clip.startMs,
+                endMs: clip.endMs,
+              }}
+              onSubmitted={() => router.refresh()}
+            />
+          );
+        })()}
     </div>
   );
 }
@@ -172,10 +196,12 @@ function ClipCard({
   clip,
   readOnly,
   onDelete,
+  onTrim,
 }: {
   clip: ClipRow;
   readOnly: boolean;
   onDelete: () => void;
+  onTrim: () => void;
 }) {
   const spanSec = (clip.endMs - clip.startMs) / 1000;
   const status = clip.status;
@@ -222,6 +248,28 @@ function ClipCard({
               Copy link
             </button>
           )}
+          {status === ClipRenderStatus.READY && clip.posterUrl && (
+            <a
+              className="text-muted text-[12.5px] font-semibold hover:underline"
+              href={clip.posterUrl}
+              target="_blank"
+              rel="noreferrer"
+              download
+            >
+              Poster
+            </a>
+          )}
+          {!readOnly &&
+            status !== ClipRenderStatus.PENDING &&
+            status !== ClipRenderStatus.RENDERING && (
+              <button
+                type="button"
+                className="text-muted text-[12.5px] font-semibold hover:underline"
+                onClick={onTrim}
+              >
+                Trim
+              </button>
+            )}
           {!readOnly && (
             <button
               type="button"

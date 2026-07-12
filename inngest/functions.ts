@@ -12,6 +12,7 @@ import { importYoutubeEpisode } from "./functions/import-youtube-episode";
 import { backfillUsageRollup, nightlyUsageRollup } from "./functions/nightly-usage-rollup";
 import { refreshVoiceDescription } from "./functions/refresh-voice-description";
 import { regenerateOutput } from "./functions/regenerate-output";
+import { retrimClip } from "./functions/retrim-clip";
 import { syncScheduledOutputs } from "./functions/sync-scheduled-outputs";
 import { transcribeEpisode } from "./functions/transcribe-episode";
 
@@ -50,4 +51,5 @@ export const functions = [
   generateClips,
   generateAudiogram,
   generateArtwork,
+  retrimClip,
 ];

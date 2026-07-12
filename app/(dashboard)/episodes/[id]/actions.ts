@@ -32,7 +32,7 @@ import {
   updateOutputContent,
   updateOutputContentInput,
 } from "@/server/db/outputs";
-import { deleteClipById, deleteClipsForEpisode } from "@/server/db/video-clips";
+import { deleteClipById, deleteClipsForEpisode, getClipById } from "@/server/db/video-clips";
 import { inngest } from "@/inngest/client";
 
 const idInput = z.object({ outputId: z.string().min(1) });
@@ -704,4 +704,54 @@ export async function deleteClipAction(
   const { count } = await deleteClipById(auth.agency.id, clipId);
   revalidatePath(`/episodes/${episodeId}/clips`);
   return noopOk({ clipId, deleted: count });
+}
+
+// ============================================================
+// Q1 wk6 — Retrim a single clip
+// ============================================================
+
+const CLIP_MIN_SPAN_MS = 15_000;
+const CLIP_MAX_SPAN_MS = 90_000;
+
+const retrimClipInput = z.object({
+  clipId: z.string().min(1),
+  episodeId: z.string().min(1),
+  startMs: z.number().int().min(0),
+  endMs: z.number().int().min(1),
+});
+
+export async function retrimClipAction(raw: unknown): Promise<ActionResult<{ clipId: string }>> {
+  const parsed = retrimClipInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid retrim input", parsed.error.issues);
+  }
+  const { clipId, episodeId, startMs, endMs } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ clipId });
+
+  if (endMs <= startMs) {
+    return { ok: false, error: "End time must be after start time." };
+  }
+  const spanMs = endMs - startMs;
+  if (spanMs < CLIP_MIN_SPAN_MS) {
+    return { ok: false, error: `Clip is too short — minimum ${CLIP_MIN_SPAN_MS / 1000}s.` };
+  }
+  if (spanMs > CLIP_MAX_SPAN_MS) {
+    return { ok: false, error: `Clip is too long — maximum ${CLIP_MAX_SPAN_MS / 1000}s.` };
+  }
+
+  const auth = await requireAuthContext();
+  const clip = await getClipById(auth.agency.id, clipId);
+  if (!clip) throw new NotFoundError(`Clip ${clipId} not found`);
+  if (clip.episodeId !== episodeId) {
+    return { ok: false, error: "Clip does not belong to this episode." };
+  }
+
+  await inngest.send({
+    name: "clip/retrim.requested",
+    data: { clipId, agencyId: auth.agency.id, startMs, endMs },
+  });
+
+  revalidatePath(`/episodes/${episodeId}/clips`);
+  return noopOk({ clipId });
 }

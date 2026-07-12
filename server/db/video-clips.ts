@@ -163,3 +163,33 @@ export async function deleteClipById(agencyId: string, clipId: string): Promise<
     where: { agencyId, id: clipId },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Retrim (Q1 wk6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tenant-scoped fetch of a single clip. Returns null when the clip doesn't
+ * exist OR doesn't belong to the agency (same shape either way — tenant
+ * isolation is enforced by returning null rather than throwing).
+ */
+export async function getClipById(agencyId: string, clipId: string): Promise<VideoClip | null> {
+  return prisma.videoClip.findFirst({
+    where: { id: clipId, agencyId },
+  });
+}
+
+/**
+ * Update just the bounds. Kept separate from `markClipRendering` so the
+ * retrim flow can `updateClipBounds → markClipRendering` (two writes but
+ * distinct semantics: bounds mutate, status transitions).
+ */
+export async function updateClipBounds(
+  clipId: string,
+  input: { startMs: number; endMs: number },
+): Promise<void> {
+  await prisma.videoClip.update({
+    where: { id: clipId },
+    data: { startMs: input.startMs, endMs: input.endMs },
+  });
+}
