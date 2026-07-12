@@ -120,6 +120,49 @@ export type Events = {
   };
 
   /**
+   * Q1 wk3 — request N vertical clips be extracted + rendered for an
+   * episode. `generate-clips` loads the transcript, asks Claude for
+   * highlight spans, creates VideoClip rows in PENDING, and hands each
+   * to the VPS render worker which fills in renderedUrl/posterUrl.
+   * Wired but non-functional in wk1 (worker endpoint returns 501).
+   */
+  "episode/clips.requested": {
+    data: {
+      episodeId: string;
+      /** Denormalised — same tenant-scoping semantics as generate-episode. */
+      agencyId: string;
+      /** Cap the number of clips generated. Default 5, upper bound 10. */
+      maxClips?: number;
+    };
+  };
+
+  /**
+   * Q1 wk10 — audiogram (waveform video) for a single social output.
+   * Fired when the user toggles "publish with audio" on an output; the
+   * render worker composes a waveform video from source audio + SRT +
+   * a blurred show-artwork background.
+   */
+  "output/audiogram.requested": {
+    data: {
+      outputId: string;
+      agencyId: string;
+    };
+  };
+
+  /**
+   * Q1 wk4 — hero image variants (square / 16:9 / 9:16) for an episode.
+   * Calls Cloudflare Workers AI (flux-1-schnell) directly — no VPS
+   * involvement. Populates Episode.heroImageUrl, squareCoverUrl,
+   * verticalCoverUrl.
+   */
+  "episode/artwork.requested": {
+    data: {
+      episodeId: string;
+      agencyId: string;
+    };
+  };
+
+  /**
    * Phase 3.6.18 step 4 — manual backfill of the nightly usage rollup. Run
    * once with `{fromIso, toIso}` to populate snapshots for a date range
    * (inclusive lower bound, exclusive upper). Each day's rollup is

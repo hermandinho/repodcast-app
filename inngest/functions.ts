@@ -3,6 +3,9 @@ import { checkOnboardingNudges } from "./functions/check-onboarding-nudges";
 import { checkRenewals } from "./functions/check-renewals";
 import { checkTrialNudges } from "./functions/check-trial-nudges";
 import { cleanupOrphanAudio } from "./functions/cleanup-orphan-audio";
+import { generateArtwork } from "./functions/generate-artwork";
+import { generateAudiogram } from "./functions/generate-audiogram";
+import { generateClips } from "./functions/generate-clips";
 import { generateEpisode } from "./functions/generate-episode";
 import { importRssEpisode } from "./functions/import-rss-episode";
 import { importYoutubeEpisode } from "./functions/import-youtube-episode";
@@ -44,4 +47,7 @@ export const functions = [
   nightlyUsageRollup,
   backfillUsageRollup,
   syncScheduledOutputs,
+  generateClips,
+  generateAudiogram,
+  generateArtwork,
 ];
