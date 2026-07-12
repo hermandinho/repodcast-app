@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { MemberRole } from "@/lib/enums";
 import { PlatformBadge } from "@/components/ui/platform-badge";
 import { VoiceStrengthBars } from "@/components/ui/voice-strength-bars";
+import { ArtworkTrigger } from "@/components/episodes/artwork-trigger";
 import { ClipMomentsPanel } from "@/components/episodes/clip-moments-panel";
 import { EditableTitle } from "@/components/episodes/editable-title";
 import { GeneratingPanel } from "@/components/episodes/generating-panel";
@@ -1024,6 +1025,11 @@ export function OutputsView({
                   ? "Waiting for episode…"
                   : "Generate all"}
             </button>
+
+            {/* Q1 feature #4 — trigger hero artwork generation. Live-mode
+                only. Renders the button; the pipeline is async so we don't
+                block navigation on it. */}
+            {streamUrl !== null && <ArtworkTrigger episodeId={episode.id} />}
 
             {/* Q1 wk5+ — link into the vertical-clip management page. Live
                 mode only (clip generation writes VideoClip rows to the DB;

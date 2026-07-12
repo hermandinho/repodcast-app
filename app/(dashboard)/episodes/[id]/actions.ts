@@ -720,6 +720,51 @@ export async function deleteClipAction(
 }
 
 // ============================================================
+// Q1 feature #4 — Request AI hero artwork for an episode
+// ============================================================
+
+const requestArtworkInput = z.object({
+  episodeId: z.string().min(1),
+});
+
+export async function requestArtworkAction(
+  raw: unknown,
+): Promise<ActionResult<{ episodeId: string }>> {
+  const parsed = requestArtworkInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid artwork-request input", parsed.error.issues);
+  }
+  const { episodeId } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ episodeId });
+
+  const auth = await requireAuthContext();
+  const episode = await prisma.episode.findFirst({
+    where: {
+      id: episodeId,
+      show: { client: { agencyId: auth.agency.id } },
+    },
+    select: { id: true, transcript: true },
+  });
+  if (!episode) throw new NotFoundError(`Episode ${episodeId} not found`);
+  if (!episode.transcript || episode.transcript.trim().length < 200) {
+    return {
+      ok: false,
+      error:
+        "Episode transcript is too short to derive a visual concept. Try again after transcription completes.",
+    };
+  }
+
+  await inngest.send({
+    name: "episode/artwork.requested",
+    data: { episodeId, agencyId: auth.agency.id },
+  });
+
+  revalidatePath(`/episodes/${episodeId}`);
+  return noopOk({ episodeId });
+}
+
+// ============================================================
 // Q1 wk7 — Retry a FAILED clip (same bounds)
 // ============================================================
 

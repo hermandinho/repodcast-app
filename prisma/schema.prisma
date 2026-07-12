@@ -538,6 +538,18 @@ model Episode {
   /// episodes transcribed before wk4 or on RSS/YouTube sources whose
   /// publisher-supplied transcript path skipped Deepgram entirely.
   transcriptWords Json?
+  /// Q1 feature #4 — AI-generated hero artwork. All three variants share
+  /// a single visual concept (Claude picks it once from the transcript);
+  /// Workers AI renders each aspect ratio separately with flux-1-schnell.
+  /// Null until generate-artwork has run. Overwritten when the user
+  /// requests a regeneration.
+  heroImageUrl     String?  // 16:9 — YouTube thumbnails, BLOG hero, NEWSLETTER hero
+  squareCoverUrl   String?  // 1:1  — Apple Podcasts episode art, IG feed
+  verticalCoverUrl String?  // 9:16 — Reels / TikTok / Shorts cover
+  /// The visual concept Claude wrote before we called the image model.
+  /// Kept so the UI can show "here's what we asked the model to draw"
+  /// and so a "generate variants" flow can iterate on the same concept.
+  artworkConcept   Json?
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 
