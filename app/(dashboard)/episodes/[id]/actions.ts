@@ -32,6 +32,7 @@ import {
   updateOutputContent,
   updateOutputContentInput,
 } from "@/server/db/outputs";
+import { deleteClipById, deleteClipsForEpisode } from "@/server/db/video-clips";
 import { inngest } from "@/inngest/client";
 
 const idInput = z.object({ outputId: z.string().min(1) });
@@ -629,6 +630,78 @@ export async function requestClipsAction(
     data: { episodeId, agencyId: auth.agency.id, maxClips },
   });
 
-  revalidatePath(`/episodes/${episodeId}`);
+  revalidatePath(`/episodes/${episodeId}/clips`);
   return noopOk({ episodeId });
+}
+
+// ============================================================
+// Q1 wk5 — Regenerate all clips (wipe + re-request)
+// ============================================================
+
+const regenerateClipsInput = z.object({
+  episodeId: z.string().min(1),
+  maxClips: z.number().int().min(1).max(10).optional(),
+});
+
+export async function regenerateClipsAction(
+  raw: unknown,
+): Promise<ActionResult<{ episodeId: string; deleted: number }>> {
+  const parsed = regenerateClipsInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid regenerate-clips input", parsed.error.issues);
+  }
+  const { episodeId, maxClips } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ episodeId, deleted: 0 });
+
+  const auth = await requireAuthContext();
+  const episode = await prisma.episode.findFirst({
+    where: { id: episodeId, show: { client: { agencyId: auth.agency.id } } },
+    select: { id: true, sourceVideoUrl: true, transcriptWords: true },
+  });
+  if (!episode) throw new NotFoundError(`Episode ${episodeId} not found`);
+  if (!episode.sourceVideoUrl) {
+    return { ok: false, error: "This episode has no source video." };
+  }
+  if (!episode.transcriptWords) {
+    return {
+      ok: false,
+      error: "This episode has no transcript-word timings. Re-transcribe to enable clips.",
+    };
+  }
+
+  const { count: deleted } = await deleteClipsForEpisode(auth.agency.id, episodeId);
+  await inngest.send({
+    name: "episode/clips.requested",
+    data: { episodeId, agencyId: auth.agency.id, maxClips },
+  });
+
+  revalidatePath(`/episodes/${episodeId}/clips`);
+  return noopOk({ episodeId, deleted });
+}
+
+// ============================================================
+// Q1 wk5 — Delete a single clip
+// ============================================================
+
+const deleteClipInput = z.object({
+  clipId: z.string().min(1),
+  episodeId: z.string().min(1),
+});
+
+export async function deleteClipAction(
+  raw: unknown,
+): Promise<ActionResult<{ clipId: string; deleted: number }>> {
+  const parsed = deleteClipInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid delete-clip input", parsed.error.issues);
+  }
+  const { clipId, episodeId } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ clipId, deleted: 0 });
+
+  const auth = await requireAuthContext();
+  const { count } = await deleteClipById(auth.agency.id, clipId);
+  revalidatePath(`/episodes/${episodeId}/clips`);
+  return noopOk({ clipId, deleted: count });
 }

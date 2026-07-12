@@ -131,3 +131,35 @@ export async function countInFlightClips(agencyId: string): Promise<number> {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Delete
+// ---------------------------------------------------------------------------
+
+/**
+ * Delete every VideoClip on an episode. Used by `regenerateClipsAction` to
+ * clear the slate before re-firing `episode/clips.requested`.
+ *
+ * Also deletes rows that are currently RENDERING — that's intentional. If
+ * the render worker later returns for a deleted clip, the mark* helpers
+ * will Prisma-error and the Inngest step returns; the leftover R2 objects
+ * age out via the bucket's lifecycle policy.
+ *
+ * Filters by agencyId to keep tenant isolation intact even though we're
+ * called by an action that has already gated on tenant.
+ */
+export async function deleteClipsForEpisode(
+  agencyId: string,
+  episodeId: string,
+): Promise<{ count: number }> {
+  return prisma.videoClip.deleteMany({
+    where: { agencyId, episodeId },
+  });
+}
+
+/** Single-clip delete. Used by the per-card "Delete" button. */
+export async function deleteClipById(agencyId: string, clipId: string): Promise<{ count: number }> {
+  return prisma.videoClip.deleteMany({
+    where: { agencyId, id: clipId },
+  });
+}
