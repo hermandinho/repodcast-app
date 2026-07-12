@@ -12,7 +12,12 @@
     "dev": "tsx watch src/server.ts"
   },
   "dependencies": {
-    "fastify": "^5.1.0"
+    "@aws-sdk/client-s3": "^3.905.0",
+    "@aws-sdk/lib-storage": "^3.905.0",
+    "@distube/ytdl-core": "^4.16.12",
+    "execa": "^9.5.2",
+    "fastify": "^5.1.0",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",

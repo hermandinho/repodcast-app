@@ -1,4 +1,6 @@
 import Fastify from "fastify";
+import { z } from "zod";
+import { renderClip } from "./jobs/clip.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
 const HOST = process.env.HOST ?? "0.0.0.0";
@@ -39,11 +41,45 @@ app.get("/healthz", async () => ({
   version: process.env.IMAGE_TAG ?? "local",
 }));
 
-// Placeholder endpoints — real implementations land with clip generation (Q1 wk3).
-app.post("/render/clip", async (_req, reply) => {
-  return reply.code(501).send({ error: "not implemented yet" });
+// Q1 wk3 — clip render. Full pipeline in ./jobs/clip.ts.
+const clipRequestSchema = z.object({
+  clipId: z.string().min(1).max(200),
+  sourceUrl: z.string().url(),
+  startMs: z.number().int().min(0),
+  endMs: z.number().int().min(1),
+  captionsSrt: z.string(),
+  aspect: z.enum(["9:16", "1:1", "16:9"]),
+  // Reject `..` and absolute paths — outputPrefix becomes an R2 key prefix.
+  outputPrefix: z
+    .string()
+    .min(1)
+    .max(500)
+    .refine((s) => !s.includes(".."), "outputPrefix must not contain '..'")
+    .refine((s) => !s.startsWith("/"), "outputPrefix must not start with '/'"),
 });
 
+app.post("/render/clip", async (req, reply) => {
+  const parsed = clipRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return reply.code(400).send({ error: "invalid request", details: parsed.error.flatten() });
+  }
+  const input = parsed.data;
+  if (input.endMs <= input.startMs) {
+    return reply.code(400).send({ error: "endMs must be greater than startMs" });
+  }
+  try {
+    const result = await renderClip(input);
+    return result;
+  } catch (err) {
+    req.log.error({ err, clipId: input.clipId }, "render/clip failed");
+    return reply.code(500).send({
+      error: err instanceof Error ? err.message : String(err),
+      clipId: input.clipId,
+    });
+  }
+});
+
+// Q1 wk10 — audiogram (waveform video). Real implementation lands with #5.
 app.post("/render/audiogram", async (_req, reply) => {
   return reply.code(501).send({ error: "not implemented yet" });
 });
