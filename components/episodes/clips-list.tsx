@@ -7,10 +7,12 @@ import {
   deleteClipAction,
   regenerateClipsAction,
   requestClipsAction,
+  retryClipAction,
 } from "@/app/(dashboard)/episodes/[id]/actions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { TrimClipModal } from "@/components/episodes/trim-clip-modal";
+import { translateClipRenderError } from "@/lib/clip-error-messages";
 
 /**
  * Client-side clips grid. Polls the current page every 5 s while any
@@ -98,6 +100,10 @@ export function ClipsList({ episodeId, clips, isReady, notReadyReason, readOnly 
     runAction(async () => deleteClipAction({ clipId, episodeId }));
   };
 
+  const onRetry = (clipId: string) => {
+    runAction(async () => retryClipAction({ clipId, episodeId }));
+  };
+
   // ---- Not-ready state ----
   if (!isReady) {
     return (
@@ -164,6 +170,7 @@ export function ClipsList({ episodeId, clips, isReady, notReadyReason, readOnly 
             readOnly={readOnly}
             onDelete={() => onDelete(clip.id)}
             onTrim={() => setTrimClipId(clip.id)}
+            onRetry={() => onRetry(clip.id)}
           />
         ))}
       </div>
@@ -197,14 +204,18 @@ function ClipCard({
   readOnly,
   onDelete,
   onTrim,
+  onRetry,
 }: {
   clip: ClipRow;
   readOnly: boolean;
   onDelete: () => void;
   onTrim: () => void;
+  onRetry: () => void;
 }) {
   const spanSec = (clip.endMs - clip.startMs) / 1000;
   const status = clip.status;
+  const errorTranslation =
+    status === ClipRenderStatus.FAILED ? translateClipRenderError(clip.renderError) : null;
 
   return (
     <Card className="overflow-hidden">
@@ -217,13 +228,15 @@ function ClipCard({
           </span>
         </div>
         <p className="text-ink text-[13px] leading-[1.5]">{clip.hookLine}</p>
-        {status === ClipRenderStatus.FAILED && clip.renderError && (
-          <p
-            className="text-danger mt-2 line-clamp-3 text-[11.5px] leading-[1.4]"
-            title={clip.renderError}
-          >
-            {clip.renderError}
-          </p>
+        {errorTranslation && (
+          <div className="mt-2 flex flex-col gap-1" title={errorTranslation.raw}>
+            <p className="text-danger text-[11.5px] leading-[1.4] font-semibold">
+              {errorTranslation.friendly}
+            </p>
+            {errorTranslation.hint && (
+              <p className="text-muted-2 text-[11px] leading-[1.4]">{errorTranslation.hint}</p>
+            )}
+          </div>
         )}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {status === ClipRenderStatus.READY && clip.renderedUrl && (
@@ -258,6 +271,15 @@ function ClipCard({
             >
               Poster
             </a>
+          )}
+          {!readOnly && status === ClipRenderStatus.FAILED && (
+            <button
+              type="button"
+              className="text-accent text-[12.5px] font-semibold hover:underline"
+              onClick={onRetry}
+            >
+              Retry
+            </button>
           )}
           {!readOnly &&
             status !== ClipRenderStatus.PENDING &&

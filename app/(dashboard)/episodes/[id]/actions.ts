@@ -707,6 +707,47 @@ export async function deleteClipAction(
 }
 
 // ============================================================
+// Q1 wk7 — Retry a FAILED clip (same bounds)
+// ============================================================
+
+const retryClipInput = z.object({
+  clipId: z.string().min(1),
+  episodeId: z.string().min(1),
+});
+
+export async function retryClipAction(raw: unknown): Promise<ActionResult<{ clipId: string }>> {
+  const parsed = retryClipInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid retry input", parsed.error.issues);
+  }
+  const { clipId, episodeId } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ clipId });
+
+  const auth = await requireAuthContext();
+  const clip = await getClipById(auth.agency.id, clipId);
+  if (!clip) throw new NotFoundError(`Clip ${clipId} not found`);
+  if (clip.episodeId !== episodeId) {
+    return { ok: false, error: "Clip does not belong to this episode." };
+  }
+
+  // Reuse the retrim event with unchanged bounds — same worker call
+  // shape, so no separate Inngest fn.
+  await inngest.send({
+    name: "clip/retrim.requested",
+    data: {
+      clipId,
+      agencyId: auth.agency.id,
+      startMs: clip.startMs,
+      endMs: clip.endMs,
+    },
+  });
+
+  revalidatePath(`/episodes/${episodeId}/clips`);
+  return noopOk({ clipId });
+}
+
+// ============================================================
 // Q1 wk6 — Retrim a single clip
 // ============================================================
 

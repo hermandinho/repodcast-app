@@ -1025,6 +1025,33 @@ export function OutputsView({
                   : "Generate all"}
             </button>
 
+            {/* Q1 wk5+ — link into the vertical-clip management page. Live
+                mode only (clip generation writes VideoClip rows to the DB;
+                sample-data mode has none). */}
+            {streamUrl !== null && (
+              <Link
+                href={`/episodes/${episode.id}/clips`}
+                className="border-border text-ink hover:bg-canvas shadow-card flex items-center gap-2 rounded-[10px] border bg-white px-4 py-[10px] font-sans text-[13px] font-semibold transition-colors"
+                title="Manage vertical clips generated from this episode"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 14 14"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <rect x="3" y="1.5" width="8" height="11" rx="1.5" />
+                  <path d="M5.5 5.5l3 1.5-3 1.5z" fill="currentColor" />
+                </svg>
+                Clips
+              </Link>
+            )}
+
             {/* Branded HTML export. Live mode only (sample-data mode would
                 503 the route); approved-only — gated on at least one
                 approval so the export isn't an empty receipt. */}
