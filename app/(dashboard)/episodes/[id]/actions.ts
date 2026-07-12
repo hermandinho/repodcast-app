@@ -33,6 +33,7 @@ import {
   updateOutputContentInput,
 } from "@/server/db/outputs";
 import { deleteClipById, deleteClipsForEpisode, getClipById } from "@/server/db/video-clips";
+import { resolveClipSource } from "@/server/media/clip-source";
 import { inngest } from "@/inngest/client";
 
 const idInput = z.object({ outputId: z.string().min(1) });
@@ -599,7 +600,7 @@ export async function requestClipsAction(
 
   const auth = await requireAuthContext();
   // Read-side check: episode must belong to this agency AND have a
-  // sourceVideoUrl AND transcriptWords. The Inngest fn re-verifies
+  // resolvable source AND transcriptWords. The Inngest fn re-verifies
   // everything, but failing fast here gives the user an actionable
   // error before we spend an event.
   const episode = await prisma.episode.findFirst({
@@ -607,14 +608,20 @@ export async function requestClipsAction(
       id: episodeId,
       show: { client: { agencyId: auth.agency.id } },
     },
-    select: { id: true, sourceVideoUrl: true, transcriptWords: true },
+    select: {
+      id: true,
+      source: true,
+      sourceVideoUrl: true,
+      audioUrl: true,
+      transcriptWords: true,
+    },
   });
   if (!episode) throw new NotFoundError(`Episode ${episodeId} not found`);
-  if (!episode.sourceVideoUrl) {
+  if (!resolveClipSource(episode)) {
     return {
       ok: false,
       error:
-        "This episode has no source video. Clip generation needs a video source (YouTube import or uploaded video file).",
+        "This episode has no source file. Clip generation needs an uploaded video/audio file or a YouTube import.",
     };
   }
   if (!episode.transcriptWords) {
@@ -657,11 +664,17 @@ export async function regenerateClipsAction(
   const auth = await requireAuthContext();
   const episode = await prisma.episode.findFirst({
     where: { id: episodeId, show: { client: { agencyId: auth.agency.id } } },
-    select: { id: true, sourceVideoUrl: true, transcriptWords: true },
+    select: {
+      id: true,
+      source: true,
+      sourceVideoUrl: true,
+      audioUrl: true,
+      transcriptWords: true,
+    },
   });
   if (!episode) throw new NotFoundError(`Episode ${episodeId} not found`);
-  if (!episode.sourceVideoUrl) {
-    return { ok: false, error: "This episode has no source video." };
+  if (!resolveClipSource(episode)) {
+    return { ok: false, error: "This episode has no source file." };
   }
   if (!episode.transcriptWords) {
     return {

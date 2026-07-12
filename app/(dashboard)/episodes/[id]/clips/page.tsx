@@ -5,6 +5,7 @@ import { isLiveDb } from "@/server/data/source";
 import { resolveTenantContext } from "@/server/data/tenant";
 import { prisma } from "@/server/db/client";
 import { listClipsForEpisode } from "@/server/db/video-clips";
+import { resolveClipSource } from "@/server/media/clip-source";
 
 /**
  * Q1 wk5 — clip management page.
@@ -48,7 +49,9 @@ export default async function EpisodeClipsPage({ params }: { params: Promise<{ i
     select: {
       id: true,
       title: true,
+      source: true,
       sourceVideoUrl: true,
+      audioUrl: true,
       transcriptWords: true,
     },
   });
@@ -56,9 +59,10 @@ export default async function EpisodeClipsPage({ params }: { params: Promise<{ i
 
   const clips = await listClipsForEpisode(tenant.agencyId, episodeId);
 
-  const isReady = Boolean(episode.sourceVideoUrl && episode.transcriptWords);
-  const notReadyReason = !episode.sourceVideoUrl
-    ? "This episode has no source video. Clip generation needs a video source (YouTube import or uploaded video file)."
+  const source = resolveClipSource(episode);
+  const isReady = Boolean(source && episode.transcriptWords);
+  const notReadyReason = !source
+    ? "This episode has no source file. Clip generation needs an uploaded video/audio file or a YouTube import."
     : !episode.transcriptWords
       ? "This episode was transcribed before the clip pipeline shipped. Re-transcribe to enable clips."
       : null;

@@ -7,6 +7,7 @@ import {
   markClipReady,
   markClipRendering,
 } from "@/server/db/video-clips";
+import { resolveClipSource } from "@/server/media/clip-source";
 import {
   renderClip,
   RenderWorkerError,
@@ -63,7 +64,9 @@ export const generateClips = inngest.createFunction(
         select: {
           id: true,
           title: true,
+          source: true,
           sourceVideoUrl: true,
+          audioUrl: true,
           transcriptWords: true,
           show: { select: { client: { select: { agencyId: true } } } },
         },
@@ -72,9 +75,10 @@ export const generateClips = inngest.createFunction(
       if (row.show.client.agencyId !== agencyId) {
         throw new NonRetriableError(`Episode ${episodeId} does not belong to agency ${agencyId}`);
       }
-      if (!row.sourceVideoUrl) {
+      const clipSource = resolveClipSource(row);
+      if (!clipSource) {
         throw new NonRetriableError(
-          `Episode ${episodeId} has no sourceVideoUrl — audio-only episode, use the audiogram path`,
+          `Episode ${episodeId} has no usable render source — audio-only feed or unsupported source`,
         );
       }
       if (!row.transcriptWords || !Array.isArray(row.transcriptWords)) {
@@ -82,7 +86,7 @@ export const generateClips = inngest.createFunction(
           `Episode ${episodeId} has no transcriptWords — re-transcribe before requesting clips`,
         );
       }
-      return row;
+      return { ...row, clipSource };
     });
 
     const words = episode.transcriptWords as unknown as DeepgramWord[];
@@ -110,7 +114,7 @@ export const generateClips = inngest.createFunction(
           endMs: c.endMs,
           score: c.score,
           hookLine: c.hookLine,
-          sourceVideoUrl: episode.sourceVideoUrl,
+          sourceVideoUrl: episode.clipSource,
         })),
       ),
     );
@@ -121,12 +125,12 @@ export const generateClips = inngest.createFunction(
     // ---- 5. Resolve source URL (sign if it's an R2 key) ----
     // sourceVideoUrl is either a full HTTP(S) URL (YouTube canonical, external
     // upload) or an R2 object key (uploaded via our own audio pipeline).
-    const isExternalUrl = /^https?:\/\//.test(episode.sourceVideoUrl!);
+    const isExternalUrl = /^https?:\/\//.test(episode.clipSource!);
     const resolvedSourceUrl = isExternalUrl
-      ? episode.sourceVideoUrl!
+      ? episode.clipSource!
       : await step.run(
           "sign-source-url",
-          () => signR2DownloadUrl(episode.sourceVideoUrl!, 60 * 60), // 1h — worker holds source only briefly
+          () => signR2DownloadUrl(episode.clipSource!, 60 * 60), // 1h — worker holds source only briefly
         );
 
     // ---- 6. Render each clip ----

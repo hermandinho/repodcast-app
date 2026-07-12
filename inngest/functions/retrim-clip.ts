@@ -8,6 +8,7 @@ import {
   markClipRendering,
   updateClipBounds,
 } from "@/server/db/video-clips";
+import { resolveClipSource } from "@/server/media/clip-source";
 import {
   renderClip,
   RenderWorkerError,
@@ -64,16 +65,22 @@ export const retrimClip = inngest.createFunction(
         where: { id: clip.episodeId },
         select: {
           id: true,
+          source: true,
           sourceVideoUrl: true,
+          audioUrl: true,
           transcriptWords: true,
         },
       });
-      if (!episode || !episode.sourceVideoUrl || !episode.transcriptWords) {
+      if (!episode || !episode.transcriptWords) {
         throw new NonRetriableError(
-          `Clip ${clipId}'s episode is no longer eligible for rendering (missing sourceVideoUrl or transcriptWords)`,
+          `Clip ${clipId}'s episode is no longer eligible for rendering (missing transcriptWords)`,
         );
       }
-      return { clip, episode };
+      const clipSource = resolveClipSource(episode);
+      if (!clipSource) {
+        throw new NonRetriableError(`Clip ${clipId}'s episode has no usable render source`);
+      }
+      return { clip, episode: { ...episode, clipSource } };
     });
 
     const words = ctx.episode.transcriptWords as unknown as DeepgramWord[];
@@ -89,12 +96,10 @@ export const retrimClip = inngest.createFunction(
 
     // ---- 4. Prep SRT + source URL ----
     const captionsSrt = await step.run("build-srt", () => wordsToSrt(words));
-    const isExternalUrl = /^https?:\/\//.test(ctx.episode.sourceVideoUrl!);
+    const isExternalUrl = /^https?:\/\//.test(ctx.episode.clipSource);
     const resolvedSourceUrl = isExternalUrl
-      ? ctx.episode.sourceVideoUrl!
-      : await step.run("sign-source-url", () =>
-          signR2DownloadUrl(ctx.episode.sourceVideoUrl!, 60 * 60),
-        );
+      ? ctx.episode.clipSource
+      : await step.run("sign-source-url", () => signR2DownloadUrl(ctx.episode.clipSource, 60 * 60));
 
     // ---- 5. Render ----
     return step.run("render", async () => {
