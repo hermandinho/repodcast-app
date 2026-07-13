@@ -49,19 +49,25 @@ export async function renderClipVideo(input: {
   // MarginL/MarginR force wrap into the visible frame; WrapStyle=0 =
   // smart wrap.
   const srtEscaped = srtPath.replace(/'/g, "\\'").replace(/:/g, "\\:");
+  // Clips (video content) use bottom-anchored captions like every
+  // social video platform — putting them center-center covers the
+  // talking head. Font is smaller than audiograms since a clip has
+  // its own visual content competing with the caption for attention.
+  // MarginV is a % of frame height so captions sit above safe-area on
+  // both 9:16 (Reels/Shorts/TikTok) and 16:9 outputs.
   const captionStyle = [
     "Fontname=DejaVu Sans",
-    "FontSize=24",
+    "FontSize=18",
     "PrimaryColour=&H00FFFFFF&",
     "OutlineColour=&H00000000&",
-    "BackColour=&H80000000&",
-    "BorderStyle=3", // opaque box behind text for readability on any background
-    "Outline=2",
+    "BackColour=&HA0000000&",
+    "BorderStyle=3", // opaque box behind text
+    "Outline=1",
     "Shadow=0",
-    "Alignment=5", // middle-center — matches audiograms
-    "MarginL=60",
-    "MarginR=60",
-    "MarginV=0",
+    "Alignment=2", // bottom-center
+    "MarginL=48",
+    "MarginR=48",
+    `MarginV=${Math.round(dims.h * 0.08)}`,
     "WrapStyle=0",
     "Bold=1",
   ].join(",");
