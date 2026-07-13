@@ -1,4 +1,6 @@
+import { readFile, writeFile } from "node:fs/promises";
 import { execa } from "execa";
+import { srtStringToAss } from "./ass.js";
 
 /**
  * Thin ffmpeg subprocess wrappers. All commands are hardcoded — no user
@@ -40,47 +42,39 @@ export async function renderClipVideo(input: {
   const { sourcePath, srtPath, outputPath, startSec, endSec, aspect } = input;
   const dims = OUTPUT_DIMS[aspect];
 
-  // The subtitles filter takes a path; escape single quotes for the filter
-  // parser. Font styling matches worker/Dockerfile's `ttf-dejavu` package.
+  // Convert the SRT to a proper ASS file with our style baked in —
+  // bypasses ffmpeg's force_style quoting/escaping issues entirely.
+  // See worker/src/lib/ass.ts for the rationale.
   //
-  // `original_size` tells libass what canvas the ASS defaults are meant
-  // for. Without it, libass assumes 384×288 and scales font/margins up to
-  // fit our 1080-wide output — captions balloon and run off-screen.
-  // MarginL/MarginR force wrap into the visible frame; WrapStyle=0 =
-  // smart wrap.
-  const srtEscaped = srtPath.replace(/'/g, "\\'").replace(/:/g, "\\:");
   // Clips (video content) use bottom-anchored captions like every
-  // social video platform — putting them center-center covers the
-  // talking head. Font is smaller than audiograms since a clip has
-  // its own visual content competing with the caption for attention.
-  // MarginV is a % of frame height so captions sit above safe-area on
-  // both 9:16 (Reels/Shorts/TikTok) and 16:9 outputs.
-  //
-  // CRITICAL: escape the commas inside force_style with `\`. ffmpeg's
-  // filter-graph parser treats bare `,` as a filter chain separator
-  // even inside `'...'`, so an unescaped style string gets truncated at
-  // the first key=value pair (only Fontname applies; Alignment,
-  // MarginV, etc. get silently dropped and libass falls back to its
-  // default centre alignment). See `\,` in the join separator below.
-  const captionStyle = [
-    "Fontname=DejaVu Sans",
-    "FontSize=18",
-    "PrimaryColour=&H00FFFFFF&",
-    "OutlineColour=&H00000000&",
-    "BackColour=&HA0000000&",
-    "BorderStyle=3", // opaque box behind text
-    "Outline=1",
-    "Shadow=0",
-    "Alignment=2", // bottom-center (ASS numpad notation)
-    "MarginL=48",
-    "MarginR=48",
-    `MarginV=${Math.round(dims.h * 0.08)}`,
-    "WrapStyle=0",
-    "Bold=1",
-  ].join("\\,");
-  const filter =
-    `${dims.cropFilter},scale=${dims.w}:${dims.h},` +
-    `subtitles='${srtEscaped}':original_size=${dims.w}x${dims.h}:force_style=${captionStyle}`;
+  // social video platform — center-center covers the talking head.
+  // Font is smaller than audiograms since a clip has its own visual
+  // content competing with the caption for attention. MarginV is a
+  // % of frame height so captions sit above safe-area.
+  const srtText = await readFile(srtPath, "utf8");
+  const assPath = `${srtPath}.ass`;
+  const ass = srtStringToAss(srtText, {
+    fontName: "DejaVu Sans",
+    fontSize: 42,
+    primaryColor: "&H00FFFFFF",
+    outlineColor: "&H00000000",
+    backColor: "&HA0000000",
+    borderStyle: 3,
+    outline: 6,
+    shadow: 0,
+    alignment: 2, // bottom-center
+    marginL: 60,
+    marginR: 60,
+    marginV: Math.round(dims.h * 0.08),
+    bold: true,
+    wrapStyle: 0,
+    playResX: dims.w,
+    playResY: dims.h,
+  });
+  await writeFile(assPath, ass, "utf8");
+
+  const assEscaped = assPath.replace(/'/g, "\\'").replace(/:/g, "\\:");
+  const filter = `${dims.cropFilter},scale=${dims.w}:${dims.h},subtitles='${assEscaped}'`;
 
   await execa(
     "ffmpeg",

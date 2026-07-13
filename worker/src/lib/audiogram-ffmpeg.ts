@@ -1,4 +1,6 @@
+import { readFile, writeFile } from "node:fs/promises";
 import { execa } from "execa";
+import { srtStringToAss } from "./ass.js";
 
 /**
  * Q1 feature #5 — audiogram (waveform video) ffmpeg pipeline.
@@ -50,41 +52,31 @@ export async function renderAudiogramVideo(input: {
   const waveH = Math.round(h * 0.16);
   const waveY = Math.round(h * 0.72);
 
-  // Escape the SRT path for the subtitles filter.
-  const srtEscaped = srtPath.replace(/'/g, "\\'").replace(/:/g, "\\:");
-  // libass has no idea about our target resolution when reading an SRT —
-  // it defaults to a 384×288 PlayRes and scales the ASS default styles up
-  // to whatever the video is. Result: 36 pt font becomes gigantic on a
-  // 1080×1920 canvas. We pass `original_size` so libass renders at the
-  // intended scale, then FontSize / MarginV / MarginL / MarginR are in
-  // the units we actually mean.
-  //
-  // MarginL/MarginR force wrapping to fit the visible frame; without them
-  // long lines run off the edges. WrapStyle=0 = smart wrap.
-  // Alignment=5 = middle-center in ASS numpad notation. When the
-  // alignment sits vertically in the middle, MarginV isn't used by
-  // libass for positioning, so we drop it. Wrap is smart (WrapStyle=0)
-  // + MarginL/R force horizontal fit within the frame.
-  // Escape commas inside force_style — the ffmpeg filter-graph parser
-  // treats bare `,` as a chain separator even inside `'…'`, so all keys
-  // past the first were being silently dropped. See ffmpeg.ts for the
-  // same fix on the clip renderer.
-  const captionStyle = [
-    "Fontname=DejaVu Sans",
-    "FontSize=24",
-    "PrimaryColour=&H00FFFFFF&",
-    "OutlineColour=&H00000000&",
-    "BackColour=&H80000000&",
-    "BorderStyle=3", // opaque box behind text — improves legibility on busy backgrounds
-    "Outline=2",
-    "Shadow=0",
-    "Alignment=5", // middle-center
-    "MarginL=80",
-    "MarginR=80",
-    "MarginV=0",
-    "WrapStyle=0",
-    "Bold=1",
-  ].join("\\,");
+  // Convert the SRT to a proper ASS file with our styling baked into
+  // the [V4+ Styles] block. See worker/src/lib/ass.ts for why we don't
+  // trust ffmpeg's force_style anymore.
+  const srtText = await readFile(srtPath, "utf8");
+  const assPath = `${srtPath}.ass`;
+  const assDocument = srtStringToAss(srtText, {
+    fontName: "DejaVu Sans",
+    fontSize: 52,
+    primaryColor: "&H00FFFFFF",
+    outlineColor: "&H00000000",
+    backColor: "&H80000000",
+    borderStyle: 3,
+    outline: 8,
+    shadow: 0,
+    alignment: 5, // middle-center
+    marginL: 100,
+    marginR: 100,
+    marginV: 0,
+    bold: true,
+    wrapStyle: 0,
+    playResX: w,
+    playResY: h,
+  });
+  await writeFile(assPath, assDocument, "utf8");
+  const assEscaped = assPath.replace(/'/g, "\\'").replace(/:/g, "\\:");
 
   // Filter graph. The audio input gets its own trim so the whole file
   // isn't re-encoded; the waveform is generated from the trimmed audio.
@@ -101,7 +93,7 @@ export async function renderAudiogramVideo(input: {
     `[trimaudio]asplit=2[audio][audioWave];` +
     `[audioWave]showwaves=s=${w}x${waveH}:mode=cline:colors=white@0.9:rate=25[wave];` +
     `[bg][wave]overlay=0:${waveY}:shortest=1[bgwave];` +
-    `[bgwave]subtitles='${srtEscaped}':original_size=${w}x${h}:force_style=${captionStyle}[vout]`;
+    `[bgwave]subtitles='${assEscaped}'[vout]`;
 
   const inputs = bgImagePath
     ? ["-loop", "1", "-i", bgImagePath, "-i", audioPath]
