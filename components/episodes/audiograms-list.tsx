@@ -83,7 +83,15 @@ export function AudiogramsList({ episodeId, outputs, isReady, notReadyReason, re
   const onGenerate = (outputId: string) =>
     runAction(async () => requestAudiogramAction({ outputId }));
 
-  if (!isReady) {
+  const existingAudiograms = outputs.filter(
+    (o) => o.audiogramStatus !== null || o.audiogramUrl !== null,
+  ).length;
+
+  // Only replace the whole surface with the "not ready" card when the
+  // episode isn't ready AND we have nothing to show. If any audiograms
+  // exist, keep rendering the list (they're immutable once rendered)
+  // and downgrade the reason to a top-of-page banner.
+  if (!isReady && existingAudiograms === 0) {
     return (
       <Card className="p-6">
         <div className="font-display text-ink text-[15px] font-semibold">
@@ -109,6 +117,12 @@ export function AudiogramsList({ episodeId, outputs, isReady, notReadyReason, re
 
   return (
     <div>
+      {!isReady && notReadyReason && (
+        <div className="border-border bg-surface-2 text-muted mb-4 rounded-lg border p-3 text-[12.5px] leading-[1.5]">
+          <strong className="text-ink font-semibold">Heads up:</strong> {notReadyReason} Existing
+          audiograms below are still viewable.
+        </div>
+      )}
       <div className="text-muted-2 mb-4 text-[13px]">
         {outputs.length} output{outputs.length === 1 ? "" : "s"}
         {inFlightCount > 0 && <> · {inFlightCount} rendering</>}
@@ -125,6 +139,8 @@ export function AudiogramsList({ episodeId, outputs, isReady, notReadyReason, re
             row={o}
             readOnly={readOnly}
             disabled={isPending}
+            canGenerate={isReady}
+            notReadyReason={notReadyReason}
             onGenerate={() => onGenerate(o.id)}
           />
         ))}
@@ -137,11 +153,15 @@ function AudiogramRow({
   row,
   readOnly,
   disabled,
+  canGenerate,
+  notReadyReason,
   onGenerate,
 }: {
   row: AudiogramOutputRow;
   readOnly: boolean;
   disabled: boolean;
+  canGenerate: boolean;
+  notReadyReason: string | null;
   onGenerate: () => void;
 }) {
   const status = row.audiogramStatus;
@@ -191,8 +211,9 @@ function AudiogramRow({
           ) : (
             <button
               type="button"
-              disabled={readOnly || disabled}
+              disabled={readOnly || disabled || !canGenerate}
               onClick={onGenerate}
+              title={!canGenerate ? (notReadyReason ?? undefined) : undefined}
               className="border-border text-ink hover:bg-canvas shadow-card flex w-full items-center justify-center gap-2 rounded-[10px] border bg-white px-4 py-[10px] font-sans text-[13px] font-semibold transition-colors disabled:opacity-60"
             >
               {status === ClipRenderStatus.FAILED ? "Retry audiogram" : "Generate audiogram"}

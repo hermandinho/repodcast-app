@@ -60,10 +60,13 @@ export default async function EpisodeAudiogramsPage({
   if (!episode) notFound();
 
   const isReady = Boolean(episode.audioUrl && episode.transcriptWords);
+  // Reasons are informational — the list still renders when they're set so
+  // existing audiograms stay visible. Individual "Generate" buttons per-row
+  // disable when !isReady.
   const notReadyReason = !episode.audioUrl
-    ? "This episode has no audio file. Audiograms need source audio."
+    ? "This episode has no audio file. New audiograms need source audio."
     : !episode.transcriptWords
-      ? "This episode was transcribed before the audiogram pipeline shipped. Re-transcribe to enable audiograms."
+      ? "This episode was transcribed before the audiogram pipeline shipped. Re-transcribe to enable new audiograms."
       : null;
   const readOnly = tenant.impersonation?.mode === "read";
 

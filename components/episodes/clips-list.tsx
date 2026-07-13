@@ -104,8 +104,10 @@ export function ClipsList({ episodeId, clips, isReady, notReadyReason, readOnly 
     runAction(async () => retryClipAction({ clipId, episodeId }));
   };
 
-  // ---- Not-ready state ----
-  if (!isReady) {
+  // ---- Not-ready state — only full-replace when there's nothing to show.
+  // Existing clips stay visible even if source/transcript disappears;
+  // the "Generate more clips" affordance is what actually needs isReady. ----
+  if (!isReady && clips.length === 0) {
     return (
       <Card className="p-6">
         <div className="font-display text-ink text-[15px] font-semibold">
@@ -140,6 +142,12 @@ export function ClipsList({ episodeId, clips, isReady, notReadyReason, readOnly 
   // ---- Populated grid ----
   return (
     <div>
+      {!isReady && notReadyReason && (
+        <div className="border-border bg-surface-2 text-muted mb-4 rounded-lg border p-3 text-[12.5px] leading-[1.5]">
+          <strong className="text-ink font-semibold">Heads up:</strong> {notReadyReason} Existing
+          clips below are still viewable.
+        </div>
+      )}
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="text-muted-2 text-[13px]">
           {clips.length} clip{clips.length === 1 ? "" : "s"}
@@ -150,8 +158,14 @@ export function ClipsList({ episodeId, clips, isReady, notReadyReason, readOnly 
             variant="secondary"
             size="sm"
             onClick={onRegenerate}
-            disabled={isPending || inFlightCount > 0}
-            title={inFlightCount > 0 ? "Wait for current renders to finish" : undefined}
+            disabled={isPending || inFlightCount > 0 || !isReady}
+            title={
+              !isReady
+                ? (notReadyReason ?? undefined)
+                : inFlightCount > 0
+                  ? "Wait for current renders to finish"
+                  : undefined
+            }
           >
             {isPending ? "…" : "Regenerate all"}
           </Button>
