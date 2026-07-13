@@ -148,7 +148,15 @@ export default async function PricingOpenGraphImage() {
               <div style={{ fontSize: 14, fontWeight: 600, opacity: t.featured ? 0.7 : 0.75 }}>
                 {t.name}
               </div>
-              <div style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.02em" }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "baseline",
+                  fontSize: 32,
+                  fontWeight: 800,
+                  letterSpacing: "-0.02em",
+                }}
+              >
                 {t.price}
                 <span style={{ fontSize: 14, fontWeight: 500, opacity: 0.65 }}>/mo</span>
               </div>
