@@ -11,6 +11,7 @@ import {
 } from "@/app/(dashboard)/episodes/[id]/actions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { AttachSourceVideo } from "@/components/episodes/attach-source-video";
 import { TrimClipModal } from "@/components/episodes/trim-clip-modal";
 import { translateClipRenderError } from "@/lib/clip-error-messages";
 
@@ -137,6 +138,14 @@ export function ClipsList({ episodeId, clips, isReady, notReadyReason, readOnly 
         <p className="text-muted-2 mt-1.5 text-[13px] leading-[1.6]">
           {notReadyReason ?? "This episode isn't ready yet."}
         </p>
+        {!readOnly && (
+          <div className="mt-4">
+            <p className="text-muted mb-2 text-[12.5px]">
+              Have a video file for this episode? Attach it directly:
+            </p>
+            <AttachSourceVideo episodeId={episodeId} label="Attach a source video" />
+          </div>
+        )}
       </Card>
     );
   }
@@ -188,21 +197,28 @@ export function ClipsList({ episodeId, clips, isReady, notReadyReason, readOnly 
           {inFlightCount > 0 && <> · {inFlightCount} rendering</>}
         </div>
         {!readOnly && (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={onRegenerate}
-            disabled={isPending || inFlightCount > 0 || !isReady}
-            title={
-              !isReady
-                ? (notReadyReason ?? undefined)
-                : inFlightCount > 0
-                  ? "Wait for current renders to finish"
-                  : undefined
-            }
-          >
-            {isPending ? "…" : "Regenerate all"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <AttachSourceVideo
+              episodeId={episodeId}
+              variant="secondary"
+              label="Replace source video"
+            />
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onRegenerate}
+              disabled={isPending || inFlightCount > 0 || !isReady}
+              title={
+                !isReady
+                  ? (notReadyReason ?? undefined)
+                  : inFlightCount > 0
+                    ? "Wait for current renders to finish"
+                    : undefined
+              }
+            >
+              {isPending ? "…" : "Regenerate all"}
+            </Button>
+          </div>
         )}
       </div>
       {error && (

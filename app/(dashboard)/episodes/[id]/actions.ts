@@ -34,6 +34,15 @@ import {
 } from "@/server/db/outputs";
 import { deleteClipById, deleteClipsForEpisode, getClipById } from "@/server/db/video-clips";
 import { resolveClipSource } from "@/server/media/clip-source";
+import {
+  ALLOWED_AUDIO_CONTENT_TYPES,
+  MAX_AUDIO_UPLOAD_BYTES,
+  audioExtensionFor,
+  isAllowedAudioContentType,
+  isVideoContentType,
+} from "@/lib/audio";
+import { getR2Client, signR2UploadUrl } from "@/server/storage/r2";
+import { randomUUID } from "node:crypto";
 import { inngest } from "@/inngest/client";
 
 const idInput = z.object({ outputId: z.string().min(1) });
@@ -717,6 +726,114 @@ export async function deleteClipAction(
   const { count } = await deleteClipById(auth.agency.id, clipId);
   revalidatePath(`/episodes/${episodeId}/clips`);
   return noopOk({ clipId, deleted: count });
+}
+
+// ============================================================
+// Q1 wk10 — Attach a source video to an existing episode
+//
+// Two-step direct-to-R2 flow (mirrors the audio-upload wizard). Step
+// 1 signs a PUT URL; the browser uploads; step 2 stamps the resulting
+// R2 key onto Episode.sourceVideoUrl so the clip pipeline picks it
+// up. Bypasses the audio-transcribe path — transcript already exists,
+// we're just providing an alternate video source for rendering.
+// ============================================================
+
+const signSourceVideoUploadInput = z.object({
+  episodeId: z.string().min(1),
+  filename: z.string().min(1).max(200),
+  contentType: z.string().min(1),
+  size: z.number().int().nonnegative(),
+});
+
+export async function signSourceVideoUploadAction(
+  raw: unknown,
+): Promise<ActionResult<{ uploadUrl: string; objectKey: string }>> {
+  const parsed = signSourceVideoUploadInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid upload request", parsed.error.issues);
+  }
+  const { episodeId, filename, contentType, size } = parsed.data;
+
+  if (!isAllowedAudioContentType(contentType) || !isVideoContentType(contentType)) {
+    return {
+      ok: false,
+      error: `Unsupported video format ${contentType}. Allowed: MP4, MOV, WebM, MKV.`,
+    };
+  }
+  if (size > MAX_AUDIO_UPLOAD_BYTES) {
+    return {
+      ok: false,
+      error: `File is ${Math.round(size / (1024 * 1024))} MB — limit is ${Math.round(MAX_AUDIO_UPLOAD_BYTES / (1024 * 1024))} MB.`,
+    };
+  }
+
+  const auth = await requireAuthContext();
+  // Tenant guard on the episode.
+  const episode = await prisma.episode.findFirst({
+    where: { id: episodeId, show: { client: { agencyId: auth.agency.id } } },
+    select: { id: true },
+  });
+  if (!episode) throw new NotFoundError(`Episode ${episodeId} not found`);
+
+  if (!getR2Client()) {
+    return {
+      ok: false,
+      error: "R2 is not configured. Contact support.",
+    };
+  }
+
+  // Unique per-upload key so re-uploads don't overwrite prior versions
+  // (Prisma has no cascade delete on Episode.sourceVideoUrl updates, so
+  // old objects age out via bucket lifecycle policy).
+  const uploadId = randomUUID();
+  const ext = audioExtensionFor(contentType, filename);
+  const objectKey = `sources/${auth.agency.id}/${episodeId}/${uploadId}.${ext}`;
+
+  // 15 min — video files are bigger than audio; the presign needs to
+  // outlast a slow home connection PUT.
+  const uploadUrl = await signR2UploadUrl(objectKey, contentType, 15 * 60);
+
+  return { ok: true, data: { uploadUrl, objectKey } };
+}
+
+const finalizeSourceVideoInput = z.object({
+  episodeId: z.string().min(1),
+  objectKey: z.string().min(1),
+});
+
+export async function finalizeSourceVideoUploadAction(
+  raw: unknown,
+): Promise<ActionResult<{ episodeId: string }>> {
+  const parsed = finalizeSourceVideoInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid finalize input", parsed.error.issues);
+  }
+  const { episodeId, objectKey } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ episodeId });
+
+  const auth = await requireAuthContext();
+  // Verify the key we're about to persist is one we ourselves signed —
+  // the prefix embeds the agency id and episode id, so a tampered
+  // request can't point us at another agency's assets.
+  const expectedPrefix = `sources/${auth.agency.id}/${episodeId}/`;
+  if (!objectKey.startsWith(expectedPrefix)) {
+    return { ok: false, error: "Upload key does not match this episode." };
+  }
+
+  const episode = await prisma.episode.findFirst({
+    where: { id: episodeId, show: { client: { agencyId: auth.agency.id } } },
+    select: { id: true },
+  });
+  if (!episode) throw new NotFoundError(`Episode ${episodeId} not found`);
+
+  await prisma.episode.update({
+    where: { id: episodeId },
+    data: { sourceVideoUrl: objectKey },
+  });
+
+  revalidatePath(`/episodes/${episodeId}/clips`);
+  return noopOk({ episodeId });
 }
 
 // ============================================================
