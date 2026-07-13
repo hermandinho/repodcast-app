@@ -74,7 +74,18 @@ export function EpisodeHeader({
         </div>
       </div>
 
-      <nav aria-label="Episode tabs" className="mt-5 -mb-px flex gap-6 overflow-x-auto">
+      <nav
+        aria-label="Episode tabs"
+        className="mt-5 mb-4 inline-flex flex-wrap items-center overflow-x-auto"
+        style={{
+          background: "#eef1f6",
+          borderRadius: 9,
+          padding: 3,
+          gap: 4,
+          width: "fit-content",
+          maxWidth: "100%",
+        }}
+      >
         {TABS.map((tab) => {
           const isActive = tab.segment === activeSegment;
           return (
@@ -82,12 +93,18 @@ export function EpisodeHeader({
               key={tab.label}
               href={tab.href(episodeId)}
               aria-current={isActive ? "page" : undefined}
-              className={[
-                "-mb-px inline-flex flex-shrink-0 items-center gap-2 border-b-2 pb-3 text-[13px] font-semibold transition-colors",
-                isActive
-                  ? "border-accent text-ink"
-                  : "text-muted-2 hover:text-ink border-transparent",
-              ].join(" ")}
+              className="no-underline transition-colors"
+              style={{
+                fontSize: 13.5,
+                fontWeight: isActive ? 600 : 500,
+                color: isActive ? "#0a1e3c" : "#41506b",
+                background: isActive ? "#ffffff" : "transparent",
+                padding: "7px 16px",
+                borderRadius: 7,
+                boxShadow: isActive ? "0 1px 3px rgba(10,30,60,0.10)" : "none",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+              }}
             >
               {tab.label}
             </Link>
