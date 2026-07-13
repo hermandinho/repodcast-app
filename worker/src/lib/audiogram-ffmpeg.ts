@@ -65,6 +65,10 @@ export async function renderAudiogramVideo(input: {
   // alignment sits vertically in the middle, MarginV isn't used by
   // libass for positioning, so we drop it. Wrap is smart (WrapStyle=0)
   // + MarginL/R force horizontal fit within the frame.
+  // Escape commas inside force_style — the ffmpeg filter-graph parser
+  // treats bare `,` as a chain separator even inside `'…'`, so all keys
+  // past the first were being silently dropped. See ffmpeg.ts for the
+  // same fix on the clip renderer.
   const captionStyle = [
     "Fontname=DejaVu Sans",
     "FontSize=24",
@@ -80,7 +84,7 @@ export async function renderAudiogramVideo(input: {
     "MarginV=0",
     "WrapStyle=0",
     "Bold=1",
-  ].join(",");
+  ].join("\\,");
 
   // Filter graph. The audio input gets its own trim so the whole file
   // isn't re-encoded; the waveform is generated from the trimmed audio.
@@ -97,7 +101,7 @@ export async function renderAudiogramVideo(input: {
     `[trimaudio]asplit=2[audio][audioWave];` +
     `[audioWave]showwaves=s=${w}x${waveH}:mode=cline:colors=white@0.9:rate=25[wave];` +
     `[bg][wave]overlay=0:${waveY}:shortest=1[bgwave];` +
-    `[bgwave]subtitles='${srtEscaped}':original_size=${w}x${h}:force_style='${captionStyle}'[vout]`;
+    `[bgwave]subtitles='${srtEscaped}':original_size=${w}x${h}:force_style=${captionStyle}[vout]`;
 
   const inputs = bgImagePath
     ? ["-loop", "1", "-i", bgImagePath, "-i", audioPath]

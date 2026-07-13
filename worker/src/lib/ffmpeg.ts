@@ -55,6 +55,13 @@ export async function renderClipVideo(input: {
   // its own visual content competing with the caption for attention.
   // MarginV is a % of frame height so captions sit above safe-area on
   // both 9:16 (Reels/Shorts/TikTok) and 16:9 outputs.
+  //
+  // CRITICAL: escape the commas inside force_style with `\`. ffmpeg's
+  // filter-graph parser treats bare `,` as a filter chain separator
+  // even inside `'...'`, so an unescaped style string gets truncated at
+  // the first key=value pair (only Fontname applies; Alignment,
+  // MarginV, etc. get silently dropped and libass falls back to its
+  // default centre alignment). See `\,` in the join separator below.
   const captionStyle = [
     "Fontname=DejaVu Sans",
     "FontSize=18",
@@ -64,16 +71,16 @@ export async function renderClipVideo(input: {
     "BorderStyle=3", // opaque box behind text
     "Outline=1",
     "Shadow=0",
-    "Alignment=2", // bottom-center
+    "Alignment=2", // bottom-center (ASS numpad notation)
     "MarginL=48",
     "MarginR=48",
     `MarginV=${Math.round(dims.h * 0.08)}`,
     "WrapStyle=0",
     "Bold=1",
-  ].join(",");
+  ].join("\\,");
   const filter =
     `${dims.cropFilter},scale=${dims.w}:${dims.h},` +
-    `subtitles='${srtEscaped}':original_size=${dims.w}x${dims.h}:force_style='${captionStyle}'`;
+    `subtitles='${srtEscaped}':original_size=${dims.w}x${dims.h}:force_style=${captionStyle}`;
 
   await execa(
     "ffmpeg",
