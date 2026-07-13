@@ -43,10 +43,12 @@ export async function renderAudiogramVideo(input: {
   const { w, h } = OUTPUT_DIMS[aspect];
   const durationSec = Math.max(1, endSec - startSec);
 
-  // Waveform sits in the middle third — waves span the full width,
-  // caption sits below.
-  const waveH = Math.round(h * 0.28);
-  const waveY = Math.round(h * 0.36); // top of the waveform band
+  // Waveform now sits in a bottom band so the caption can occupy the
+  // visual centre without collision. Wave takes ~16 % of the frame,
+  // anchored ~72 % down, leaving the middle ~40 % clear for the
+  // centered caption block.
+  const waveH = Math.round(h * 0.16);
+  const waveY = Math.round(h * 0.72);
 
   // Escape the SRT path for the subtitles filter.
   const srtEscaped = srtPath.replace(/'/g, "\\'").replace(/:/g, "\\:");
@@ -59,19 +61,23 @@ export async function renderAudiogramVideo(input: {
   //
   // MarginL/MarginR force wrapping to fit the visible frame; without them
   // long lines run off the edges. WrapStyle=0 = smart wrap.
+  // Alignment=5 = middle-center in ASS numpad notation. When the
+  // alignment sits vertically in the middle, MarginV isn't used by
+  // libass for positioning, so we drop it. Wrap is smart (WrapStyle=0)
+  // + MarginL/R force horizontal fit within the frame.
   const captionStyle = [
     "Fontname=DejaVu Sans",
-    "FontSize=22",
+    "FontSize=24",
     "PrimaryColour=&H00FFFFFF&",
     "OutlineColour=&H00000000&",
     "BackColour=&H80000000&",
     "BorderStyle=3", // opaque box behind text — improves legibility on busy backgrounds
     "Outline=2",
     "Shadow=0",
-    "Alignment=2", // bottom-center
+    "Alignment=5", // middle-center
     "MarginL=80",
     "MarginR=80",
-    `MarginV=${Math.round(h * 0.08)}`,
+    "MarginV=0",
     "WrapStyle=0",
     "Bold=1",
   ].join(",");
