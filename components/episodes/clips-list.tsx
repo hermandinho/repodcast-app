@@ -126,8 +126,8 @@ export function ClipsList({ episodeId, clips, isReady, notReadyReason, readOnly 
       <Card className="p-8 text-center">
         <div className="font-display text-ink text-[16px] font-semibold">No clips yet</div>
         <p className="text-muted-2 mx-auto mt-1.5 max-w-md text-[13px] leading-[1.6]">
-          We&apos;ll ask Claude to pick the strongest moments and render up to five vertical clips.
-          Takes about a minute per clip.
+          Pull up to five vertical clips from the strongest moments in this episode. Takes about a
+          minute per clip.
         </p>
         {!readOnly && (
           <Button className="mt-5" variant="primary" onClick={onGenerate} disabled={isPending}>

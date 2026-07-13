@@ -39,7 +39,7 @@ export function ArtworkTrigger({ episodeId }: { episodeId: string }) {
         onClick={onClick}
         disabled={isPending}
         className="border-border text-ink hover:bg-canvas shadow-card flex items-center gap-2 rounded-[10px] border bg-white px-4 py-[10px] font-sans text-[13px] font-semibold transition-colors disabled:opacity-60"
-        title="Generate hero artwork (Workers AI). Renders three aspect ratios."
+        title="Generate hero artwork. Renders three aspect ratios."
       >
         <svg
           width="14"

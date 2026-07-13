@@ -86,8 +86,8 @@ function ArtworkTab({
         <div>
           <h2 className="font-display text-ink text-[18px] font-semibold">Hero artwork</h2>
           <p className="text-muted-2 mt-1 max-w-2xl text-[13px] leading-[1.6]">
-            Three aspect ratios generated with Cloudflare Workers AI (Flux). One visual concept
-            drives all three so they read as a set — same palette, same mood, different frames.
+            Three aspect ratios generated from a single visual concept so they read as a set — same
+            palette, same mood, different frames.
           </p>
         </div>
         {!sampleMode && !transcriptTooShort && <ArtworkTrigger episodeId={episodeId} />}
@@ -117,8 +117,8 @@ function ArtworkTab({
             No artwork generated yet
           </div>
           <p className="text-muted-2 mx-auto mt-1.5 max-w-md text-[13px] leading-[1.6]">
-            Claude picks a visual concept from the transcript, then Flux renders all three aspect
-            ratios. Takes about 15 seconds.
+            Derive a visual concept from the transcript and render all three aspect ratios. Takes
+            about 15 seconds.
           </p>
         </div>
       )}

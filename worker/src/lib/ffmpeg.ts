@@ -106,30 +106,25 @@ export async function renderClipVideo(input: {
 }
 
 /**
- * Extract a single frame from `videoPath` as a JPEG. Uses ~1 s in to skip
- * any black lead-in frame that ffmpeg's re-encode sometimes emits at t=0.
+ * Extract a single frame from `videoPath` as a JPEG.
+ *
+ * Two-pass strategy: first try an output-side seek to ~0.5 s (accurate,
+ * survives short clips). If that fails — usually because the clip is
+ * shorter than 0.5 s or seeking mid-decode chokes on the tail — retry
+ * without a seek so we always emit *some* poster. `-f image2` is
+ * explicit so ffmpeg can't get confused by extension inference.
  */
 export async function extractPoster(videoPath: string, outputPath: string): Promise<void> {
-  await execa(
-    "ffmpeg",
-    [
-      "-y",
-      "-nostdin",
-      "-hide_banner",
-      "-loglevel",
-      "error",
-      "-ss",
-      "1",
-      "-i",
-      videoPath,
-      "-vframes",
-      "1",
-      "-q:v",
-      "2",
-      outputPath,
-    ],
-    { timeout: 60_000 },
-  );
+  const baseArgs = ["-y", "-nostdin", "-hide_banner", "-loglevel", "error", "-i", videoPath];
+  const encodeArgs = ["-frames:v", "1", "-q:v", "2", "-f", "image2", outputPath];
+
+  try {
+    await execa("ffmpeg", [...baseArgs, "-ss", "0.5", ...encodeArgs], { timeout: 60_000 });
+    return;
+  } catch {
+    // Clip may be too short for a 0.5 s seek — grab the first frame instead.
+  }
+  await execa("ffmpeg", [...baseArgs, ...encodeArgs], { timeout: 60_000 });
 }
 
 /**
