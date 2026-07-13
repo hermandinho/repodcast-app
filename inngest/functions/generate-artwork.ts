@@ -54,7 +54,7 @@ export const generateArtwork = inngest.createFunction(
     id: "generate-artwork",
     triggers: [{ event: "episode/artwork.requested" }],
     retries: 2,
-    concurrency: [{ limit: 6 }, { scope: "fn", key: "event.data.agencyId", limit: 3 }],
+    concurrency: [{ limit: 5 }, { scope: "fn", key: "event.data.agencyId", limit: 3 }],
     onFailure: async ({ event, error }) => {
       const { episodeId } = event.data.event.data as Events["episode/artwork.requested"]["data"];
       captureInngestFailure("generate_artwork", error, { episodeId });
