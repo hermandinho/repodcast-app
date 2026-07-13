@@ -47,3 +47,8 @@ next-env.d.ts
 # claude code local settings (per-machine permissions / state)
 /.claude/
 /.idea/
+NextMove.md
+Q1.md
+Q2.md
+scripts/draw-architecture.py
+docs/architecture.png
