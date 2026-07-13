@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { auth } from "@clerk/nextjs/server";
+import { FunnelPageview } from "@/components/analytics/funnel-pageview";
 import { LandingPage } from "@/components/landing/landing-page";
 import { getLandingTrustedBy } from "@/lib/landing-trusted-by";
 
@@ -21,5 +22,10 @@ export const metadata: Metadata = {
 
 export default async function HomePage() {
   const [{ userId }, trustedBy] = await Promise.all([auth(), getLandingTrustedBy()]);
-  return <LandingPage isSignedIn={!!userId} trustedBy={trustedBy} />;
+  return (
+    <>
+      <FunnelPageview event="landing_hero_viewed" />
+      <LandingPage isSignedIn={!!userId} trustedBy={trustedBy} />
+    </>
+  );
 }

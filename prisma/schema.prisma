@@ -321,12 +321,56 @@ model Agency {
   notifications        Notification[]
   suggestions          Suggestion[]
   videoClips           VideoClip[]
+  attribution          AgencyAttribution?
 
   /// Same hot-path index as declared inline in the migration — mirrored here
   /// so `prisma migrate diff` stays clean on the next migration boundary.
   @@index([suspendedAt])
   /// Hot path for the "trial ending soon" cron scan and the ROOT filter.
   @@index([trialStatus, trialEndsAt])
+}
+
+/// Q2 wk14 — signup attribution sidecar. 1:1 with `Agency`, populated once at
+/// agency creation from the visitor's utm_* + referrer + landing path. Sidecar
+/// (not columns on Agency) so the hot Agency row stays lean and Q3 can extend
+/// to per-touchpoint multi-touch without a wide-table migration.
+///
+/// Written by `captureAttribution` from within the `createWorkspaceAction`
+/// transaction, immediately after the Agency row lands. Read from the ROOT
+/// funnel view. Never read by tenant-side code — attribution is an internal
+/// analytics artifact, not something the agency itself sees.
+model AgencyAttribution {
+  agencyId    String   @id
+  agency      Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  /// UTM parameter conventions match Google's spec — keeping them named
+  /// verbatim so downstream tools (PostHog dashboards, Metabase reports)
+  /// can join on a familiar shape without translation.
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  utmContent  String?
+  utmTerm     String?
+  /// `document.referrer` at first landing. Empty when the visitor came in via
+  /// a bookmark, direct URL, or another origin that strips the header.
+  referrer    String?
+  /// `location.pathname` on the visitor's first landing page. Distinguishes
+  /// arrivals via `/`, `/pricing`, `/samples/[slug]`, etc.
+  landingPath String?
+  /// `location.pathname` at the moment /sign-up was hit. Almost always
+  /// `/sign-up` today; kept as a column so a future embedded sign-up widget
+  /// on `/pricing` doesn't require a schema migration to instrument.
+  signupPath  String?
+  /// Google Click ID + Facebook Click ID. Reserved for future paid-media
+  /// attribution; unused in Q2 (no paid ads budgeted), but adding the columns
+  /// now means enabling paid channels in Q3 is a copy-writing task, not a
+  /// migration.
+  gclid       String?
+  fbclid      String?
+  createdAt   DateTime @default(now())
+
+  @@index([utmSource])
+  @@index([utmCampaign])
+  @@index([createdAt])
 }
 
 model Member {

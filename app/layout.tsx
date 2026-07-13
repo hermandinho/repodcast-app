@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Inter, JetBrains_Mono, Schibsted_Grotesk, Sora, Spline_Sans_Mono } from "next/font/google";
+import { AttributionCapture } from "@/components/analytics/attribution-capture";
 import { AnalyticsWithFilter } from "@/components/providers/analytics";
 import { ConsentBanner } from "@/components/consent/consent-banner";
 import { PostHogProvider } from "@/components/providers/posthog-provider";
@@ -78,6 +79,7 @@ export default function RootLayout({
       >
         <body className="min-h-full">
           <PostHogProvider>{children}</PostHogProvider>
+          <AttributionCapture />
           <ConsentBanner />
           <AnalyticsWithFilter />
         </body>

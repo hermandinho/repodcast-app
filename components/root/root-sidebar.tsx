@@ -16,6 +16,7 @@ const navItems: readonly RootNavItem[] = [
   { href: "/root/agencies", label: "Agencies", ready: true },
   { href: "/root/users", label: "Users", ready: true },
   { href: "/root/finance", label: "Finance", ready: true },
+  { href: "/root/funnels", label: "Funnels", ready: true },
   { href: "/root/operations", label: "Operations", ready: true },
   { href: "/root/quality", label: "Quality", ready: true },
   { href: "/root/feedback", label: "Feedback", ready: true },

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { auth } from "@clerk/nextjs/server";
+import { FunnelPageview } from "@/components/analytics/funnel-pageview";
 import { LandingFooter } from "@/components/landing/footer";
 import { LandingNav } from "@/components/landing/nav";
 import { PricingPageBody } from "@/components/pricing/pricing-page-body";
@@ -27,6 +28,7 @@ export default async function PricingPage() {
 
   return (
     <div className="w-full overflow-x-hidden">
+      <FunnelPageview event="pricing_viewed" />
       <LandingNav isSignedIn={isSignedIn} />
       <PricingPageBody isSignedIn={isSignedIn} />
       <LandingFooter />
