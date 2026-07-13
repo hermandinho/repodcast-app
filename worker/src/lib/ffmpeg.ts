@@ -58,10 +58,10 @@ export async function renderClipVideo(input: {
     "BorderStyle=3", // opaque box behind text for readability on any background
     "Outline=2",
     "Shadow=0",
-    "Alignment=2",
+    "Alignment=5", // middle-center — matches audiograms
     "MarginL=60",
     "MarginR=60",
-    `MarginV=${Math.round(dims.h * 0.06)}`,
+    "MarginV=0",
     "WrapStyle=0",
     "Bold=1",
   ].join(",");
