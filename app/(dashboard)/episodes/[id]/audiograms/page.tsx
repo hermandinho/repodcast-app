@@ -104,12 +104,12 @@ function TabIntro({
   children: React.ReactNode;
 }) {
   return (
-    <>
+    <div className="mx-auto max-w-[1400px] px-4 pb-14 sm:px-6 md:px-7 md:pb-[60px]">
       <div className="mb-6">
         <h2 className="font-display text-ink text-[18px] font-semibold">{title}</h2>
         <p className="text-muted-2 mt-1 max-w-2xl text-[13px] leading-[1.6]">{description}</p>
       </div>
       {children}
-    </>
+    </div>
   );
 }

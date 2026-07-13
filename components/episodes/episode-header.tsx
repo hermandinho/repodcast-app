@@ -50,7 +50,7 @@ export function EpisodeHeader({
   const activeSegment = useSelectedLayoutSegment();
 
   return (
-    <div className="border-border bg-canvas -mx-4 mb-6 border-b px-4 pt-5 pb-0 sm:-mx-6 sm:px-6 md:-mx-7 md:px-7">
+    <div className="border-border bg-canvas mb-4 w-full border-b px-4 pt-5 pb-0 sm:px-6 md:px-7">
       <nav aria-label="Breadcrumb" className="text-muted-2 text-[12.5px]">
         <Link href="/shows" className="hover:text-ink transition-colors">
           Shows
@@ -74,7 +74,7 @@ export function EpisodeHeader({
         </div>
       </div>
 
-      <nav aria-label="Episode tabs" className="mt-5 -mb-px flex gap-6">
+      <nav aria-label="Episode tabs" className="mt-5 -mb-px flex gap-6 overflow-x-auto">
         {TABS.map((tab) => {
           const isActive = tab.segment === activeSegment;
           return (
@@ -83,7 +83,7 @@ export function EpisodeHeader({
               href={tab.href(episodeId)}
               aria-current={isActive ? "page" : undefined}
               className={[
-                "-mb-px inline-flex items-center gap-2 border-b-2 pb-3 text-[13px] font-semibold transition-colors",
+                "-mb-px inline-flex flex-shrink-0 items-center gap-2 border-b-2 pb-3 text-[13px] font-semibold transition-colors",
                 isActive
                   ? "border-accent text-ink"
                   : "text-muted-2 hover:text-ink border-transparent",

@@ -81,7 +81,7 @@ function ArtworkTab({
   } | null;
 
   return (
-    <div>
+    <div className="mx-auto max-w-[1400px] px-4 pb-14 sm:px-6 md:px-7 md:pb-[60px]">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="font-display text-ink text-[18px] font-semibold">Hero artwork</h2>

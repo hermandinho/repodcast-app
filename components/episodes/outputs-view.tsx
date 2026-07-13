@@ -956,12 +956,13 @@ export function OutputsView({
   );
 
   return (
-    <div className="min-w-0 flex-1">
-      {/* Q1 wk10 UI revamp — the outer padding, breadcrumb, title, and
-          tab bar all moved to the shared layout at ../layout.tsx.
-          `client` here is a SHOW (legacy prop name from the pre-hierarchy
-          days) — used for scheduling context, not for header rendering. */}
-      <div>
+    <div className="flex min-h-full flex-col xl:flex-row">
+      {/* CONTENT — full width on <xl screens (aside stacks below via
+          reversed flex-col); side-by-side on xl+ where the right rail
+          returns as a fixed-width sticky column. Padding matches the
+          shared header so breadcrumb + title + tab underlines align
+          with the content column. */}
+      <div className="min-w-0 flex-1 px-4 pb-14 sm:px-6 md:px-7 md:pb-[60px]">
         {/* Q1 wk10 UI revamp — breadcrumb + title + tab bar moved to the
             shared episode layout. The Outputs tab now opens directly on
             the outputs-specific action row: "Generate all" + optional
@@ -1213,9 +1214,12 @@ export function OutputsView({
         })()}
       </div>
 
-      {/* RIGHT RAIL */}
+      {/* RIGHT RAIL — sticky on xl+ screens (>=1280px); stacks below the
+          content on smaller widths so the outputs grid can use the full
+          page width. `self-start` + `sticky top-0` keeps the rail
+          anchored while the content column scrolls. */}
       <aside
-        className="border-border bg-surface-2 sticky top-0 w-[336px] flex-shrink-0 self-start overflow-y-auto border-l px-[22px] py-6 pb-[60px]"
+        className="border-border bg-surface-2 border-t px-4 py-6 pb-[60px] sm:px-6 md:px-7 xl:sticky xl:top-0 xl:w-[336px] xl:flex-shrink-0 xl:self-start xl:overflow-y-auto xl:border-t-0 xl:border-l xl:px-[22px]"
         style={{ maxHeight: "calc(100vh - var(--topbar-height))" }}
       >
         {/* AI voice profile card */}

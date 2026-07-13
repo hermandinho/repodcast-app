@@ -29,8 +29,12 @@ export default async function EpisodeLayout({
   const header = await loadHeader(tenant.agencyId, id);
   if (!header) notFound();
 
+  // Full-bleed shell — no outer max-width, no side padding on mobile.
+  // The header + each tab manage their own padding so the Outputs tab's
+  // right-anchored sidebar can sit flush against the viewport edge while
+  // single-column tabs stay comfortably readable via their own max-w.
   return (
-    <div className="mx-auto max-w-6xl px-4 pt-5 pb-14 sm:px-6 md:px-7">
+    <div className="w-full">
       <EpisodeHeader
         episodeId={id}
         title={header.title}

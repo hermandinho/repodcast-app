@@ -89,13 +89,16 @@ function TabIntro({
   description: string;
   children: React.ReactNode;
 }) {
+  // Content is comfortably readable up to ~1400 px; wider than that
+  // and the clip grid gets sparse. Left/right padding matches the
+  // outputs tab and the shared header so column edges align.
   return (
-    <>
+    <div className="mx-auto max-w-[1400px] px-4 pb-14 sm:px-6 md:px-7 md:pb-[60px]">
       <div className="mb-6">
         <h2 className="font-display text-ink text-[18px] font-semibold">{title}</h2>
         <p className="text-muted-2 mt-1 max-w-2xl text-[13px] leading-[1.6]">{description}</p>
       </div>
       {children}
-    </>
+    </div>
   );
 }
