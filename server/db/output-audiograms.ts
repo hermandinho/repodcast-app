@@ -60,7 +60,8 @@ export async function markAudiogramReady(
     data: {
       audiogramStatus: ClipRenderStatus.READY,
       audiogramUrl: input.renderedUrl,
-      audiogramPosterUrl: input.posterUrl,
+      // Worker returns "" on poster-extract failure — normalise to null.
+      audiogramPosterUrl: input.posterUrl && input.posterUrl.trim() !== "" ? input.posterUrl : null,
       audiogramError: null,
     },
   });

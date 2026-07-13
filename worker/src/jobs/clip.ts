@@ -72,27 +72,38 @@ export async function renderClip(input: ClipJobInput): Promise<ClipJobOutput> {
       aspect,
     });
 
-    // 4. Poster
-    await extractPoster(outPath, posterPath);
+    // 4. Poster — best-effort. If ffmpeg can't extract a frame (very
+    //    short clip, weird container, codec quirks), we still ship the
+    //    MP4. The card just won't have a poster preview.
+    let posterAvailable = false;
+    try {
+      await extractPoster(outPath, posterPath);
+      posterAvailable = true;
+    } catch (err) {
+      console.warn(
+        `[clip ${clipId}] poster extraction failed, continuing without poster:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
 
     // 5. Duration probe (source might have been shorter than requested)
     const durationSec = await probeDurationSec(outPath);
 
-    // 6. Upload
+    // 6. Upload — poster only if it was actually produced.
     const prefix = outputPrefix.replace(/\/$/, "");
-    const [clipUpload, posterUpload] = await Promise.all([
-      uploadFile(outPath, `${prefix}/clip.mp4`, "video/mp4"),
-      uploadFile(posterPath, `${prefix}/poster.jpg`, "image/jpeg"),
-    ]);
+    const clipUpload = await uploadFile(outPath, `${prefix}/clip.mp4`, "video/mp4");
+    const posterUpload = posterAvailable
+      ? await uploadFile(posterPath, `${prefix}/poster.jpg`, "image/jpeg")
+      : null;
 
     // The SRT itself isn't returned to the app, but we upload it so the
-    // trim editor can re-render without recomputing captions from Deepgram.
+    // trim editor can re-render without recomputing captions.
     await uploadFile(srtPath, `${prefix}/captions.srt`, "application/x-subrip");
 
     return {
       clipId,
       renderedUrl: clipUpload.url,
-      posterUrl: posterUpload.url,
+      posterUrl: posterUpload?.url ?? "",
       durationMs: Math.round(durationSec * 1000),
       bytes: clipUpload.bytes,
     };

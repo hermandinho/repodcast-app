@@ -108,23 +108,44 @@ export async function renderClipVideo(input: {
 /**
  * Extract a single frame from `videoPath` as a JPEG.
  *
- * Two-pass strategy: first try an output-side seek to ~0.5 s (accurate,
- * survives short clips). If that fails — usually because the clip is
- * shorter than 0.5 s or seeking mid-decode chokes on the tail — retry
- * without a seek so we always emit *some* poster. `-f image2` is
- * explicit so ffmpeg can't get confused by extension inference.
+ * Three-pass strategy for resilience against short / weird clips:
+ *   1. Output-side seek to 0.5 s + explicit image2 muxer.
+ *   2. First frame with explicit image2 muxer.
+ *   3. First frame with vframes syntax (older ffmpeg fallback).
+ *
+ * If all three fail, the caller catches — poster extraction is nice-to-
+ * have; a clip with a missing poster is still a valid deliverable.
+ *
+ * ffmpeg's exit codes travel back through execa as `err.exitCode`; we
+ * surface the stderr with the throw so the caller can log it.
  */
 export async function extractPoster(videoPath: string, outputPath: string): Promise<void> {
-  const baseArgs = ["-y", "-nostdin", "-hide_banner", "-loglevel", "error", "-i", videoPath];
-  const encodeArgs = ["-frames:v", "1", "-q:v", "2", "-f", "image2", outputPath];
+  const baseArgs = ["-y", "-nostdin", "-hide_banner", "-loglevel", "info", "-i", videoPath];
 
-  try {
-    await execa("ffmpeg", [...baseArgs, "-ss", "0.5", ...encodeArgs], { timeout: 60_000 });
-    return;
-  } catch {
-    // Clip may be too short for a 0.5 s seek — grab the first frame instead.
+  const attempts: string[][] = [
+    [...baseArgs, "-ss", "0.5", "-frames:v", "1", "-q:v", "2", "-f", "image2", outputPath],
+    [...baseArgs, "-frames:v", "1", "-q:v", "2", "-f", "image2", outputPath],
+    [...baseArgs, "-vframes", "1", "-q:v", "2", outputPath],
+  ];
+
+  let lastError: unknown = null;
+  for (const args of attempts) {
+    try {
+      await execa("ffmpeg", args, { timeout: 60_000 });
+      return;
+    } catch (err) {
+      lastError = err;
+    }
   }
-  await execa("ffmpeg", [...baseArgs, ...encodeArgs], { timeout: 60_000 });
+  // Include stderr in the surfaced message so the worker's caller
+  // (Inngest) can log the real cause, not just a bare exit code.
+  const stderr =
+    lastError && typeof lastError === "object" && "stderr" in lastError
+      ? String((lastError as { stderr: unknown }).stderr).slice(0, 800)
+      : "";
+  throw new Error(
+    `poster extraction failed after 3 attempts. Last stderr: ${stderr || "(no stderr)"}`,
+  );
 }
 
 /**

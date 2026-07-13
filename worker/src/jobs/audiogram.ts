@@ -95,24 +95,33 @@ export async function renderAudiogram(input: AudiogramJobInput): Promise<Audiogr
       aspect,
     });
 
-    // 5. Poster
-    await extractPoster(outPath, posterPath);
+    // 5. Poster — best-effort (see clip.ts for rationale)
+    let posterAvailable = false;
+    try {
+      await extractPoster(outPath, posterPath);
+      posterAvailable = true;
+    } catch (err) {
+      console.warn(
+        `[audiogram ${outputId}] poster extraction failed, continuing without poster:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
 
     // 6. Duration
     const durationSec = await probeDurationSec(outPath);
 
-    // 7. Upload
+    // 7. Upload — poster only if it was actually produced.
     const prefix = outputPrefix.replace(/\/$/, "");
-    const [audiogramUpload, posterUpload] = await Promise.all([
-      uploadFile(outPath, `${prefix}/audiogram.mp4`, "video/mp4"),
-      uploadFile(posterPath, `${prefix}/poster.jpg`, "image/jpeg"),
-    ]);
+    const audiogramUpload = await uploadFile(outPath, `${prefix}/audiogram.mp4`, "video/mp4");
+    const posterUpload = posterAvailable
+      ? await uploadFile(posterPath, `${prefix}/poster.jpg`, "image/jpeg")
+      : null;
     await uploadFile(srtPath, `${prefix}/captions.srt`, "application/x-subrip");
 
     return {
       outputId,
       renderedUrl: audiogramUpload.url,
-      posterUrl: posterUpload.url,
+      posterUrl: posterUpload?.url ?? "",
       durationMs: Math.round(durationSec * 1000),
       bytes: audiogramUpload.bytes,
     };

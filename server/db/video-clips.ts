@@ -93,7 +93,10 @@ export async function markClipReady(clipId: string, input: MarkClipReadyInput): 
     data: {
       status: ClipRenderStatus.READY,
       renderedUrl: input.renderedUrl,
-      posterUrl: input.posterUrl,
+      // Worker returns "" when it couldn't extract a poster — normalise
+      // to null so the UI's truthiness check falls through to the "Not
+      // generated" placeholder instead of trying to render an empty src.
+      posterUrl: input.posterUrl && input.posterUrl.trim() !== "" ? input.posterUrl : null,
       renderError: null,
     },
   });
