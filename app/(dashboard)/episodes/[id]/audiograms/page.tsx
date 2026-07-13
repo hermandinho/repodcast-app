@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AudiogramsList } from "@/components/episodes/audiograms-list";
 import { isLiveDb } from "@/server/data/source";
@@ -6,14 +5,8 @@ import { resolveTenantContext } from "@/server/data/tenant";
 import { prisma } from "@/server/db/client";
 
 /**
- * Q1 feature #5 — audiogram management page.
- *
- * Route: /episodes/[id]/audiograms
- *
- * Lists every current GeneratedOutput on the episode with its audiogram
- * state. Mirrors the /clips page shape: server-loaded initial state,
- * client-side polling while any audiogram is in flight, per-row
- * generate/retry/preview affordances.
+ * Q1 feature #5 — audiogram management tab. Renders inside the shared
+ * episode layout, which owns the breadcrumb + title + tab bar.
  */
 export default async function EpisodeAudiogramsPage({
   params,
@@ -25,7 +18,10 @@ export default async function EpisodeAudiogramsPage({
 
   if (!isLiveDb()) {
     return (
-      <Shell episodeId={episodeId} episodeTitle="Sample episode">
+      <TabIntro
+        title="Audiograms"
+        description="Waveform videos with burnt-in captions, per social output."
+      >
         <AudiogramsList
           episodeId={episodeId}
           outputs={[]}
@@ -33,7 +29,7 @@ export default async function EpisodeAudiogramsPage({
           notReadyReason="Sample-data mode — audiograms need a live database."
           readOnly
         />
-      </Shell>
+      </TabIntro>
     );
   }
 
@@ -41,7 +37,6 @@ export default async function EpisodeAudiogramsPage({
     where: { id: episodeId, show: { client: { agencyId: tenant.agencyId } } },
     select: {
       id: true,
-      title: true,
       audioUrl: true,
       transcriptWords: true,
       outputs: {
@@ -66,14 +61,17 @@ export default async function EpisodeAudiogramsPage({
 
   const isReady = Boolean(episode.audioUrl && episode.transcriptWords);
   const notReadyReason = !episode.audioUrl
-    ? "This episode has no audio file. Audiograms need source audio (uploaded audio, RSS enclosure, or a re-transcribed YouTube episode)."
+    ? "This episode has no audio file. Audiograms need source audio."
     : !episode.transcriptWords
       ? "This episode was transcribed before the audiogram pipeline shipped. Re-transcribe to enable audiograms."
       : null;
   const readOnly = tenant.impersonation?.mode === "read";
 
   return (
-    <Shell episodeId={episodeId} episodeTitle={episode.title}>
+    <TabIntro
+      title="Audiograms"
+      description="Waveform videos with burnt-in captions. Attach to social posts on platforms that carry video, or download and upload manually."
+    >
       <AudiogramsList
         episodeId={episodeId}
         outputs={episode.outputs.map((o) => ({
@@ -92,40 +90,26 @@ export default async function EpisodeAudiogramsPage({
         notReadyReason={notReadyReason}
         readOnly={readOnly}
       />
-    </Shell>
+    </TabIntro>
   );
 }
 
-function Shell({
-  episodeId,
-  episodeTitle,
+function TabIntro({
+  title,
+  description,
   children,
 }: {
-  episodeId: string;
-  episodeTitle: string;
+  title: string;
+  description: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-10">
-      <div className="mb-6 flex flex-col gap-1">
-        <nav className="text-muted-2 text-[12.5px]">
-          <Link href="/episodes" className="hover:text-ink">
-            Episodes
-          </Link>
-          <span className="mx-1.5">/</span>
-          <Link href={`/episodes/${episodeId}`} className="hover:text-ink">
-            {episodeTitle}
-          </Link>
-          <span className="mx-1.5">/</span>
-          <span className="text-ink">Audiograms</span>
-        </nav>
-        <h1 className="font-display text-ink text-[22px] font-semibold">Audiograms</h1>
-        <p className="text-muted-2 max-w-2xl text-[13.5px] leading-[1.6]">
-          Waveform videos with burnt-in captions. Attach to social posts on platforms Buffer can
-          carry the video for, or download and upload manually.
-        </p>
+    <>
+      <div className="mb-6">
+        <h2 className="font-display text-ink text-[18px] font-semibold">{title}</h2>
+        <p className="text-muted-2 mt-1 max-w-2xl text-[13px] leading-[1.6]">{description}</p>
       </div>
       {children}
-    </div>
+    </>
   );
 }

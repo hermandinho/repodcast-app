@@ -6,10 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { MemberRole } from "@/lib/enums";
 import { PlatformBadge } from "@/components/ui/platform-badge";
 import { VoiceStrengthBars } from "@/components/ui/voice-strength-bars";
-import { ArtworkStrip, type ArtworkStripProps } from "@/components/episodes/artwork-strip";
-import { ArtworkTrigger } from "@/components/episodes/artwork-trigger";
 import { ClipMomentsPanel } from "@/components/episodes/clip-moments-panel";
-import { EditableTitle } from "@/components/episodes/editable-title";
 import { GeneratingPanel } from "@/components/episodes/generating-panel";
 import { ImportFailedPanel } from "@/components/episodes/import-failed-panel";
 import { ImportingPanel } from "@/components/episodes/importing-panel";
@@ -229,20 +226,9 @@ export function OutputsView({
   readOnly = false,
   bufferConnected = false,
   bufferConnectedPlatforms = [],
-  artwork = null,
 }: {
   client: SampleShow;
   episode: SampleEpisode;
-  /**
-   * Q1 feature #4 — hero artwork variants pulled from the Episode row.
-   * Null in sample-data mode. `null` per-URL until Workers AI has run.
-   */
-  artwork?: {
-    heroImageUrl: string | null;
-    squareCoverUrl: string | null;
-    verticalCoverUrl: string | null;
-    concept: Record<string, unknown> | null;
-  } | null;
   /** Defaults to OWNER for sample-data mode so every control stays demoable. */
   viewerRole?: MemberRole;
   /** Parent client's validation flow — controls post-approval edit gating
@@ -970,41 +956,23 @@ export function OutputsView({
   );
 
   return (
-    <div className="flex min-h-full">
-      {/* CONTENT */}
-      <div className="min-w-0 flex-1 px-4 pt-5 pb-14 sm:px-6 md:px-7 md:pt-[26px] md:pb-[60px]">
-        {/* Breadcrumb — `client` here is actually a SHOW (the prop name
-            is legacy from the pre-hierarchy days). Links go to /shows/*.
-            The tail crumb is the episode title (truncated); we drop the
-            old "Episode {dayOfMonth}" affordance — it confused users into
-            thinking it was an episode number. */}
-        <nav aria-label="Breadcrumb" className="text-muted-2 mb-[14px] text-[12.5px]">
-          <Link href="/shows" className="hover:text-ink">
-            Shows
-          </Link>
-          <span className="mx-[7px] text-[#C3CBD8]">/</span>
-          <Link href={`/shows/${client.key}`} className="hover:text-ink">
-            {client.name}
-          </Link>
-          <span className="mx-[7px] text-[#C3CBD8]">/</span>
-          <span className="text-muted inline-block max-w-[360px] truncate align-bottom">
-            {episode.episode || episode.episodeNo}
-          </span>
-        </nav>
-
-        {/* Episode header — title row + action buttons */}
-        <div className="mb-[14px] flex flex-wrap items-start justify-between gap-4">
-          {/* `min-w-0` lets the flex parent shrink us below the natural
-              content width on phones; the wide `min-w-[300px]` floor
-              re-applies at sm+ where the header can afford it and the
-              action row wants to sit inline. */}
-          <div className="min-w-0 flex-1 sm:min-w-[300px]">
-            <EditableTitle episodeId={episode.id} initial={episode.episode} />
-            <div className="text-muted mt-[6px] text-[13px]">
-              {client.name} · {episode.episodeMeta}
-            </div>
+    <div className="min-w-0 flex-1">
+      {/* Q1 wk10 UI revamp — the outer padding, breadcrumb, title, and
+          tab bar all moved to the shared layout at ../layout.tsx.
+          `client` here is a SHOW (legacy prop name from the pre-hierarchy
+          days) — used for scheduling context, not for header rendering. */}
+      <div>
+        {/* Q1 wk10 UI revamp — breadcrumb + title + tab bar moved to the
+            shared episode layout. The Outputs tab now opens directly on
+            the outputs-specific action row: "Generate all" + optional
+            "Download for client". The Artwork/Clips/Audiograms buttons
+            are gone from here — they became tab entries. */}
+        <div className="mb-[18px] flex flex-wrap items-center justify-between gap-3">
+          <div className="text-muted-2 text-[13px]">
+            {outputs.length > 0
+              ? `${outputs.length} platform output${outputs.length === 1 ? "" : "s"}`
+              : "No outputs yet"}
           </div>
-
           <div className="flex flex-shrink-0 flex-wrap items-center gap-[10px]">
             <button
               type="button"
@@ -1035,63 +1003,8 @@ export function OutputsView({
                 ? "Generating…"
                 : pipelineRunning
                   ? "Waiting for episode…"
-                  : "Generate all"}
+                  : "Regenerate all"}
             </button>
-
-            {/* Q1 feature #4 — trigger hero artwork generation. Live-mode
-                only. Renders the button; the pipeline is async so we don't
-                block navigation on it. */}
-            {streamUrl !== null && <ArtworkTrigger episodeId={episode.id} />}
-
-            {/* Q1 feature #5 — link into the audiogram management page. */}
-            {streamUrl !== null && (
-              <Link
-                href={`/episodes/${episode.id}/audiograms`}
-                className="border-border text-ink hover:bg-canvas shadow-card flex items-center gap-2 rounded-[10px] border bg-white px-4 py-[10px] font-sans text-[13px] font-semibold transition-colors"
-                title="Manage audiograms (waveform videos) for social outputs"
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 14 14"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  aria-hidden
-                >
-                  <path d="M2 7h1M4 4.5v5M6 3v8M8 4.5v5M10 5.5v3M12 7h0" />
-                </svg>
-                Audiograms
-              </Link>
-            )}
-
-            {/* Q1 wk5+ — link into the vertical-clip management page. Live
-                mode only (clip generation writes VideoClip rows to the DB;
-                sample-data mode has none). */}
-            {streamUrl !== null && (
-              <Link
-                href={`/episodes/${episode.id}/clips`}
-                className="border-border text-ink hover:bg-canvas shadow-card flex items-center gap-2 rounded-[10px] border bg-white px-4 py-[10px] font-sans text-[13px] font-semibold transition-colors"
-                title="Manage vertical clips generated from this episode"
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 14 14"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden
-                >
-                  <rect x="3" y="1.5" width="8" height="11" rx="1.5" />
-                  <path d="M5.5 5.5l3 1.5-3 1.5z" fill="currentColor" />
-                </svg>
-                Clips
-              </Link>
-            )}
 
             {/* Branded HTML export. Live mode only (sample-data mode would
                 503 the route); approved-only — gated on at least one
@@ -1209,18 +1122,6 @@ export function OutputsView({
         ) : pipelineStage === "generating" && outputs.length === 0 && episode.pipeline ? (
           <GeneratingPanel source={episode.pipeline.source} />
         ) : null}
-
-        {/* Q1 feature #4 — hero artwork preview. Hidden until at least
-             one of the three variants has been rendered; the "Artwork"
-             button in the header is the CTA before that. */}
-        {artwork && (
-          <ArtworkStrip
-            heroImageUrl={artwork.heroImageUrl}
-            squareCoverUrl={artwork.squareCoverUrl}
-            verticalCoverUrl={artwork.verticalCoverUrl}
-            concept={artwork.concept as ArtworkStripProps["concept"]}
-          />
-        )}
 
         {/* Clip moments — null/empty rendering handled inside the panel */}
         <ClipMomentsPanel moments={episode.keyMoments} />

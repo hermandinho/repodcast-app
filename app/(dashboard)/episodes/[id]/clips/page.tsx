@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ClipsList } from "@/components/episodes/clips-list";
 import { isLiveDb } from "@/server/data/source";
@@ -8,28 +7,19 @@ import { listClipsForEpisode } from "@/server/db/video-clips";
 import { resolveClipSource } from "@/server/media/clip-source";
 
 /**
- * Q1 wk5 — clip management page.
- *
- * Route: /episodes/[id]/clips
- *
- * Loads all VideoClip rows for the episode, together with the source
- * readiness flags (sourceVideoUrl + transcriptWords) so the empty state
- * can either offer "Generate clips" or explain why the episode isn't
- * ready yet.
- *
- * The list is a client component (`components/episodes/clips-list.tsx`)
- * because it polls for state transitions when clips are in flight —
- * cheaper than adding another SSE stream just for the clips view.
+ * Q1 wk5 — clip management tab. Renders inside the shared episode
+ * layout, which owns the breadcrumb + title + tab bar.
  */
 export default async function EpisodeClipsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: episodeId } = await params;
   const tenant = await resolveTenantContext();
 
   if (!isLiveDb()) {
-    // Sample-data mode — no clips ever exist; render the "not ready"
-    // empty state so the route doesn't 404 during dev-without-DB.
     return (
-      <ClipsPageShell episodeId={episodeId} episodeTitle="Sample episode">
+      <TabIntro
+        title="Short-form clips"
+        description="Vertical 9:16 clips generated from the strongest moments in this episode."
+      >
         <ClipsList
           episodeId={episodeId}
           clips={[]}
@@ -37,18 +27,14 @@ export default async function EpisodeClipsPage({ params }: { params: Promise<{ i
           notReadyReason="Sample-data mode — clip generation needs a live database."
           readOnly
         />
-      </ClipsPageShell>
+      </TabIntro>
     );
   }
 
   const episode = await prisma.episode.findFirst({
-    where: {
-      id: episodeId,
-      show: { client: { agencyId: tenant.agencyId } },
-    },
+    where: { id: episodeId, show: { client: { agencyId: tenant.agencyId } } },
     select: {
       id: true,
-      title: true,
       source: true,
       sourceVideoUrl: true,
       audioUrl: true,
@@ -58,7 +44,6 @@ export default async function EpisodeClipsPage({ params }: { params: Promise<{ i
   if (!episode) notFound();
 
   const clips = await listClipsForEpisode(tenant.agencyId, episodeId);
-
   const source = resolveClipSource(episode);
   const isReady = Boolean(source && episode.transcriptWords);
   const notReadyReason = !source
@@ -68,63 +53,49 @@ export default async function EpisodeClipsPage({ params }: { params: Promise<{ i
       : null;
   const readOnly = tenant.impersonation?.mode === "read";
 
-  // Serialize Date fields for the client component — plain JSON.
-  const clipsForClient = clips.map((c) => ({
-    id: c.id,
-    startMs: c.startMs,
-    endMs: c.endMs,
-    score: c.score,
-    hookLine: c.hookLine,
-    status: c.status,
-    renderedUrl: c.renderedUrl,
-    posterUrl: c.posterUrl,
-    renderError: c.renderError,
-    createdAt: c.createdAt.toISOString(),
-  }));
-
   return (
-    <ClipsPageShell episodeId={episodeId} episodeTitle={episode.title}>
+    <TabIntro
+      title="Short-form clips"
+      description="Vertical 9:16 clips generated from the strongest moments in this episode. Ready to publish to Reels, Shorts, and TikTok."
+    >
       <ClipsList
         episodeId={episodeId}
-        clips={clipsForClient}
+        clips={clips.map((c) => ({
+          id: c.id,
+          startMs: c.startMs,
+          endMs: c.endMs,
+          score: c.score,
+          hookLine: c.hookLine,
+          status: c.status,
+          renderedUrl: c.renderedUrl,
+          posterUrl: c.posterUrl,
+          renderError: c.renderError,
+          createdAt: c.createdAt.toISOString(),
+        }))}
         isReady={isReady}
         notReadyReason={notReadyReason}
         readOnly={readOnly}
       />
-    </ClipsPageShell>
+    </TabIntro>
   );
 }
 
-function ClipsPageShell({
-  episodeId,
-  episodeTitle,
+function TabIntro({
+  title,
+  description,
   children,
 }: {
-  episodeId: string;
-  episodeTitle: string;
+  title: string;
+  description: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-10">
-      <div className="mb-6 flex flex-col gap-1">
-        <nav className="text-muted-2 text-[12.5px]">
-          <Link href="/episodes" className="hover:text-ink">
-            Episodes
-          </Link>
-          <span className="mx-1.5">/</span>
-          <Link href={`/episodes/${episodeId}`} className="hover:text-ink">
-            {episodeTitle}
-          </Link>
-          <span className="mx-1.5">/</span>
-          <span className="text-ink">Clips</span>
-        </nav>
-        <h1 className="font-display text-ink text-[22px] font-semibold">Short-form clips</h1>
-        <p className="text-muted-2 max-w-2xl text-[13.5px] leading-[1.6]">
-          Vertical 9:16 clips generated from the strongest moments in this episode. Ready to publish
-          to Reels, Shorts, and TikTok.
-        </p>
+    <>
+      <div className="mb-6">
+        <h2 className="font-display text-ink text-[18px] font-semibold">{title}</h2>
+        <p className="text-muted-2 mt-1 max-w-2xl text-[13px] leading-[1.6]">{description}</p>
       </div>
       {children}
-    </div>
+    </>
   );
 }
