@@ -59,12 +59,12 @@ export async function renderAudiogramVideo(input: {
   const assPath = `${srtPath}.ass`;
   const assDocument = srtStringToAss(srtText, {
     fontName: "DejaVu Sans",
-    fontSize: 52,
+    fontSize: 88,
     primaryColor: "&H00FFFFFF",
     outlineColor: "&H00000000",
     backColor: "&H80000000",
     borderStyle: 3,
-    outline: 8,
+    outline: 12,
     shadow: 0,
     alignment: 5, // middle-center
     marginL: 100,

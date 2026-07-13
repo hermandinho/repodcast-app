@@ -55,17 +55,17 @@ export async function renderClipVideo(input: {
   const assPath = `${srtPath}.ass`;
   const ass = srtStringToAss(srtText, {
     fontName: "DejaVu Sans",
-    fontSize: 42,
+    fontSize: 72,
     primaryColor: "&H00FFFFFF",
     outlineColor: "&H00000000",
     backColor: "&HA0000000",
     borderStyle: 3,
-    outline: 6,
+    outline: 10,
     shadow: 0,
     alignment: 2, // bottom-center
     marginL: 60,
     marginR: 60,
-    marginV: Math.round(dims.h * 0.08),
+    marginV: Math.round(dims.h * 0.1),
     bold: true,
     wrapStyle: 0,
     playResX: dims.w,
