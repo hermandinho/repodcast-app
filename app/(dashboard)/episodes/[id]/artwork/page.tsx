@@ -102,7 +102,15 @@ function ArtworkTab({
             palette, same mood, different frames.
           </p>
         </div>
-        {!sampleMode && !transcriptTooShort && <ArtworkTrigger episodeId={episodeId} />}
+        {!sampleMode && !transcriptTooShort && (
+          <ArtworkTrigger
+            episodeId={episodeId}
+            hasArtwork={Boolean(anyUrl)}
+            artworkSignature={
+              artwork?.heroImageUrl ?? artwork?.squareCoverUrl ?? artwork?.verticalCoverUrl ?? null
+            }
+          />
+        )}
       </div>
 
       {plan && regenQuota && (
@@ -133,8 +141,9 @@ function ArtworkTab({
             No artwork generated yet
           </div>
           <p className="text-muted-2 mx-auto mt-1.5 max-w-md text-[13px] leading-[1.6]">
-            Derive a visual concept from the transcript and render all three aspect ratios. Takes
-            about 15 seconds.
+            Click <strong className="text-ink font-semibold">Generate artwork</strong> to derive a
+            visual concept from the transcript and render all three aspect ratios. Takes about 30
+            seconds.
           </p>
         </div>
       )}
