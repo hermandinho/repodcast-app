@@ -315,6 +315,7 @@ model Agency {
   onboardingNudgesSent OnboardingNudgeSent[]
   trialNudgesSent      TrialNudgeSent[]
   usageSnapshots       AgencyUsageSnapshot[]
+  regenCounters        AgencyRegenCounter[]
   limitOverrides       AgencyLimitOverride[]
   integrations         AgencyIntegration[]
   notifications        Notification[]
@@ -1297,6 +1298,35 @@ model SystemAdmin {
 /// `revenueCents` rolls up PAID invoices' `amountCents`. Mixed-currency rows
 /// would normally need conversion, but every Stripe invoice we ingest is
 /// already in the agency's `preferredCurrency` and we don't currently
+/// PricingV2 — per-agency, per-month counter for regeneration budgets.
+/// Increments atomically inside the server action right after the
+/// capacity check, so races between simultaneous requests can't blow
+/// past the cap. One row per (agencyId, month) enforced by a unique
+/// composite index.
+///
+/// `month` is a YYYY-MM string (e.g. "2026-07") — string is simpler
+/// than DateTime for equality lookups and month rollover is a plain
+/// string change.
+///
+/// Failed renders still increment the counter — the user chose to
+/// retry and each attempt costs us compute. Under-counting would let
+/// abusers grind the system with intentionally-failing requests.
+model AgencyRegenCounter {
+  id              String   @id @default(cuid())
+  agencyId        String
+  month           String
+  clipRegens      Int      @default(0)
+  artworkRegens   Int      @default(0)
+  audiogramRegens Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  agency Agency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+
+  @@unique([agencyId, month])
+  @@index([agencyId])
+}
+
 /// aggregate across agencies in non-USD reporting — see PLAN §3.6.7 for the
 /// multi-currency cohort note.
 model AgencyUsageSnapshot {

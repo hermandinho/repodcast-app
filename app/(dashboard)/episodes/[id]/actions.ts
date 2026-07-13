@@ -33,6 +33,8 @@ import {
   updateOutputContentInput,
 } from "@/server/db/outputs";
 import { deleteClipById, deleteClipsForEpisode, getClipById } from "@/server/db/video-clips";
+import { assertAndConsumeRegen } from "@/server/billing/limits";
+import { planLimitsFor } from "@/lib/plans";
 import { resolveClipSource } from "@/server/media/clip-source";
 import {
   ALLOWED_AUDIO_CONTENT_TYPES,
@@ -641,9 +643,14 @@ export async function requestClipsAction(
     };
   }
 
+  // PricingV2 — cap `maxClips` at the plan's clipsPerEpisode. Passed
+  // downstream into `selectHighlights({ maxClips })`.
+  const planLimits = planLimitsFor(auth.agency.plan);
+  const cappedMax = Math.min(maxClips ?? planLimits.clipsPerEpisode, planLimits.clipsPerEpisode);
+
   await inngest.send({
     name: "episode/clips.requested",
-    data: { episodeId, agencyId: auth.agency.id, maxClips },
+    data: { episodeId, agencyId: auth.agency.id, maxClips: cappedMax },
   });
 
   revalidatePath(`/episodes/${episodeId}/clips`);
@@ -689,6 +696,20 @@ export async function regenerateClipsAction(
     return {
       ok: false,
       error: "This episode has no transcript-word timings. Re-transcribe to enable clips.",
+    };
+  }
+
+  // PricingV2 §3 — regenerate-all counts as a clip regeneration. Consume
+  // before firing so the counter is authoritative even if the caller's
+  // event dispatch fails downstream. ForbiddenError from
+  // assertAndConsumeRegen bubbles up to the client as a 403 → the
+  // caller renders the friendly upgrade prompt.
+  try {
+    await assertAndConsumeRegen(auth.agency.id, auth.agency.plan, "clip");
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
     };
   }
 
@@ -880,6 +901,8 @@ export async function requestAudiogramAction(
 
   const auth = await requireAuthContext();
   // Tenant guard + prereq check: audio present, word timings present.
+  // Also pull existing audiogramStatus to decide whether this counts as
+  // a regen (see below).
   const output = await prisma.generatedOutput.findFirst({
     where: {
       id: outputId,
@@ -888,6 +911,7 @@ export async function requestAudiogramAction(
     select: {
       id: true,
       episodeId: true,
+      audiogramStatus: true,
       episode: {
         select: { audioUrl: true, transcriptWords: true },
       },
@@ -902,6 +926,17 @@ export async function requestAudiogramAction(
       ok: false,
       error: "This episode has no transcript-word timings. Re-transcribe to enable audiogram.",
     };
+  }
+
+  // PricingV2 — first audiogram per output is free; regenerating (any
+  // subsequent request against the same output row) counts as a regen.
+  // `audiogramStatus == null` means we've never touched it.
+  if (output.audiogramStatus !== null) {
+    try {
+      await assertAndConsumeRegen(auth.agency.id, auth.agency.plan, "audiogram");
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   // Persist window + aspect + PENDING status BEFORE firing the event so a
@@ -953,7 +988,13 @@ export async function requestArtworkAction(
       id: episodeId,
       show: { client: { agencyId: auth.agency.id } },
     },
-    select: { id: true, transcript: true },
+    select: {
+      id: true,
+      transcript: true,
+      heroImageUrl: true,
+      squareCoverUrl: true,
+      verticalCoverUrl: true,
+    },
   });
   if (!episode) throw new NotFoundError(`Episode ${episodeId} not found`);
   if (!episode.transcript || episode.transcript.trim().length < 200) {
@@ -962,6 +1003,20 @@ export async function requestArtworkAction(
       error:
         "Episode transcript is too short to derive a visual concept. Try again after transcription completes.",
     };
+  }
+
+  // PricingV2 — first artwork run per episode is free (bundled with
+  // the episode). Subsequent runs (any variant already exists) count
+  // as a regen and consume budget.
+  const artworkExists = Boolean(
+    episode.heroImageUrl || episode.squareCoverUrl || episode.verticalCoverUrl,
+  );
+  if (artworkExists) {
+    try {
+      await assertAndConsumeRegen(auth.agency.id, auth.agency.plan, "artwork");
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   await inngest.send({
@@ -996,6 +1051,13 @@ export async function retryClipAction(raw: unknown): Promise<ActionResult<{ clip
   if (!clip) throw new NotFoundError(`Clip ${clipId} not found`);
   if (clip.episodeId !== episodeId) {
     return { ok: false, error: "Clip does not belong to this episode." };
+  }
+
+  // Retry is a regen (worker will redo the ffmpeg pass) — consume budget.
+  try {
+    await assertAndConsumeRegen(auth.agency.id, auth.agency.plan, "clip");
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 
   // Reuse the retrim event with unchanged bounds — same worker call
@@ -1053,6 +1115,13 @@ export async function retrimClipAction(raw: unknown): Promise<ActionResult<{ cli
   if (!clip) throw new NotFoundError(`Clip ${clipId} not found`);
   if (clip.episodeId !== episodeId) {
     return { ok: false, error: "Clip does not belong to this episode." };
+  }
+
+  // Trim + re-render is a clip regen.
+  try {
+    await assertAndConsumeRegen(auth.agency.id, auth.agency.plan, "clip");
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 
   await inngest.send({
