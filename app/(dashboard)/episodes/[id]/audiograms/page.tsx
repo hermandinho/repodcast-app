@@ -9,7 +9,16 @@ import { prisma } from "@/server/db/client";
 /**
  * Q1 feature #5 — audiogram management tab. Renders inside the shared
  * episode layout, which owns the breadcrumb + title + tab bar.
+ *
+ * `dynamic = "force-dynamic"` opts this segment out of every layer of
+ * Next.js caching — the Full Route Cache, the Data Cache, and the
+ * Router Cache all get bypassed. Necessary because `router.refresh()`
+ * from `AudiogramsList` after a Regenerate click needs to see the
+ * freshly PENDING status; without this, the router cache serves the
+ * stale READY snapshot and the tab looks unresponsive.
  */
+export const dynamic = "force-dynamic";
+
 export default async function EpisodeAudiogramsPage({
   params,
 }: {
@@ -30,6 +39,7 @@ export default async function EpisodeAudiogramsPage({
           isReady={false}
           notReadyReason="Sample-data mode — audiograms need a live database."
           readOnly
+          audioMissing={false}
         />
       </TabIntro>
     );
@@ -103,6 +113,7 @@ export default async function EpisodeAudiogramsPage({
         isReady={isReady}
         notReadyReason={notReadyReason}
         readOnly={readOnly}
+        audioMissing={!episode.audioUrl}
       />
     </TabIntro>
   );

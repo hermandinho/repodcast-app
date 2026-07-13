@@ -81,13 +81,17 @@ export function ClipsList({ episodeId, clips, isReady, notReadyReason, readOnly,
     return () => clearTimeout(t);
   }, [awaitingSince]);
 
-  // Poll while anything is in flight OR while we're in the preparing
-  // grace window.
+  // Poll while anything is in flight OR during the preparing grace
+  // window OR while an action-post `awaitingSince` is stamped. The last
+  // clause matters for retry-on-existing-clip: the click updates the DB
+  // to PENDING but the client's `inFlightCount` still reads 0 until
+  // router.refresh() lands the new row state — without polling engaging
+  // preemptively we'd never see the transition.
   useEffect(() => {
-    if (inFlightCount === 0 && !preparing) return;
+    if (inFlightCount === 0 && !preparing && awaitingSince === null) return;
     const t = setInterval(() => router.refresh(), 3_000);
     return () => clearInterval(t);
-  }, [inFlightCount, router, preparing]);
+  }, [inFlightCount, router, preparing, awaitingSince]);
 
   const runAction = (fn: () => Promise<{ ok: true } | { ok: false; error: string } | void>) => {
     setError(null);

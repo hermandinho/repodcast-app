@@ -118,6 +118,16 @@ export const generateAudiogram = inngest.createFunction(
     await step.run("mark-rendering", () => markAudiogramRendering(outputId));
 
     // ---- 5. Render ----
+    // Aspect-matched background picker: prefer per-episode auto-generated
+    // artwork (Q1 feature #4) at the closest matching aspect, fall back
+    // through show-level artwork, then null (the worker paints its own
+    // navy → violet gradient in that case).
+    const backgroundImageUrl = pickAudiogramBackground(params.aspect, {
+      episodeSquareCoverUrl: ctx.episodeSquareCoverUrl,
+      episodeVerticalCoverUrl: ctx.episodeVerticalCoverUrl,
+      episodeHeroImageUrl: ctx.episodeHeroImageUrl,
+      showArtworkUrl: ctx.showArtworkUrl,
+    });
     return step.run("render", async () => {
       try {
         const renderTs = Date.now();
@@ -128,7 +138,7 @@ export const generateAudiogram = inngest.createFunction(
           endMs: params.endMs,
           captionsSrt,
           aspect: params.aspect,
-          backgroundImageUrl: ctx.showArtworkUrl,
+          backgroundImageUrl,
           outputPrefix: `audiograms/${agencyId}/${ctx.episodeId}/${outputId}/${renderTs}`,
         });
         await markAudiogramReady(outputId, {
@@ -151,4 +161,49 @@ function extractRenderErrorReason(err: unknown): string {
   if (err instanceof RenderWorkerConfigError) return err.message;
   if (err instanceof Error) return err.message;
   return "unknown render error";
+}
+
+/**
+ * Pick the best background image URL for an audiogram render.
+ *
+ * The worker will `scale + crop` any aspect input to the target dims,
+ * so any URL works — but starting from the closest-matching aspect
+ * minimizes information loss in the crop. Preference order:
+ *
+ *   9:16 target: verticalCover → hero → squareCover → showArtwork → null
+ *   1:1  target: squareCover → hero → verticalCover → showArtwork → null
+ *
+ * Returns null when every candidate is missing; the worker then paints
+ * a navy → violet gradient.
+ *
+ * Exported for the vitest unit test in
+ * `tests/inngest/generate-audiogram.test.ts`.
+ */
+export function pickAudiogramBackground(
+  aspect: "1:1" | "9:16",
+  candidates: {
+    episodeSquareCoverUrl: string | null;
+    episodeVerticalCoverUrl: string | null;
+    episodeHeroImageUrl: string | null;
+    showArtworkUrl: string | null;
+  },
+): string | null {
+  const order =
+    aspect === "9:16"
+      ? [
+          candidates.episodeVerticalCoverUrl,
+          candidates.episodeHeroImageUrl,
+          candidates.episodeSquareCoverUrl,
+          candidates.showArtworkUrl,
+        ]
+      : [
+          candidates.episodeSquareCoverUrl,
+          candidates.episodeHeroImageUrl,
+          candidates.episodeVerticalCoverUrl,
+          candidates.showArtworkUrl,
+        ];
+  for (const url of order) {
+    if (url && url.trim().length > 0) return url;
+  }
+  return null;
 }

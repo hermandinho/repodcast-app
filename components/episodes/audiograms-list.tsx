@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ClipRenderStatus, Platform } from "@prisma/client";
 import { requestAudiogramAction } from "@/app/(dashboard)/episodes/[id]/actions";
+import { ReuploadAudio } from "@/components/episodes/reupload-audio";
 import { Card } from "@/components/ui/card";
 import { translateClipRenderError } from "@/lib/clip-error-messages";
 
@@ -44,9 +45,22 @@ type Props = {
   isReady: boolean;
   notReadyReason: string | null;
   readOnly: boolean;
+  /**
+   * True when the episode's audio was cleaned up by the (retired) tier-2
+   * orphan-audio cron. When set, the "not ready" surfaces show a
+   * Re-upload button that restores `audioUrl` and unblocks regeneration.
+   */
+  audioMissing: boolean;
 };
 
-export function AudiogramsList({ episodeId, outputs, isReady, notReadyReason, readOnly }: Props) {
+export function AudiogramsList({
+  episodeId,
+  outputs,
+  isReady,
+  notReadyReason,
+  readOnly,
+  audioMissing,
+}: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -74,11 +88,19 @@ export function AudiogramsList({ episodeId, outputs, isReady, notReadyReason, re
     return () => clearTimeout(t);
   }, [awaitingSince]);
 
+  // Polling triggers, any one is enough:
+  //   - `inFlightCount > 0`: something is PENDING/RENDERING — poll for
+  //     status transitions.
+  //   - `preparing`: first-generate empty-state grace window.
+  //   - `awaitingSince !== null`: user just fired ANY action. Needed for
+  //     the regenerate-on-existing-READY case where the client hasn't
+  //     yet seen the DB's status flip to PENDING, so `inFlightCount` is
+  //     stale at 0 and polling would never kick in.
   useEffect(() => {
-    if (inFlightCount === 0 && !preparing) return;
+    if (inFlightCount === 0 && !preparing && awaitingSince === null) return;
     const t = setInterval(() => router.refresh(), 3_000);
     return () => clearInterval(t);
-  }, [inFlightCount, router, preparing]);
+  }, [inFlightCount, router, preparing, awaitingSince]);
 
   const runAction = (fn: () => Promise<{ ok: true } | { ok: false; error: string }>) => {
     setError(null);
@@ -116,6 +138,11 @@ export function AudiogramsList({ episodeId, outputs, isReady, notReadyReason, re
         <p className="text-muted-2 mt-1.5 text-[13px] leading-[1.6]">
           {notReadyReason ?? "This episode isn't ready yet."}
         </p>
+        {audioMissing && !readOnly && (
+          <div className="mt-4">
+            <ReuploadAudio episodeId={episodeId} variant="primary" />
+          </div>
+        )}
       </Card>
     );
   }
@@ -134,9 +161,12 @@ export function AudiogramsList({ episodeId, outputs, isReady, notReadyReason, re
   return (
     <div>
       {!isReady && notReadyReason && (
-        <div className="border-border bg-surface-2 text-muted mb-4 rounded-lg border p-3 text-[12.5px] leading-[1.5]">
-          <strong className="text-ink font-semibold">Heads up:</strong> {notReadyReason} Existing
-          audiograms below are still viewable.
+        <div className="border-border bg-surface-2 text-muted mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-[12.5px] leading-[1.5]">
+          <div>
+            <strong className="text-ink font-semibold">Heads up:</strong> {notReadyReason} Existing
+            audiograms below are still viewable.
+          </div>
+          {audioMissing && !readOnly && <ReuploadAudio episodeId={episodeId} variant="inline" />}
         </div>
       )}
       <div className="text-muted-2 mb-4 text-[13px]">

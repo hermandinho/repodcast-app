@@ -92,6 +92,16 @@ export async function getOutputAudiogramContext(
   audioUrl: string | null;
   transcriptWords: unknown;
   showArtworkUrl: string | null;
+  /**
+   * Q1 feature #4 — per-episode auto-generated artwork. The Inngest fn
+   * picks whichever aspect best matches the requested audiogram aspect
+   * (square for 1:1, vertical for 9:16, hero as last resort) before
+   * falling back to `showArtworkUrl` and finally the gradient default
+   * in the worker.
+   */
+  episodeHeroImageUrl: string | null;
+  episodeSquareCoverUrl: string | null;
+  episodeVerticalCoverUrl: string | null;
 } | null> {
   const row = await prisma.generatedOutput.findFirst({
     where: {
@@ -105,6 +115,9 @@ export async function getOutputAudiogramContext(
         select: {
           audioUrl: true,
           transcriptWords: true,
+          heroImageUrl: true,
+          squareCoverUrl: true,
+          verticalCoverUrl: true,
           show: {
             select: {
               artworkUrl: true,
@@ -123,5 +136,8 @@ export async function getOutputAudiogramContext(
     audioUrl: row.episode.audioUrl,
     transcriptWords: row.episode.transcriptWords,
     showArtworkUrl: row.episode.show.artworkUrl,
+    episodeHeroImageUrl: row.episode.heroImageUrl,
+    episodeSquareCoverUrl: row.episode.squareCoverUrl,
+    episodeVerticalCoverUrl: row.episode.verticalCoverUrl,
   };
 }

@@ -37,7 +37,6 @@ import { assertAndConsumeRegen } from "@/server/billing/limits";
 import { planLimitsFor } from "@/lib/plans";
 import { resolveClipSource } from "@/server/media/clip-source";
 import {
-  ALLOWED_AUDIO_CONTENT_TYPES,
   MAX_AUDIO_UPLOAD_BYTES,
   audioExtensionFor,
   isAllowedAudioContentType,
@@ -858,6 +857,111 @@ export async function finalizeSourceVideoUploadAction(
 }
 
 // ============================================================
+// Q2 wk15 — Re-upload audio for an existing episode
+//
+// The Phase 2.7 orphan-audio cron used to wipe `Episode.audioUrl` for
+// READY episodes on the assumption downstream only needed the transcript.
+// That policy was retired when Q1 shipped audiograms + clips (both read
+// the audio at render time), but rows that were already cleaned up
+// still need a way to restore the file. Same two-step direct-to-R2
+// shape as the source-video upload above.
+// ============================================================
+
+const signAudioReuploadInput = z.object({
+  episodeId: z.string().min(1),
+  filename: z.string().min(1).max(200),
+  contentType: z.string().min(1),
+  size: z.number().int().nonnegative(),
+});
+
+export async function signAudioReuploadAction(
+  raw: unknown,
+): Promise<ActionResult<{ uploadUrl: string; objectKey: string }>> {
+  const parsed = signAudioReuploadInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid upload request", parsed.error.issues);
+  }
+  const { episodeId, filename, contentType, size } = parsed.data;
+
+  if (!isAllowedAudioContentType(contentType)) {
+    return {
+      ok: false,
+      error: `Unsupported audio format ${contentType}. Allowed: MP3, M4A, WAV, FLAC, OGG, MP4, MOV.`,
+    };
+  }
+  if (size > MAX_AUDIO_UPLOAD_BYTES) {
+    return {
+      ok: false,
+      error: `File is ${Math.round(size / (1024 * 1024))} MB — limit is ${Math.round(MAX_AUDIO_UPLOAD_BYTES / (1024 * 1024))} MB.`,
+    };
+  }
+
+  const auth = await requireAuthContext();
+  // Tenant guard + collect the parent show id so the R2 key matches the
+  // shape the original upload used (`audio/<agency>/<show>/<episode>.ext`).
+  const episode = await prisma.episode.findFirst({
+    where: { id: episodeId, show: { client: { agencyId: auth.agency.id } } },
+    select: { id: true, showId: true },
+  });
+  if (!episode) throw new NotFoundError(`Episode ${episodeId} not found`);
+
+  if (!getR2Client()) {
+    return { ok: false, error: "R2 is not configured. Contact support." };
+  }
+
+  const ext = audioExtensionFor(contentType, filename);
+  const objectKey = `audio/${auth.agency.id}/${episode.showId}/${episodeId}.${ext}`;
+  const uploadUrl = await signR2UploadUrl(objectKey, contentType, 15 * 60);
+
+  return { ok: true, data: { uploadUrl, objectKey } };
+}
+
+const finalizeAudioReuploadInput = z.object({
+  episodeId: z.string().min(1),
+  objectKey: z.string().min(1),
+});
+
+export async function finalizeAudioReuploadAction(
+  raw: unknown,
+): Promise<ActionResult<{ episodeId: string }>> {
+  const parsed = finalizeAudioReuploadInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid finalize input", parsed.error.issues);
+  }
+  const { episodeId, objectKey } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ episodeId });
+
+  const auth = await requireAuthContext();
+  // Prefix check — the key we're stamping must be one we ourselves signed.
+  const expectedPrefix = `audio/${auth.agency.id}/`;
+  if (!objectKey.startsWith(expectedPrefix)) {
+    return { ok: false, error: "Upload key does not match this agency." };
+  }
+  if (!objectKey.includes(`/${episodeId}.`)) {
+    return { ok: false, error: "Upload key does not match this episode." };
+  }
+
+  const episode = await prisma.episode.findFirst({
+    where: { id: episodeId, show: { client: { agencyId: auth.agency.id } } },
+    select: { id: true },
+  });
+  if (!episode) throw new NotFoundError(`Episode ${episodeId} not found`);
+
+  await prisma.episode.update({
+    where: { id: episodeId },
+    data: { audioUrl: objectKey },
+  });
+
+  // Revalidate both the audiograms and clips tabs — either could be
+  // gated on the missing audio.
+  revalidatePath(`/episodes/${episodeId}/audiograms`);
+  revalidatePath(`/episodes/${episodeId}/clips`);
+  revalidatePath(`/episodes/${episodeId}`);
+  return noopOk({ episodeId });
+}
+
+// ============================================================
 // Q1 feature #5 — Request audiogram for an output
 // ============================================================
 
@@ -880,7 +984,69 @@ export async function requestAudiogramAction(
   if (!parsed.success) {
     throw new ValidationError("Invalid audiogram-request input", parsed.error.issues);
   }
-  const { outputId, startMs = 0, endMs = AUDIOGRAM_DEFAULT_END_MS, aspect = "9:16" } = parsed.data;
+  const {
+    outputId,
+    startMs: startMsOverride,
+    endMs: endMsOverride,
+    aspect: aspectOverride,
+  } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ outputId });
+
+  const auth = await requireAuthContext();
+  // Tenant guard + prereq check + existing window: pull the stored
+  // audiogramStartMs/EndMs/Aspect so a plain "Regenerate" click without
+  // any window overrides preserves the user's previous trim instead of
+  // resetting to the 0–60 s default.
+  const output = await prisma.generatedOutput.findFirst({
+    where: {
+      id: outputId,
+      episode: { show: { client: { agencyId: auth.agency.id } } },
+    },
+    select: {
+      id: true,
+      episodeId: true,
+      audiogramStatus: true,
+      audiogramStartMs: true,
+      audiogramEndMs: true,
+      audiogramAspect: true,
+      episode: {
+        select: { audioUrl: true, transcriptWords: true },
+      },
+    },
+  });
+  if (!output) throw new NotFoundError(`Output ${outputId} not found`);
+  if (!output.episode.audioUrl) {
+    // Legacy state: the old audio-cleanup cron wiped `audioUrl` for
+    // READY episodes on the assumption downstream only needed the
+    // transcript. That policy was retired when Q1 shipped audiograms
+    // (see `inngest/functions/cleanup-orphan-audio.ts`), but existing
+    // rows that were already cleaned up can't render new audiograms.
+    // Existing audiogram MP4s stay downloadable — they're immutable R2
+    // objects — but re-rendering needs the source audio back.
+    return {
+      ok: false,
+      error:
+        output.audiogramStatus === null
+          ? "This episode has no audio on file. Upload audio to enable audiograms."
+          : "The source audio for this episode was archived after transcription. Existing audiograms still play; to regenerate, re-upload the episode audio from the episode's Outputs tab.",
+    };
+  }
+  if (!output.episode.transcriptWords) {
+    return {
+      ok: false,
+      error: "This episode has no transcript-word timings. Re-transcribe to enable audiogram.",
+    };
+  }
+
+  // Effective window: caller override wins → existing DB value → default.
+  const startMs = startMsOverride ?? output.audiogramStartMs ?? 0;
+  const endMs = endMsOverride ?? output.audiogramEndMs ?? AUDIOGRAM_DEFAULT_END_MS;
+  const aspect: "1:1" | "9:16" =
+    aspectOverride ??
+    (output.audiogramAspect === "1:1" || output.audiogramAspect === "9:16"
+      ? (output.audiogramAspect as "1:1" | "9:16")
+      : "9:16");
 
   if (endMs <= startMs) return { ok: false, error: "End time must be after start time." };
   const span = endMs - startMs;
@@ -894,37 +1060,6 @@ export async function requestAudiogramAction(
     return {
       ok: false,
       error: `Audiogram is too long — maximum ${AUDIOGRAM_MAX_SPAN_MS / 1000}s.`,
-    };
-  }
-
-  if (!isLiveDb()) return noopOk({ outputId });
-
-  const auth = await requireAuthContext();
-  // Tenant guard + prereq check: audio present, word timings present.
-  // Also pull existing audiogramStatus to decide whether this counts as
-  // a regen (see below).
-  const output = await prisma.generatedOutput.findFirst({
-    where: {
-      id: outputId,
-      episode: { show: { client: { agencyId: auth.agency.id } } },
-    },
-    select: {
-      id: true,
-      episodeId: true,
-      audiogramStatus: true,
-      episode: {
-        select: { audioUrl: true, transcriptWords: true },
-      },
-    },
-  });
-  if (!output) throw new NotFoundError(`Output ${outputId} not found`);
-  if (!output.episode.audioUrl) {
-    return { ok: false, error: "This episode has no audio. Audiogram needs source audio." };
-  }
-  if (!output.episode.transcriptWords) {
-    return {
-      ok: false,
-      error: "This episode has no transcript-word timings. Re-transcribe to enable audiogram.",
     };
   }
 
@@ -959,6 +1094,11 @@ export async function requestAudiogramAction(
     data: { outputId, agencyId: auth.agency.id },
   });
 
+  // Revalidate the audiograms sub-route explicitly so router.refresh()
+  // on the client picks up the new PENDING state. Revalidating just the
+  // parent /episodes/[id] leaves the /audiograms segment cached and the
+  // "Regenerate" click looks like a no-op.
+  revalidatePath(`/episodes/${output.episodeId}/audiograms`);
   revalidatePath(`/episodes/${output.episodeId}`);
   return noopOk({ outputId });
 }
@@ -1024,6 +1164,11 @@ export async function requestArtworkAction(
     data: { episodeId, agencyId: auth.agency.id },
   });
 
+  // Revalidate the artwork sub-route so the trigger's post-action
+  // router.refresh() picks up the new signature once the Inngest fn
+  // writes the fresh URLs. Same reasoning as the audiogram action —
+  // hitting only the parent leaves the /artwork tab segment cached.
+  revalidatePath(`/episodes/${episodeId}/artwork`);
   revalidatePath(`/episodes/${episodeId}`);
   return noopOk({ episodeId });
 }
