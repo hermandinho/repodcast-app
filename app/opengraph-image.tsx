@@ -11,7 +11,7 @@ import { ImageResponse } from "next/og";
  * Twitter's summary_large_image card reuses this via
  * `app/twitter-image.tsx` (identical output).
  */
-export const alt = "Repodcast — Sounds exactly like you. Gets better every episode.";
+export const alt = "Repodcast — A full launch kit, every episode.";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -130,8 +130,8 @@ export default async function OpenGraphImage() {
             letterSpacing: "-0.03em",
           }}
         >
-          <span>Sounds exactly like you.</span>
-          <span>Gets better every episode.</span>
+          <span>A full launch kit,</span>
+          <span>every episode.</span>
         </div>
         <div
           style={{
@@ -141,8 +141,8 @@ export default async function OpenGraphImage() {
             maxWidth: 820,
           }}
         >
-          Turn every client episode into platform-ready content — X threads, LinkedIn posts, show
-          notes — in your client&apos;s exact voice, in under 60 seconds.
+          Seven platform posts, vertical clips, hero artwork, and audiograms — all in your
+          show&apos;s voice, ready in a minute.
         </div>
       </div>
 
@@ -157,7 +157,7 @@ export default async function OpenGraphImage() {
         }}
       >
         <span>repodcastapp.com</span>
-        <span>7 platforms · voice-true · agency-native</span>
+        <span>posts · clips · artwork · audiograms — one voice</span>
       </div>
     </div>,
     size,

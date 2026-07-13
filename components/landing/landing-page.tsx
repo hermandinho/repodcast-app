@@ -121,8 +121,8 @@ function Hero({ isSignedIn }: { isSignedIn: boolean }) {
             >
               {isSignedIn ? "Continue" : "Get started"}
             </Link>
-            <a
-              href="#voice"
+            <Link
+              href="/samples/founders-frequency"
               className="rounded-[9px] px-5 py-3 text-[14px] font-semibold no-underline sm:px-[22px] sm:py-3 sm:text-[15px]"
               style={{
                 background: "#fff",
@@ -130,8 +130,8 @@ function Hero({ isSignedIn }: { isSignedIn: boolean }) {
                 border: `1px solid #D4DBE7`,
               }}
             >
-              See the voice engine
-            </a>
+              See a sample delivery
+            </Link>
           </div>
           {!isSignedIn && (
             <p className="mt-4 text-[13px]" style={{ color: MUTED_2 }}>
@@ -716,15 +716,19 @@ function LaunchKit() {
             </div>
           ))}
         </div>
-        <div
-          className="mt-6 rounded-[10px] p-4 text-center text-[14.5px] font-bold sm:mt-7 sm:p-[18px]"
+        <Link
+          href="/samples/founders-frequency"
+          className="mt-6 flex flex-wrap items-center justify-center gap-2 rounded-[10px] p-4 text-center text-[14.5px] font-bold no-underline transition-[filter] hover:brightness-95 sm:mt-7 sm:p-[18px]"
           style={{
             background: "var(--color-accent-soft)",
             color: "var(--color-accent)",
           }}
         >
-          Every deliverable, in your client&apos;s voice.
-        </div>
+          <span>See a real launch kit — one episode, every deliverable</span>
+          <span aria-hidden style={{ fontWeight: 700 }}>
+            →
+          </span>
+        </Link>
       </div>
     </section>
   );
