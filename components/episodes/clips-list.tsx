@@ -50,6 +50,13 @@ export function ClipsList({ episodeId, clips, isReady, notReadyReason, readOnly 
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [trimClipId, setTrimClipId] = useState<string | null>(null);
+  // Non-null when the user has recently fired an action and we're
+  // waiting for the Inngest fn to create rows. A 90-s setTimeout in an
+  // effect clears it. `preparing` (the visible-state derivation) is
+  // computed from this + clips.length in render, so we avoid impure
+  // Date.now() reads and in-effect setState churn on clip arrival.
+  const [awaitingSince, setAwaitingSince] = useState<number | null>(null);
+  const preparing = awaitingSince !== null && clips.length === 0;
 
   const inFlightCount = useMemo(
     () =>
@@ -59,12 +66,21 @@ export function ClipsList({ episodeId, clips, isReady, notReadyReason, readOnly 
     [clips],
   );
 
-  // Poll while anything is in flight.
+  // 90-s hard cap on the awaiting window — if nothing ever appears
+  // (Inngest silently failed, etc.) we drop the optimistic banner.
   useEffect(() => {
-    if (inFlightCount === 0) return;
-    const t = setInterval(() => router.refresh(), 5_000);
+    if (awaitingSince === null) return;
+    const t = setTimeout(() => setAwaitingSince(null), 90_000);
+    return () => clearTimeout(t);
+  }, [awaitingSince]);
+
+  // Poll while anything is in flight OR while we're in the preparing
+  // grace window.
+  useEffect(() => {
+    if (inFlightCount === 0 && !preparing) return;
+    const t = setInterval(() => router.refresh(), 3_000);
     return () => clearInterval(t);
-  }, [inFlightCount, router]);
+  }, [inFlightCount, router, preparing]);
 
   const runAction = (fn: () => Promise<{ ok: true } | { ok: false; error: string } | void>) => {
     setError(null);
@@ -74,6 +90,11 @@ export function ClipsList({ episodeId, clips, isReady, notReadyReason, readOnly 
         if (result && "ok" in result && !result.ok) {
           setError(result.error);
         } else {
+          // Stamp the awaiting window so the empty state + polling
+          // effect stay active while the Inngest fn creates the rows.
+          // Cleared naturally when clips.length > 0 (derived) or after
+          // 90 s (setTimeout in effect above).
+          setAwaitingSince(Date.now());
           router.refresh();
         }
       } catch (err) {
@@ -124,15 +145,28 @@ export function ClipsList({ episodeId, clips, isReady, notReadyReason, readOnly 
   if (clips.length === 0) {
     return (
       <Card className="p-8 text-center">
-        <div className="font-display text-ink text-[16px] font-semibold">No clips yet</div>
-        <p className="text-muted-2 mx-auto mt-1.5 max-w-md text-[13px] leading-[1.6]">
-          Pull up to five vertical clips from the strongest moments in this episode. Takes about a
-          minute per clip.
-        </p>
-        {!readOnly && (
-          <Button className="mt-5" variant="primary" onClick={onGenerate} disabled={isPending}>
-            {isPending ? "Starting…" : "Generate clips"}
-          </Button>
+        {preparing ? (
+          <>
+            <div className="border-muted/30 border-t-accent mx-auto mb-3 h-6 w-6 animate-spin rounded-full border-2" />
+            <div className="font-display text-ink text-[16px] font-semibold">Preparing clips</div>
+            <p className="text-muted-2 mx-auto mt-1.5 max-w-md text-[13px] leading-[1.6]">
+              Analysing the transcript and queueing renders. The first cards will appear within a
+              few seconds — full renders take about a minute each.
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="font-display text-ink text-[16px] font-semibold">No clips yet</div>
+            <p className="text-muted-2 mx-auto mt-1.5 max-w-md text-[13px] leading-[1.6]">
+              Pull up to five vertical clips from the strongest moments in this episode. Takes about
+              a minute per clip.
+            </p>
+            {!readOnly && (
+              <Button className="mt-5" variant="primary" onClick={onGenerate} disabled={isPending}>
+                {isPending ? "Starting…" : "Generate clips"}
+              </Button>
+            )}
+          </>
         )}
         {error && <p className="text-danger mt-3 text-[12.5px]">{error}</p>}
       </Card>
@@ -325,8 +359,12 @@ function ClipMedia({ clip }: { clip: ClipRow }) {
   const posterOnly = clip.posterUrl && !clip.renderedUrl;
   const ready = clip.renderedUrl && clip.status === ClipRenderStatus.READY;
 
+  // Cap the vertical preview so cards on a 3-column grid don't turn into
+  // 600-pixel-tall towers. max-w on the inner box + mx-auto lets the
+  // aspect-[9/16] compute a comfortable ~370 px height and centres it
+  // inside the wider card.
   return (
-    <div className="bg-surface-3 relative aspect-[9/16] w-full overflow-hidden">
+    <div className="bg-surface-3 relative mx-auto aspect-[9/16] w-full max-w-[210px] overflow-hidden rounded">
       {ready ? (
         <video
           className="h-full w-full object-cover"

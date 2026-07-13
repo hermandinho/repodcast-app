@@ -2,6 +2,8 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { extractPoster, probeDurationSec, renderClipVideo, type Aspect } from "../lib/ffmpeg.js";
+
+const MIN_CLIP_DURATION_SEC = 3;
 import { uploadFile } from "../lib/r2.js";
 import { downloadSource } from "../lib/source.js";
 import { sliceSrt } from "../lib/srt.js";
@@ -58,21 +60,39 @@ export async function renderClip(input: ClipJobInput): Promise<ClipJobOutput> {
     // 1. Source
     await downloadSource(sourceUrl, sourcePath);
 
-    // 2. Captions — slice to window, then re-baseline to clip-local time.
-    const localSrt = sliceSrt(captionsSrt, startMs, endMs);
+    // 2. Probe + clamp — the transcript may describe a longer episode
+    //    than the actual source video (dev fixture, misconfigured
+    //    Episode.sourceVideoUrl, etc.). If the requested window sits
+    //    past the source's end we silently produce a 0-byte clip. Clamp
+    //    to source and fail fast when nothing usable remains.
+    const sourceDurationSec = await probeDurationSec(sourcePath);
+    if (sourceDurationSec <= 0) {
+      throw new Error("source video has no readable duration — bad container or empty download");
+    }
+    const startSec = Math.min(startMs / 1000, sourceDurationSec);
+    const endSec = Math.min(endMs / 1000, sourceDurationSec);
+    const spanSec = endSec - startSec;
+    if (spanSec < MIN_CLIP_DURATION_SEC) {
+      throw new Error(
+        `Clip window (${(startMs / 1000).toFixed(1)}s–${(endMs / 1000).toFixed(1)}s) sits past the source video's ${sourceDurationSec.toFixed(1)}s duration. Only ${spanSec.toFixed(1)}s of usable footage. Pick an earlier moment or supply a longer source.`,
+      );
+    }
+
+    // 3. Captions — slice to the effective (possibly-clamped) window.
+    const localSrt = sliceSrt(captionsSrt, Math.round(startSec * 1000), Math.round(endSec * 1000));
     await writeFile(srtPath, localSrt, "utf8");
 
-    // 3. Render — ffmpeg trim + crop + burn
+    // 4. Render
     await renderClipVideo({
       sourcePath,
       srtPath,
       outputPath: outPath,
-      startSec: startMs / 1000,
-      endSec: endMs / 1000,
+      startSec,
+      endSec,
       aspect,
     });
 
-    // 4. Poster — best-effort. If ffmpeg can't extract a frame (very
+    // 5. Poster — best-effort. If ffmpeg can't extract a frame (very
     //    short clip, weird container, codec quirks), we still ship the
     //    MP4. The card just won't have a poster preview.
     let posterAvailable = false;
@@ -86,10 +106,16 @@ export async function renderClip(input: ClipJobInput): Promise<ClipJobOutput> {
       );
     }
 
-    // 5. Duration probe (source might have been shorter than requested)
+    // 6. Duration probe (rendered file may be shorter than the clamped
+    //    window if the source ended mid-clip).
     const durationSec = await probeDurationSec(outPath);
+    if (durationSec < MIN_CLIP_DURATION_SEC) {
+      throw new Error(
+        `Rendered clip is only ${durationSec.toFixed(2)}s — below the ${MIN_CLIP_DURATION_SEC}s minimum. Source likely doesn't cover the requested window.`,
+      );
+    }
 
-    // 6. Upload — poster only if it was actually produced.
+    // 7. Upload — poster only if it was actually produced.
     const prefix = outputPrefix.replace(/\/$/, "");
     const clipUpload = await uploadFile(outPath, `${prefix}/clip.mp4`, "video/mp4");
     const posterUpload = posterAvailable

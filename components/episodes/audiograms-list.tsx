@@ -50,6 +50,13 @@ export function AudiogramsList({ episodeId, outputs, isReady, notReadyReason, re
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // Grace-period polling. Same shape as clips-list — the awaiting
+  // window is a nullable timestamp; a 90-s setTimeout in an effect
+  // clears it, and the "preparing" derivation depends on both this and
+  // whether any row has started its status transitions.
+  const [awaitingSince, setAwaitingSince] = useState<number | null>(null);
+  const anyStatus = useMemo(() => outputs.some((o) => o.audiogramStatus !== null), [outputs]);
+  const preparing = awaitingSince !== null && !anyStatus;
 
   const inFlightCount = useMemo(
     () =>
@@ -62,10 +69,16 @@ export function AudiogramsList({ episodeId, outputs, isReady, notReadyReason, re
   );
 
   useEffect(() => {
-    if (inFlightCount === 0) return;
-    const t = setInterval(() => router.refresh(), 5_000);
+    if (awaitingSince === null) return;
+    const t = setTimeout(() => setAwaitingSince(null), 90_000);
+    return () => clearTimeout(t);
+  }, [awaitingSince]);
+
+  useEffect(() => {
+    if (inFlightCount === 0 && !preparing) return;
+    const t = setInterval(() => router.refresh(), 3_000);
     return () => clearInterval(t);
-  }, [inFlightCount, router]);
+  }, [inFlightCount, router, preparing]);
 
   const runAction = (fn: () => Promise<{ ok: true } | { ok: false; error: string }>) => {
     setError(null);
@@ -73,7 +86,10 @@ export function AudiogramsList({ episodeId, outputs, isReady, notReadyReason, re
       try {
         const res = await fn();
         if (!res.ok) setError(res.error);
-        else router.refresh();
+        else {
+          setAwaitingSince(Date.now());
+          router.refresh();
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
