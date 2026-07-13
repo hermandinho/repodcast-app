@@ -3,7 +3,12 @@ import "server-only";
 import type { Plan } from "@prisma/client";
 import { ForbiddenError } from "@/server/auth/errors";
 import { prisma } from "@/server/db/client";
-import { planLimitsFor } from "@/lib/plans";
+import { planLimitsFor, PLAN_DISPLAY } from "@/lib/plans";
+import {
+  getAllRegenCounts,
+  tryConsumeRegen,
+  type RegenKind,
+} from "@/server/db/agency-regen-counters";
 import {
   getEffectiveLimitOverride,
   LIMITED_TO_LIMIT_OVERRIDE_RESOURCE,
@@ -185,4 +190,89 @@ export async function loadCapacityForUI(
   const plan = await getAgencyPlan(agencyId);
   const { used, limit } = await planCapacity(agencyId, plan, resource);
   return { used, limit, plan, resource };
+}
+
+// ============================================================
+// PricingV2 — regeneration budgets (clip / artwork / audiogram)
+// ============================================================
+
+function regenLimitFor(plan: Plan, kind: RegenKind): number {
+  const limits = planLimitsFor(plan);
+  switch (kind) {
+    case "clip":
+      return limits.clipRegenerationsPerMonth;
+    case "artwork":
+      return limits.artworkRegenerationsPerMonth;
+    case "audiogram":
+      return limits.audiogramRegenerationsPerMonth;
+  }
+}
+
+function regenKindLabel(kind: RegenKind): string {
+  switch (kind) {
+    case "clip":
+      return "clip regeneration";
+    case "artwork":
+      return "artwork regeneration";
+    case "audiogram":
+      return "audiogram regeneration";
+  }
+}
+
+/** Next tier in the ladder — used to name the upgrade CTA in the error. */
+function nextTierName(plan: Plan): string | null {
+  const order: Plan[] = ["SOLO", "STUDIO", "AGENCY", "NETWORK"];
+  const idx = order.indexOf(plan);
+  if (idx === -1 || idx === order.length - 1) return null;
+  return PLAN_DISPLAY[order[idx + 1]].name;
+}
+
+/**
+ * Atomic regen capacity check + increment. Call this from server
+ * actions BEFORE firing the Inngest event; if it throws, the event
+ * never fires and no worker cycles are burned. Non-throwing return =
+ * budget consumed; the counter is durable across the async gap between
+ * action-return and Inngest-run.
+ *
+ * Failed renders don't refund the budget — the user chose to trigger a
+ * render and we spent compute on it. Under-counting would let abusers
+ * grind us with intentionally-failing requests.
+ */
+export async function assertAndConsumeRegen(
+  agencyId: string,
+  plan: Plan,
+  kind: RegenKind,
+): Promise<{ used: number; limit: number }> {
+  const limit = regenLimitFor(plan, kind);
+  const result = await tryConsumeRegen(agencyId, kind, limit);
+  if (!result.ok) {
+    const label = regenKindLabel(kind);
+    const upgrade = nextTierName(plan);
+    const suffix = upgrade
+      ? ` Upgrade to ${upgrade} for a larger budget.`
+      : " Contact support if you need a temporary lift.";
+    throw new ForbiddenError(`You've used all ${result.limit} ${label}s this month.${suffix}`);
+  }
+  return { used: result.count, limit };
+}
+
+/**
+ * Read the current-month regen count + effective limit for all three
+ * kinds. Used by the UI meters on the Clips / Artwork / Audiogram
+ * tabs. Doesn't consume anything.
+ */
+export async function loadRegenQuotasForUI(agencyId: string): Promise<{
+  plan: Plan;
+  clip: { used: number; limit: number };
+  artwork: { used: number; limit: number };
+  audiogram: { used: number; limit: number };
+}> {
+  const plan = await getAgencyPlan(agencyId);
+  const counts = await getAllRegenCounts(agencyId);
+  return {
+    plan,
+    clip: { used: counts.clip, limit: regenLimitFor(plan, "clip") },
+    artwork: { used: counts.artwork, limit: regenLimitFor(plan, "artwork") },
+    audiogram: { used: counts.audiogram, limit: regenLimitFor(plan, "audiogram") },
+  };
 }

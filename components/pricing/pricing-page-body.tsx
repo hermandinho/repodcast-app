@@ -14,11 +14,54 @@ export function PricingPageBody({ isSignedIn }: { isSignedIn: boolean }) {
     <>
       <PricingHero />
       <PricingPickerSection />
+      <RegenExplainer />
       <PlanComparisonTable />
       <GuaranteeStrip />
       <PricingFAQ />
       <PricingFinalCTA isSignedIn={isSignedIn} />
     </>
+  );
+}
+
+/* ============================================================
+   Regeneration microcopy — the "first render is always free"
+   explainer per PricingV2 §6. Sits between the picker and the
+   full comparison table so buyers who see "40 regenerations /
+   month" don't confuse it with a total-clips ceiling.
+   ============================================================ */
+
+function RegenExplainer() {
+  return (
+    <section
+      className="px-5 py-10 sm:px-7 sm:py-12 md:py-[56px]"
+      style={{ background: "#FFFFFF", borderBottom: "1px solid #ECEEF3" }}
+    >
+      <div
+        className="mx-auto rounded-[14px] px-6 py-6 sm:px-8 sm:py-7 md:px-10 md:py-8"
+        style={{
+          maxWidth: 940,
+          background: "#F6F8FC",
+          border: "1px solid #E4E9F1",
+        }}
+      >
+        <div
+          className="mb-3 text-[11px] font-semibold uppercase sm:mb-[14px] sm:text-[12px]"
+          style={{
+            fontFamily: "var(--font-mono)",
+            letterSpacing: "0.14em",
+            color: "#3A5BA0",
+          }}
+        >
+          What counts as a regeneration?
+        </div>
+        <p className="m-0 text-[14px] leading-[1.65] sm:text-[15px]" style={{ color: "#41506B" }}>
+          The first render of every clip, artwork set, and audiogram is always included — no
+          counter, no charge. Only re-runs count against your monthly regen budget: retrying a
+          failed clip, trimming and re-rendering, or asking for a fresh artwork variant. Written
+          posts have no regen cap at all.
+        </p>
+      </div>
+    </section>
   );
 }
 
@@ -76,16 +119,17 @@ function PricingHero() {
             color: "#1A2A4A",
           }}
         >
-          Priced per studio,
+          One plan per studio.
           <br />
-          not per post.
+          The full launch kit included.
         </h1>
         <p
-          className="m-0 mx-auto max-w-[560px] text-[15px] leading-[1.6] sm:text-[17px]"
+          className="m-0 mx-auto max-w-[600px] text-[15px] leading-[1.6] sm:text-[17px]"
           style={{ color: "#5A6473" }}
         >
-          From a one-person show to a full client roster — pick the plan that fits. Toggle annual to
-          save two months. Everything switches or cancels from Settings — no calls, no forms.
+          Every plan ships seven written posts, vertical clips, hero artwork, and audiograms per
+          episode — no per-render fees, no credit packs. Toggle annual to save two months. Switch or
+          cancel from Settings any time.
         </p>
       </div>
     </section>
@@ -237,15 +281,15 @@ function PricingFinalCTA({ isSignedIn }: { isSignedIn: boolean }) {
               color: "#FFFFFF",
             }}
           >
-            One transcript. A week of content.
+            One transcript. A full launch kit.
           </h2>
           <p
             className="m-0 max-w-[560px] text-[15px] leading-[1.6] sm:text-[16px]"
             style={{ color: "#A9B6D4" }}
           >
-            Pick a plan above and be generating in your client&apos;s voice within a couple of
-            minutes. Every plan carries the same 7 formats, per-client voice engine, and approval
-            workflow — the tiers scale volume, not core capability.
+            Pick a plan above and be shipping in your client&apos;s voice within a couple of
+            minutes. Every plan carries the same deliverables — posts, clips, artwork, audiograms —
+            and the same voice engine. Tiers scale volume, not what you get per episode.
           </p>
         </div>
         <div className="flex items-center gap-3">

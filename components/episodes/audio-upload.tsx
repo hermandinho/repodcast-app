@@ -208,10 +208,14 @@ export function AudioUpload({
               disabled={pending}
               className="text-ink mb-[5px] font-sans text-[14px] font-semibold underline-offset-2 hover:underline disabled:opacity-50"
             >
-              Drop an audio file or browse
+              Drop an audio or video file or browse
             </button>
             <div className="text-muted-2 text-[12.5px]">
-              MP3 / M4A / WAV / FLAC / OGG · up to {formatAudioSize(MAX_AUDIO_UPLOAD_BYTES)}
+              MP3 / M4A / WAV / FLAC / OGG / MP4 / MOV / MKV · up to{" "}
+              {formatAudioSize(MAX_AUDIO_UPLOAD_BYTES)}
+            </div>
+            <div className="text-muted-2 mt-1 text-[11.5px]">
+              Video files unlock vertical clip generation for this episode.
             </div>
           </>
         )}

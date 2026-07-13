@@ -39,7 +39,10 @@ export type PipelineScope =
   | "renewals_cron"
   | "onboarding_nudges"
   | "cleanup_orphan_audio"
-  | "scheduling_sync";
+  | "scheduling_sync"
+  | "generate_clips"
+  | "generate_audiogram"
+  | "generate_artwork";
 
 export type WebhookScope = "stripe_webhook" | "clerk_webhook" | "resend_webhook";
 

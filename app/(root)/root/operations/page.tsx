@@ -318,8 +318,8 @@ function Sparkline({ data, max }: { data: Array<{ dayIso: string; count: number 
 
 function Table({ children }: { children: React.ReactNode }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/40">
-      <table className="w-full text-left text-sm">{children}</table>
+    <div className="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900/40">
+      <table className="w-full min-w-[720px] text-left text-sm">{children}</table>
     </div>
   );
 }

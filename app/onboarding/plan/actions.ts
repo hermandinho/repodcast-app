@@ -11,6 +11,7 @@ import {
 } from "@/lib/currencies";
 import { BillingCadence, Plan } from "@/lib/enums";
 import { isTrialEligiblePlan, PLAN_DISPLAY, TRIAL_ACTIVATION_FEE_CENTS } from "@/lib/plans";
+import { trackServer } from "@/server/analytics/track";
 import { requireAuthContext } from "@/server/auth/context";
 import { ValidationError } from "@/server/auth/errors";
 import { priceIdFor } from "@/server/billing/prices";
@@ -149,6 +150,15 @@ export async function checkoutFromOnboardingAction(formData: FormData): Promise<
   if (!session.url) {
     throw new Error("Stripe did not return a Checkout URL.");
   }
+
+  // Q2 wk14 — funnel event. Step 2 completion happens when the user
+  // successfully clicks a plan CTA; the actual conversion is `trial_started`
+  // or `upgrade_completed` which fire from the Stripe webhook.
+  void trackServer(
+    "onboarding_step_completed",
+    { agencyId: auth.agency.id, step: 2, stepName: "plan" },
+    { distinctId: `agency:${auth.agency.id}`, agencyId: auth.agency.id },
+  );
 
   redirect(session.url);
 }

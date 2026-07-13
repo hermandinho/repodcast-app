@@ -32,6 +32,18 @@ import {
   updateOutputContent,
   updateOutputContentInput,
 } from "@/server/db/outputs";
+import { deleteClipById, deleteClipsForEpisode, getClipById } from "@/server/db/video-clips";
+import { assertAndConsumeRegen } from "@/server/billing/limits";
+import { planLimitsFor } from "@/lib/plans";
+import { resolveClipSource } from "@/server/media/clip-source";
+import {
+  MAX_AUDIO_UPLOAD_BYTES,
+  audioExtensionFor,
+  isAllowedAudioContentType,
+  isVideoContentType,
+} from "@/lib/audio";
+import { getR2Client, signR2UploadUrl } from "@/server/storage/r2";
+import { randomUUID } from "node:crypto";
 import { inngest } from "@/inngest/client";
 
 const idInput = z.object({ outputId: z.string().min(1) });
@@ -574,4 +586,694 @@ export async function updateEpisodeTitleAction(
   revalidatePath(`/episodes/${episodeId}`);
   revalidatePath("/episodes");
   return noopOk({ episodeId, title: updated.title });
+}
+
+// ============================================================
+// Q1 wk4 — Request clip generation (episode → highlights → clip rows → renders)
+// ============================================================
+
+const requestClipsInput = z.object({
+  episodeId: z.string().min(1),
+  maxClips: z.number().int().min(1).max(10).optional(),
+});
+
+export async function requestClipsAction(
+  raw: unknown,
+): Promise<ActionResult<{ episodeId: string }>> {
+  const parsed = requestClipsInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid clip-request input", parsed.error.issues);
+  }
+  const { episodeId, maxClips } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ episodeId });
+
+  const auth = await requireAuthContext();
+  // Read-side check: episode must belong to this agency AND have a
+  // resolvable source AND transcriptWords. The Inngest fn re-verifies
+  // everything, but failing fast here gives the user an actionable
+  // error before we spend an event.
+  const episode = await prisma.episode.findFirst({
+    where: {
+      id: episodeId,
+      show: { client: { agencyId: auth.agency.id } },
+    },
+    select: {
+      id: true,
+      source: true,
+      sourceVideoUrl: true,
+      audioUrl: true,
+      transcriptWords: true,
+    },
+  });
+  if (!episode) throw new NotFoundError(`Episode ${episodeId} not found`);
+  if (!resolveClipSource(episode)) {
+    return {
+      ok: false,
+      error:
+        "This episode has no source file. Clip generation needs an uploaded video/audio file or a YouTube import.",
+    };
+  }
+  if (!episode.transcriptWords) {
+    return {
+      ok: false,
+      error:
+        "This episode was transcribed before the clip pipeline shipped. Re-transcribe to enable clips.",
+    };
+  }
+
+  // PricingV2 — cap `maxClips` at the plan's clipsPerEpisode. Passed
+  // downstream into `selectHighlights({ maxClips })`.
+  const planLimits = planLimitsFor(auth.agency.plan);
+  const cappedMax = Math.min(maxClips ?? planLimits.clipsPerEpisode, planLimits.clipsPerEpisode);
+
+  await inngest.send({
+    name: "episode/clips.requested",
+    data: { episodeId, agencyId: auth.agency.id, maxClips: cappedMax },
+  });
+
+  revalidatePath(`/episodes/${episodeId}/clips`);
+  return noopOk({ episodeId });
+}
+
+// ============================================================
+// Q1 wk5 — Regenerate all clips (wipe + re-request)
+// ============================================================
+
+const regenerateClipsInput = z.object({
+  episodeId: z.string().min(1),
+  maxClips: z.number().int().min(1).max(10).optional(),
+});
+
+export async function regenerateClipsAction(
+  raw: unknown,
+): Promise<ActionResult<{ episodeId: string; deleted: number }>> {
+  const parsed = regenerateClipsInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid regenerate-clips input", parsed.error.issues);
+  }
+  const { episodeId, maxClips } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ episodeId, deleted: 0 });
+
+  const auth = await requireAuthContext();
+  const episode = await prisma.episode.findFirst({
+    where: { id: episodeId, show: { client: { agencyId: auth.agency.id } } },
+    select: {
+      id: true,
+      source: true,
+      sourceVideoUrl: true,
+      audioUrl: true,
+      transcriptWords: true,
+    },
+  });
+  if (!episode) throw new NotFoundError(`Episode ${episodeId} not found`);
+  if (!resolveClipSource(episode)) {
+    return { ok: false, error: "This episode has no source file." };
+  }
+  if (!episode.transcriptWords) {
+    return {
+      ok: false,
+      error: "This episode has no transcript-word timings. Re-transcribe to enable clips.",
+    };
+  }
+
+  // PricingV2 §3 — regenerate-all counts as a clip regeneration. Consume
+  // before firing so the counter is authoritative even if the caller's
+  // event dispatch fails downstream. ForbiddenError from
+  // assertAndConsumeRegen bubbles up to the client as a 403 → the
+  // caller renders the friendly upgrade prompt.
+  try {
+    await assertAndConsumeRegen(auth.agency.id, auth.agency.plan, "clip");
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  const { count: deleted } = await deleteClipsForEpisode(auth.agency.id, episodeId);
+  await inngest.send({
+    name: "episode/clips.requested",
+    data: { episodeId, agencyId: auth.agency.id, maxClips },
+  });
+
+  revalidatePath(`/episodes/${episodeId}/clips`);
+  return noopOk({ episodeId, deleted });
+}
+
+// ============================================================
+// Q1 wk5 — Delete a single clip
+// ============================================================
+
+const deleteClipInput = z.object({
+  clipId: z.string().min(1),
+  episodeId: z.string().min(1),
+});
+
+export async function deleteClipAction(
+  raw: unknown,
+): Promise<ActionResult<{ clipId: string; deleted: number }>> {
+  const parsed = deleteClipInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid delete-clip input", parsed.error.issues);
+  }
+  const { clipId, episodeId } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ clipId, deleted: 0 });
+
+  const auth = await requireAuthContext();
+  const { count } = await deleteClipById(auth.agency.id, clipId);
+  revalidatePath(`/episodes/${episodeId}/clips`);
+  return noopOk({ clipId, deleted: count });
+}
+
+// ============================================================
+// Q1 wk10 — Attach a source video to an existing episode
+//
+// Two-step direct-to-R2 flow (mirrors the audio-upload wizard). Step
+// 1 signs a PUT URL; the browser uploads; step 2 stamps the resulting
+// R2 key onto Episode.sourceVideoUrl so the clip pipeline picks it
+// up. Bypasses the audio-transcribe path — transcript already exists,
+// we're just providing an alternate video source for rendering.
+// ============================================================
+
+const signSourceVideoUploadInput = z.object({
+  episodeId: z.string().min(1),
+  filename: z.string().min(1).max(200),
+  contentType: z.string().min(1),
+  size: z.number().int().nonnegative(),
+});
+
+export async function signSourceVideoUploadAction(
+  raw: unknown,
+): Promise<ActionResult<{ uploadUrl: string; objectKey: string }>> {
+  const parsed = signSourceVideoUploadInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid upload request", parsed.error.issues);
+  }
+  const { episodeId, filename, contentType, size } = parsed.data;
+
+  if (!isAllowedAudioContentType(contentType) || !isVideoContentType(contentType)) {
+    return {
+      ok: false,
+      error: `Unsupported video format ${contentType}. Allowed: MP4, MOV, WebM, MKV.`,
+    };
+  }
+  if (size > MAX_AUDIO_UPLOAD_BYTES) {
+    return {
+      ok: false,
+      error: `File is ${Math.round(size / (1024 * 1024))} MB — limit is ${Math.round(MAX_AUDIO_UPLOAD_BYTES / (1024 * 1024))} MB.`,
+    };
+  }
+
+  const auth = await requireAuthContext();
+  // Tenant guard on the episode.
+  const episode = await prisma.episode.findFirst({
+    where: { id: episodeId, show: { client: { agencyId: auth.agency.id } } },
+    select: { id: true },
+  });
+  if (!episode) throw new NotFoundError(`Episode ${episodeId} not found`);
+
+  if (!getR2Client()) {
+    return {
+      ok: false,
+      error: "R2 is not configured. Contact support.",
+    };
+  }
+
+  // Unique per-upload key so re-uploads don't overwrite prior versions
+  // (Prisma has no cascade delete on Episode.sourceVideoUrl updates, so
+  // old objects age out via bucket lifecycle policy).
+  const uploadId = randomUUID();
+  const ext = audioExtensionFor(contentType, filename);
+  const objectKey = `sources/${auth.agency.id}/${episodeId}/${uploadId}.${ext}`;
+
+  // 15 min — video files are bigger than audio; the presign needs to
+  // outlast a slow home connection PUT.
+  const uploadUrl = await signR2UploadUrl(objectKey, contentType, 15 * 60);
+
+  return { ok: true, data: { uploadUrl, objectKey } };
+}
+
+const finalizeSourceVideoInput = z.object({
+  episodeId: z.string().min(1),
+  objectKey: z.string().min(1),
+});
+
+export async function finalizeSourceVideoUploadAction(
+  raw: unknown,
+): Promise<ActionResult<{ episodeId: string }>> {
+  const parsed = finalizeSourceVideoInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid finalize input", parsed.error.issues);
+  }
+  const { episodeId, objectKey } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ episodeId });
+
+  const auth = await requireAuthContext();
+  // Verify the key we're about to persist is one we ourselves signed —
+  // the prefix embeds the agency id and episode id, so a tampered
+  // request can't point us at another agency's assets.
+  const expectedPrefix = `sources/${auth.agency.id}/${episodeId}/`;
+  if (!objectKey.startsWith(expectedPrefix)) {
+    return { ok: false, error: "Upload key does not match this episode." };
+  }
+
+  const episode = await prisma.episode.findFirst({
+    where: { id: episodeId, show: { client: { agencyId: auth.agency.id } } },
+    select: { id: true },
+  });
+  if (!episode) throw new NotFoundError(`Episode ${episodeId} not found`);
+
+  await prisma.episode.update({
+    where: { id: episodeId },
+    data: { sourceVideoUrl: objectKey },
+  });
+
+  revalidatePath(`/episodes/${episodeId}/clips`);
+  return noopOk({ episodeId });
+}
+
+// ============================================================
+// Q2 wk15 — Re-upload audio for an existing episode
+//
+// The Phase 2.7 orphan-audio cron used to wipe `Episode.audioUrl` for
+// READY episodes on the assumption downstream only needed the transcript.
+// That policy was retired when Q1 shipped audiograms + clips (both read
+// the audio at render time), but rows that were already cleaned up
+// still need a way to restore the file. Same two-step direct-to-R2
+// shape as the source-video upload above.
+// ============================================================
+
+const signAudioReuploadInput = z.object({
+  episodeId: z.string().min(1),
+  filename: z.string().min(1).max(200),
+  contentType: z.string().min(1),
+  size: z.number().int().nonnegative(),
+});
+
+export async function signAudioReuploadAction(
+  raw: unknown,
+): Promise<ActionResult<{ uploadUrl: string; objectKey: string }>> {
+  const parsed = signAudioReuploadInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid upload request", parsed.error.issues);
+  }
+  const { episodeId, filename, contentType, size } = parsed.data;
+
+  if (!isAllowedAudioContentType(contentType)) {
+    return {
+      ok: false,
+      error: `Unsupported audio format ${contentType}. Allowed: MP3, M4A, WAV, FLAC, OGG, MP4, MOV.`,
+    };
+  }
+  if (size > MAX_AUDIO_UPLOAD_BYTES) {
+    return {
+      ok: false,
+      error: `File is ${Math.round(size / (1024 * 1024))} MB — limit is ${Math.round(MAX_AUDIO_UPLOAD_BYTES / (1024 * 1024))} MB.`,
+    };
+  }
+
+  const auth = await requireAuthContext();
+  // Tenant guard + collect the parent show id so the R2 key matches the
+  // shape the original upload used (`audio/<agency>/<show>/<episode>.ext`).
+  const episode = await prisma.episode.findFirst({
+    where: { id: episodeId, show: { client: { agencyId: auth.agency.id } } },
+    select: { id: true, showId: true },
+  });
+  if (!episode) throw new NotFoundError(`Episode ${episodeId} not found`);
+
+  if (!getR2Client()) {
+    return { ok: false, error: "R2 is not configured. Contact support." };
+  }
+
+  const ext = audioExtensionFor(contentType, filename);
+  const objectKey = `audio/${auth.agency.id}/${episode.showId}/${episodeId}.${ext}`;
+  const uploadUrl = await signR2UploadUrl(objectKey, contentType, 15 * 60);
+
+  return { ok: true, data: { uploadUrl, objectKey } };
+}
+
+const finalizeAudioReuploadInput = z.object({
+  episodeId: z.string().min(1),
+  objectKey: z.string().min(1),
+});
+
+export async function finalizeAudioReuploadAction(
+  raw: unknown,
+): Promise<ActionResult<{ episodeId: string }>> {
+  const parsed = finalizeAudioReuploadInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid finalize input", parsed.error.issues);
+  }
+  const { episodeId, objectKey } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ episodeId });
+
+  const auth = await requireAuthContext();
+  // Prefix check — the key we're stamping must be one we ourselves signed.
+  const expectedPrefix = `audio/${auth.agency.id}/`;
+  if (!objectKey.startsWith(expectedPrefix)) {
+    return { ok: false, error: "Upload key does not match this agency." };
+  }
+  if (!objectKey.includes(`/${episodeId}.`)) {
+    return { ok: false, error: "Upload key does not match this episode." };
+  }
+
+  const episode = await prisma.episode.findFirst({
+    where: { id: episodeId, show: { client: { agencyId: auth.agency.id } } },
+    select: { id: true },
+  });
+  if (!episode) throw new NotFoundError(`Episode ${episodeId} not found`);
+
+  await prisma.episode.update({
+    where: { id: episodeId },
+    data: { audioUrl: objectKey },
+  });
+
+  // Revalidate both the audiograms and clips tabs — either could be
+  // gated on the missing audio.
+  revalidatePath(`/episodes/${episodeId}/audiograms`);
+  revalidatePath(`/episodes/${episodeId}/clips`);
+  revalidatePath(`/episodes/${episodeId}`);
+  return noopOk({ episodeId });
+}
+
+// ============================================================
+// Q1 feature #5 — Request audiogram for an output
+// ============================================================
+
+const AUDIOGRAM_MIN_SPAN_MS = 15_000;
+const AUDIOGRAM_MAX_SPAN_MS = 90_000;
+const AUDIOGRAM_DEFAULT_END_MS = 60_000;
+
+const requestAudiogramInput = z.object({
+  outputId: z.string().min(1),
+  /** Optional window override. Defaults to 0–60 s of the source audio. */
+  startMs: z.number().int().min(0).optional(),
+  endMs: z.number().int().min(1).optional(),
+  aspect: z.enum(["1:1", "9:16"]).optional(),
+});
+
+export async function requestAudiogramAction(
+  raw: unknown,
+): Promise<ActionResult<{ outputId: string }>> {
+  const parsed = requestAudiogramInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid audiogram-request input", parsed.error.issues);
+  }
+  const {
+    outputId,
+    startMs: startMsOverride,
+    endMs: endMsOverride,
+    aspect: aspectOverride,
+  } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ outputId });
+
+  const auth = await requireAuthContext();
+  // Tenant guard + prereq check + existing window: pull the stored
+  // audiogramStartMs/EndMs/Aspect so a plain "Regenerate" click without
+  // any window overrides preserves the user's previous trim instead of
+  // resetting to the 0–60 s default.
+  const output = await prisma.generatedOutput.findFirst({
+    where: {
+      id: outputId,
+      episode: { show: { client: { agencyId: auth.agency.id } } },
+    },
+    select: {
+      id: true,
+      episodeId: true,
+      audiogramStatus: true,
+      audiogramStartMs: true,
+      audiogramEndMs: true,
+      audiogramAspect: true,
+      episode: {
+        select: { audioUrl: true, transcriptWords: true },
+      },
+    },
+  });
+  if (!output) throw new NotFoundError(`Output ${outputId} not found`);
+  if (!output.episode.audioUrl) {
+    // Legacy state: the old audio-cleanup cron wiped `audioUrl` for
+    // READY episodes on the assumption downstream only needed the
+    // transcript. That policy was retired when Q1 shipped audiograms
+    // (see `inngest/functions/cleanup-orphan-audio.ts`), but existing
+    // rows that were already cleaned up can't render new audiograms.
+    // Existing audiogram MP4s stay downloadable — they're immutable R2
+    // objects — but re-rendering needs the source audio back.
+    return {
+      ok: false,
+      error:
+        output.audiogramStatus === null
+          ? "This episode has no audio on file. Upload audio to enable audiograms."
+          : "The source audio for this episode was archived after transcription. Existing audiograms still play; to regenerate, re-upload the episode audio from the episode's Outputs tab.",
+    };
+  }
+  if (!output.episode.transcriptWords) {
+    return {
+      ok: false,
+      error: "This episode has no transcript-word timings. Re-transcribe to enable audiogram.",
+    };
+  }
+
+  // Effective window: caller override wins → existing DB value → default.
+  const startMs = startMsOverride ?? output.audiogramStartMs ?? 0;
+  const endMs = endMsOverride ?? output.audiogramEndMs ?? AUDIOGRAM_DEFAULT_END_MS;
+  const aspect: "1:1" | "9:16" =
+    aspectOverride ??
+    (output.audiogramAspect === "1:1" || output.audiogramAspect === "9:16"
+      ? (output.audiogramAspect as "1:1" | "9:16")
+      : "9:16");
+
+  if (endMs <= startMs) return { ok: false, error: "End time must be after start time." };
+  const span = endMs - startMs;
+  if (span < AUDIOGRAM_MIN_SPAN_MS) {
+    return {
+      ok: false,
+      error: `Audiogram is too short — minimum ${AUDIOGRAM_MIN_SPAN_MS / 1000}s.`,
+    };
+  }
+  if (span > AUDIOGRAM_MAX_SPAN_MS) {
+    return {
+      ok: false,
+      error: `Audiogram is too long — maximum ${AUDIOGRAM_MAX_SPAN_MS / 1000}s.`,
+    };
+  }
+
+  // PricingV2 — first audiogram per output is free; regenerating (any
+  // subsequent request against the same output row) counts as a regen.
+  // `audiogramStatus == null` means we've never touched it.
+  if (output.audiogramStatus !== null) {
+    try {
+      await assertAndConsumeRegen(auth.agency.id, auth.agency.plan, "audiogram");
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  // Persist window + aspect + PENDING status BEFORE firing the event so a
+  // page refresh mid-render shows the right state.
+  await prisma.generatedOutput.update({
+    where: { id: outputId },
+    data: {
+      audiogramStatus: "PENDING",
+      audiogramUrl: null,
+      audiogramPosterUrl: null,
+      audiogramError: null,
+      audiogramStartMs: startMs,
+      audiogramEndMs: endMs,
+      audiogramAspect: aspect,
+    },
+  });
+
+  await inngest.send({
+    name: "output/audiogram.requested",
+    data: { outputId, agencyId: auth.agency.id },
+  });
+
+  // Revalidate the audiograms sub-route explicitly so router.refresh()
+  // on the client picks up the new PENDING state. Revalidating just the
+  // parent /episodes/[id] leaves the /audiograms segment cached and the
+  // "Regenerate" click looks like a no-op.
+  revalidatePath(`/episodes/${output.episodeId}/audiograms`);
+  revalidatePath(`/episodes/${output.episodeId}`);
+  return noopOk({ outputId });
+}
+
+// ============================================================
+// Q1 feature #4 — Request AI hero artwork for an episode
+// ============================================================
+
+const requestArtworkInput = z.object({
+  episodeId: z.string().min(1),
+});
+
+export async function requestArtworkAction(
+  raw: unknown,
+): Promise<ActionResult<{ episodeId: string }>> {
+  const parsed = requestArtworkInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid artwork-request input", parsed.error.issues);
+  }
+  const { episodeId } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ episodeId });
+
+  const auth = await requireAuthContext();
+  const episode = await prisma.episode.findFirst({
+    where: {
+      id: episodeId,
+      show: { client: { agencyId: auth.agency.id } },
+    },
+    select: {
+      id: true,
+      transcript: true,
+      heroImageUrl: true,
+      squareCoverUrl: true,
+      verticalCoverUrl: true,
+    },
+  });
+  if (!episode) throw new NotFoundError(`Episode ${episodeId} not found`);
+  if (!episode.transcript || episode.transcript.trim().length < 200) {
+    return {
+      ok: false,
+      error:
+        "Episode transcript is too short to derive a visual concept. Try again after transcription completes.",
+    };
+  }
+
+  // PricingV2 — first artwork run per episode is free (bundled with
+  // the episode). Subsequent runs (any variant already exists) count
+  // as a regen and consume budget.
+  const artworkExists = Boolean(
+    episode.heroImageUrl || episode.squareCoverUrl || episode.verticalCoverUrl,
+  );
+  if (artworkExists) {
+    try {
+      await assertAndConsumeRegen(auth.agency.id, auth.agency.plan, "artwork");
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  await inngest.send({
+    name: "episode/artwork.requested",
+    data: { episodeId, agencyId: auth.agency.id },
+  });
+
+  // Revalidate the artwork sub-route so the trigger's post-action
+  // router.refresh() picks up the new signature once the Inngest fn
+  // writes the fresh URLs. Same reasoning as the audiogram action —
+  // hitting only the parent leaves the /artwork tab segment cached.
+  revalidatePath(`/episodes/${episodeId}/artwork`);
+  revalidatePath(`/episodes/${episodeId}`);
+  return noopOk({ episodeId });
+}
+
+// ============================================================
+// Q1 wk7 — Retry a FAILED clip (same bounds)
+// ============================================================
+
+const retryClipInput = z.object({
+  clipId: z.string().min(1),
+  episodeId: z.string().min(1),
+});
+
+export async function retryClipAction(raw: unknown): Promise<ActionResult<{ clipId: string }>> {
+  const parsed = retryClipInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid retry input", parsed.error.issues);
+  }
+  const { clipId, episodeId } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ clipId });
+
+  const auth = await requireAuthContext();
+  const clip = await getClipById(auth.agency.id, clipId);
+  if (!clip) throw new NotFoundError(`Clip ${clipId} not found`);
+  if (clip.episodeId !== episodeId) {
+    return { ok: false, error: "Clip does not belong to this episode." };
+  }
+
+  // Retry is a regen (worker will redo the ffmpeg pass) — consume budget.
+  try {
+    await assertAndConsumeRegen(auth.agency.id, auth.agency.plan, "clip");
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  // Reuse the retrim event with unchanged bounds — same worker call
+  // shape, so no separate Inngest fn.
+  await inngest.send({
+    name: "clip/retrim.requested",
+    data: {
+      clipId,
+      agencyId: auth.agency.id,
+      startMs: clip.startMs,
+      endMs: clip.endMs,
+    },
+  });
+
+  revalidatePath(`/episodes/${episodeId}/clips`);
+  return noopOk({ clipId });
+}
+
+// ============================================================
+// Q1 wk6 — Retrim a single clip
+// ============================================================
+
+const CLIP_MIN_SPAN_MS = 15_000;
+const CLIP_MAX_SPAN_MS = 90_000;
+
+const retrimClipInput = z.object({
+  clipId: z.string().min(1),
+  episodeId: z.string().min(1),
+  startMs: z.number().int().min(0),
+  endMs: z.number().int().min(1),
+});
+
+export async function retrimClipAction(raw: unknown): Promise<ActionResult<{ clipId: string }>> {
+  const parsed = retrimClipInput.safeParse(raw);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid retrim input", parsed.error.issues);
+  }
+  const { clipId, episodeId, startMs, endMs } = parsed.data;
+
+  if (!isLiveDb()) return noopOk({ clipId });
+
+  if (endMs <= startMs) {
+    return { ok: false, error: "End time must be after start time." };
+  }
+  const spanMs = endMs - startMs;
+  if (spanMs < CLIP_MIN_SPAN_MS) {
+    return { ok: false, error: `Clip is too short — minimum ${CLIP_MIN_SPAN_MS / 1000}s.` };
+  }
+  if (spanMs > CLIP_MAX_SPAN_MS) {
+    return { ok: false, error: `Clip is too long — maximum ${CLIP_MAX_SPAN_MS / 1000}s.` };
+  }
+
+  const auth = await requireAuthContext();
+  const clip = await getClipById(auth.agency.id, clipId);
+  if (!clip) throw new NotFoundError(`Clip ${clipId} not found`);
+  if (clip.episodeId !== episodeId) {
+    return { ok: false, error: "Clip does not belong to this episode." };
+  }
+
+  // Trim + re-render is a clip regen.
+  try {
+    await assertAndConsumeRegen(auth.agency.id, auth.agency.plan, "clip");
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  await inngest.send({
+    name: "clip/retrim.requested",
+    data: { clipId, agencyId: auth.agency.id, startMs, endMs },
+  });
+
+  revalidatePath(`/episodes/${episodeId}/clips`);
+  return noopOk({ clipId });
 }

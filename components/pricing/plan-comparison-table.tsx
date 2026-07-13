@@ -33,15 +33,37 @@ const COMPARISON: ComparisonRow[] = [
   { label: "Approval-driven voice learning", values: ["✓", "✓", "✓", "✓"] },
   { label: "Voice strength meter", values: ["✓", "✓", "✓", "✓"] },
 
-  { section: "Output", label: "Formats per episode", values: ["7", "7", "7", "7"] },
+  {
+    section: "Per-episode deliverables",
+    label: "Written posts (7 platforms)",
+    values: ["✓", "✓", "✓", "✓"],
+  },
+  { label: "Vertical clips per episode", values: ["3", "5", "5", "10"] },
+  { label: "Hero artwork (16:9 · 1:1 · 9:16)", values: ["✓", "✓", "✓", "✓"] },
+  { label: "Audiograms (per output)", values: ["✓", "✓", "✓", "✓"] },
+  { label: "Trim editor + retry", values: ["✓", "✓", "✓", "✓"] },
   { label: "Turnaround time", values: ["< 60s", "< 60s", "< 60s", "< 60s"] },
-  { label: "Batch processing", values: ["—", "—", "✓", "✓"] },
-  { label: "Priority queue", values: ["—", "—", "—", "✓"] },
 
-  { section: "Team", label: "Client shows", values: ["1", "5", "12", "25"] },
+  {
+    section: "Monthly regenerations",
+    label: "Clip regenerations",
+    values: ["40", "200", "500", "Unlimited"],
+  },
+  { label: "Artwork regenerations", values: ["10", "40", "100", "Unlimited"] },
+  { label: "Audiogram regenerations", values: ["40", "200", "500", "Unlimited"] },
+
+  { section: "Scale", label: "Client shows", values: ["1", "5", "12", "25"] },
   { label: "Seats", values: ["1", "3", "6", "Unlimited"] },
+  { label: "Episodes / month", values: ["20", "60", "150", "300"] },
+
+  {
+    section: "Workflow",
+    label: "Batch generation (all shows/eps)",
+    values: ["—", "✓", "✓", "✓"],
+  },
   { label: "Approval workflow", values: ["✓", "✓", "✓", "✓"] },
   { label: "Role-based permissions", values: ["—", "✓", "✓", "✓"] },
+  { label: "Priority queue", values: ["—", "—", "—", "✓"] },
 
   {
     section: "Client-facing",
@@ -49,9 +71,8 @@ const COMPARISON: ComparisonRow[] = [
     values: ["—", "✓", "✓", "✓"],
   },
   { label: "Branded client portal", values: ["—", "—", "✓", "✓"] },
+  { label: "Client-approval workflow", values: ["—", "—", "✓", "✓"] },
   { label: "Custom brand accent + domain", values: ["—", "—", "—", "✓"] },
-
-  { section: "Ops", label: "Episodes / month", values: ["20", "60", "150", "300"] },
 
   { section: "Billing", label: "Currencies", values: ["5", "5", "5", "5"] },
   { label: "Monthly or annual", values: ["✓", "✓", "✓", "✓"] },
@@ -246,7 +267,7 @@ function ComparisonInner({ compact }: { compact: boolean }) {
             alignSelf: "center",
           }}
         >
-          All plans include the full voice engine.
+          Every plan ships the full launch kit — text, clips, artwork, audiograms.
         </div>
         {PLAN_NAMES.map((name, i) => {
           const isPopular = i === POPULAR_IDX;

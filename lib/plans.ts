@@ -31,7 +31,49 @@ export type PlanLimits = {
   generationsPerMonth: number;
   /** Hard monthly Claude spend cap in USD cents. */
   monthlyCostCapCents: number;
+
+  // ---- PricingV2 additions (see PricingV2.md §3) ----
+
+  /**
+   * Cap on the number of vertical clips generated per episode. Enforced
+   * by `requestClipsAction` when passing `maxClips` into the highlight-
+   * selection prompt.
+   */
+  clipsPerEpisode: number;
+
+  /**
+   * Monthly cap on clip regenerations. The first render for each clip
+   * on an episode is free (bundled with `Generate clips`); every
+   * subsequent re-run — retry, trim + re-render, `Regenerate all` —
+   * increments this counter and is blocked when the cap is hit.
+   *
+   * `Infinity` means soft-unlimited (the plan's `monthlyCostCapCents`
+   * is the real ceiling).
+   */
+  clipRegenerationsPerMonth: number;
+
+  /**
+   * Monthly cap on artwork regenerations. First `Generate artwork`
+   * call on an episode is free; regenerating (calling again when
+   * artwork already exists) is charged.
+   */
+  artworkRegenerationsPerMonth: number;
+
+  /**
+   * Monthly cap on audiogram regenerations. First `Generate audiogram`
+   * per output is free; regenerating that same output's audiogram
+   * counts.
+   */
+  audiogramRegenerationsPerMonth: number;
 };
+
+/**
+ * Sentinel for the "unlimited" tier — internally we soft-cap on the
+ * plan's cost cap, but the visible cap is unbounded. Using
+ * `Number.MAX_SAFE_INTEGER` (not `Infinity`) so Prisma count comparisons
+ * and JSON serialization behave.
+ */
+export const REGEN_UNLIMITED = Number.MAX_SAFE_INTEGER;
 
 export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
   SOLO: {
@@ -40,6 +82,11 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     episodesPerMonth: 20,
     generationsPerMonth: 140, // 20 episodes × 7 platforms
     monthlyCostCapCents: 900, // $9 (30% of $29)
+    // PricingV2 §3
+    clipsPerEpisode: 3,
+    clipRegenerationsPerMonth: 40,
+    artworkRegenerationsPerMonth: 10,
+    audiogramRegenerationsPerMonth: 40,
   },
   STUDIO: {
     shows: 5,
@@ -47,6 +94,10 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     episodesPerMonth: 60,
     generationsPerMonth: 420, // 60 × 7
     monthlyCostCapCents: 2700, // $27 (30% of $89)
+    clipsPerEpisode: 5,
+    clipRegenerationsPerMonth: 200,
+    artworkRegenerationsPerMonth: 40,
+    audiogramRegenerationsPerMonth: 200,
   },
   AGENCY: {
     shows: 12,
@@ -54,6 +105,10 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     episodesPerMonth: 150,
     generationsPerMonth: 1050, // 150 × 7
     monthlyCostCapCents: 5400, // $54 (30% of $179)
+    clipsPerEpisode: 5,
+    clipRegenerationsPerMonth: 500,
+    artworkRegenerationsPerMonth: 100,
+    audiogramRegenerationsPerMonth: 500,
   },
   NETWORK: {
     shows: 25,
@@ -61,6 +116,10 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     episodesPerMonth: 300,
     generationsPerMonth: 2100, // 300 × 7
     monthlyCostCapCents: 9000, // $90 (30% of $299)
+    clipsPerEpisode: 10,
+    clipRegenerationsPerMonth: REGEN_UNLIMITED,
+    artworkRegenerationsPerMonth: REGEN_UNLIMITED,
+    audiogramRegenerationsPerMonth: REGEN_UNLIMITED,
   },
 };
 
@@ -119,23 +178,32 @@ export const PLAN_DISPLAY: Record<Plan, PlanDisplay> = {
     name: "Solo",
     prices: PLAN_PRICES_BY_CURRENCY.SOLO,
     tagline: "Just you — one show, one voice",
-    highlights: ["1 show", "1 seat", "20 episodes / month"],
+    highlights: [
+      "7 posts + 3 clips + artwork + audiograms per episode",
+      "20 episodes / month",
+      "1 show · 1 seat",
+    ],
   },
   STUDIO: {
     name: "Studio",
     prices: PLAN_PRICES_BY_CURRENCY.STUDIO,
     tagline: "Small teams, multiple shows",
-    highlights: ["5 shows · 3 seats", "60 episodes / month", "Remove Repodcast branding"],
+    highlights: [
+      "7 posts + 5 clips + artwork + audiograms per episode",
+      "60 episodes / month",
+      "5 shows · 3 seats",
+      "Batch generation",
+    ],
   },
   AGENCY: {
     name: "Agency",
     prices: PLAN_PRICES_BY_CURRENCY.AGENCY,
     tagline: "Full-service studios with a client roster",
     highlights: [
-      "12 shows · 6 seats",
+      "7 posts + 5 clips + artwork + audiograms per episode",
       "150 episodes / month",
+      "12 shows · 6 seats",
       "Branded client portal",
-      "Batch processing",
     ],
   },
   NETWORK: {
@@ -143,10 +211,10 @@ export const PLAN_DISPLAY: Record<Plan, PlanDisplay> = {
     prices: PLAN_PRICES_BY_CURRENCY.NETWORK,
     tagline: "The full agency stack",
     highlights: [
-      "25 shows · unlimited seats",
+      "7 posts + 10 clips + artwork + audiograms per episode",
       "300 episodes / month",
-      "Custom brand accent + domain",
-      "Priority queue",
+      "25 shows · unlimited seats",
+      "White-label + custom domain + priority queue",
     ],
   },
 };

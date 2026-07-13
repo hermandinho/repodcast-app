@@ -1,0 +1,46 @@
+# Single template used for both prod and staging.
+#
+# Invoke per-env with --env-file and --project-name:
+#   docker compose --env-file .env -p repodcast-prod    up -d --build
+#   docker compose --env-file .env -p repodcast-staging up -d --build
+#
+# `deploy.sh` (invoked by the Makefile) handles this — you should not
+# need to run compose directly.
+
+services:
+  render:
+    build: .
+    image: repodcast-worker:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    env_file: .env
+    # No published ports — cloudflared reaches this over the compose network.
+    # The `render` service name is what you configured in the tunnel's Public
+    # Hostname (URL = http://render:8080).
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN missing from .env}
+    depends_on:
+      render:
+        condition: service_started
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

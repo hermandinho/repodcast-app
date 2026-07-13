@@ -119,9 +119,9 @@ export default async function RootAgenciesListPage({
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-6">
-      <header className="flex items-baseline justify-between">
+      <header className="flex flex-wrap items-baseline justify-between gap-3">
         <div>
-          <h1 className="font-display text-3xl font-semibold tracking-tight text-white">
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-white sm:text-3xl">
             Agencies
           </h1>
           <p className="text-sm text-zinc-400">
@@ -147,8 +147,8 @@ export default async function RootAgenciesListPage({
             : "No agencies have signed up yet."}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/40">
-          <table className="w-full text-left text-sm">
+        <div className="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900/40">
+          <table className="w-full min-w-[860px] text-left text-sm">
             <thead className="bg-zinc-900/80 font-mono text-[10px] tracking-wider text-zinc-500 uppercase">
               <tr>
                 <Th>Agency</Th>

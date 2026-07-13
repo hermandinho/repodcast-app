@@ -80,6 +80,17 @@ enum OutputStatus {
   FAILED
 }
 
+/// Q1 — VideoClip lifecycle. The clip row is created up-front once Claude
+/// picks the highlight, so the UI can render a card immediately with a
+/// PENDING pill. The Inngest → render-worker call flips it to RENDERING,
+/// then to READY or FAILED depending on the worker's response.
+enum ClipRenderStatus {
+  PENDING
+  RENDERING
+  READY
+  FAILED
+}
+
 /// Per-client toggle for who signs off on generated outputs before they
 /// can be scheduled. INTERNAL = the agency's own OWNER/ADMIN/REVIEWER
 /// approves via the dashboard (existing behavior). CLIENT = after the
@@ -304,16 +315,62 @@ model Agency {
   onboardingNudgesSent OnboardingNudgeSent[]
   trialNudgesSent      TrialNudgeSent[]
   usageSnapshots       AgencyUsageSnapshot[]
+  regenCounters        AgencyRegenCounter[]
   limitOverrides       AgencyLimitOverride[]
   integrations         AgencyIntegration[]
   notifications        Notification[]
   suggestions          Suggestion[]
+  videoClips           VideoClip[]
+  attribution          AgencyAttribution?
 
   /// Same hot-path index as declared inline in the migration — mirrored here
   /// so `prisma migrate diff` stays clean on the next migration boundary.
   @@index([suspendedAt])
   /// Hot path for the "trial ending soon" cron scan and the ROOT filter.
   @@index([trialStatus, trialEndsAt])
+}
+
+/// Q2 wk14 — signup attribution sidecar. 1:1 with `Agency`, populated once at
+/// agency creation from the visitor's utm_* + referrer + landing path. Sidecar
+/// (not columns on Agency) so the hot Agency row stays lean and Q3 can extend
+/// to per-touchpoint multi-touch without a wide-table migration.
+///
+/// Written by `captureAttribution` from within the `createWorkspaceAction`
+/// transaction, immediately after the Agency row lands. Read from the ROOT
+/// funnel view. Never read by tenant-side code — attribution is an internal
+/// analytics artifact, not something the agency itself sees.
+model AgencyAttribution {
+  agencyId    String   @id
+  agency      Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  /// UTM parameter conventions match Google's spec — keeping them named
+  /// verbatim so downstream tools (PostHog dashboards, Metabase reports)
+  /// can join on a familiar shape without translation.
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  utmContent  String?
+  utmTerm     String?
+  /// `document.referrer` at first landing. Empty when the visitor came in via
+  /// a bookmark, direct URL, or another origin that strips the header.
+  referrer    String?
+  /// `location.pathname` on the visitor's first landing page. Distinguishes
+  /// arrivals via `/`, `/pricing`, `/samples/[slug]`, etc.
+  landingPath String?
+  /// `location.pathname` at the moment /sign-up was hit. Almost always
+  /// `/sign-up` today; kept as a column so a future embedded sign-up widget
+  /// on `/pricing` doesn't require a schema migration to instrument.
+  signupPath  String?
+  /// Google Click ID + Facebook Click ID. Reserved for future paid-media
+  /// attribution; unused in Q2 (no paid ads budgeted), but adding the columns
+  /// now means enabling paid channels in Q3 is a copy-writing task, not a
+  /// migration.
+  gclid       String?
+  fbclid      String?
+  createdAt   DateTime @default(now())
+
+  @@index([utmSource])
+  @@index([utmCampaign])
+  @@index([createdAt])
 }
 
 model Member {
@@ -499,6 +556,10 @@ model Episode {
   source        TranscriptSource
   audioUrl      String?
   externalUrl   String?
+  /// Q1 — source video for clip generation. Populated during import for
+  /// YOUTUBE episodes and UPLOAD-with-video. Null for audio-only sources
+  /// (the clip pipeline falls back to an audiogram-style render).
+  sourceVideoUrl String?
   status        EpisodeStatus    @default(DRAFT)
   /// Fine-grained pipeline sub-state. Drives the SSE stream + panel
   /// selection on `/episodes/[id]`. See `EpisodePipelineStage`.
@@ -515,6 +576,25 @@ model Episode {
   /// as clip suggestions so the user doesn't have to re-call Claude or
   /// scrub the transcript by hand. Null until generate-episode has run.
   keyMoments    Json?
+  /// Q1 wk4 — Deepgram per-word timestamps kept alongside the flat
+  /// transcript, so `server/ai/highlight-selection.ts` and the clip
+  /// captions pipeline don't have to re-transcribe. Shape:
+  /// `DeepgramWord[]` from server/transcription/deepgram.ts. Null on
+  /// episodes transcribed before wk4 or on RSS/YouTube sources whose
+  /// publisher-supplied transcript path skipped Deepgram entirely.
+  transcriptWords Json?
+  /// Q1 feature #4 — AI-generated hero artwork. All three variants share
+  /// a single visual concept (Claude picks it once from the transcript);
+  /// Workers AI renders each aspect ratio separately with flux-1-schnell.
+  /// Null until generate-artwork has run. Overwritten when the user
+  /// requests a regeneration.
+  heroImageUrl     String?  // 16:9 — YouTube thumbnails, BLOG hero, NEWSLETTER hero
+  squareCoverUrl   String?  // 1:1  — Apple Podcasts episode art, IG feed
+  verticalCoverUrl String?  // 9:16 — Reels / TikTok / Shorts cover
+  /// The visual concept Claude wrote before we called the image model.
+  /// Kept so the UI can show "here's what we asked the model to draw"
+  /// and so a "generate variants" flow can iterate on the same concept.
+  artworkConcept   Json?
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 
@@ -523,6 +603,7 @@ model Episode {
   usageLogs     UsageLog[]
   voiceSamples  VoiceSample[]
   notifications Notification[]
+  videoClips    VideoClip[]
 
   @@index([showId])
   @@index([status])
@@ -592,6 +673,20 @@ model GeneratedOutput {
   externalPostId      String?
   externalPostUrl     String?
   publishedAt         DateTime?
+  /// Q1 feature #5 — audiogram (waveform video) attached to this output.
+  /// `audiogramStatus` follows the same PENDING → RENDERING → READY | FAILED
+  /// lifecycle as VideoClip; the four fields are populated together by the
+  /// `generate-audiogram` Inngest fn and its render worker call. Null on
+  /// outputs the user hasn't requested an audiogram for. `audiogramStartMs`
+  /// and `audiogramEndMs` are the window we cut from the source audio
+  /// (defaults to 0-60s until the trim editor lands).
+  audiogramStatus     ClipRenderStatus?
+  audiogramUrl        String?
+  audiogramPosterUrl  String?
+  audiogramError      String?
+  audiogramStartMs    Int?
+  audiogramEndMs      Int?
+  audiogramAspect     String?            // "1:1" or "9:16"
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
@@ -742,6 +837,59 @@ model VoiceSample {
   @@index([showId, platform])
   @@index([generatedOutputId])
   @@index([episodeId])
+}
+
+// ============================================================
+// Video clips (Q1 — short-form clip generation)
+// ============================================================
+
+/// A single vertical clip cut from an episode. The row is created up-front
+/// with `status = PENDING` after Claude picks the highlight span, so the
+/// UI can render the placeholder card immediately. `renderedUrl` /
+/// `posterUrl` fill in when the render worker (VPS + ffmpeg) uploads to
+/// R2 and posts back the result.
+///
+/// `agencyId` is denormalized so tenant-isolation queries can filter
+/// without joining through Episode → Show → Client → Agency.
+model VideoClip {
+  id             String           @id @default(cuid())
+  episodeId      String
+  agencyId       String
+  /// Span within the source, aligned to Deepgram word timestamps.
+  startMs        Int
+  endMs          Int
+  /// Claude's ranking (0–1) — hook strength × standalone comprehension ×
+  /// emotional beat. Used to sort candidates and to A/B against actual
+  /// post-publish engagement once analytics loopback lands (Q2 #2).
+  score          Float
+  /// One-sentence pitch from Claude explaining *why* this moment is a clip.
+  /// Rendered under the poster in the UI so reviewers can skim without
+  /// scrubbing.
+  hookLine       String
+  /// The source video the worker downloads/reads. Null → audiogram-style
+  /// render from the episode's audio (audio-only podcasts, upload-source
+  /// with no video track).
+  sourceVideoUrl String?
+  /// R2 URL of the rendered MP4. Null while status < READY.
+  renderedUrl    String?
+  /// R2 URL of the poster frame (first frame after burn-in). Same lifecycle.
+  posterUrl      String?
+  /// R2 URL of the SRT actually burnt in — kept so the trim editor can
+  /// re-render without recomputing captions.
+  captionsUrl    String?
+  status         ClipRenderStatus @default(PENDING)
+  /// Populated when status = FAILED. Short human-readable reason surfaced
+  /// on the clip card, plus full stack in Sentry.
+  renderError    String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  episode Episode @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  agency  Agency  @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+
+  @@index([episodeId])
+  @@index([agencyId, createdAt])
+  @@index([status])
 }
 
 // ============================================================
@@ -1194,6 +1342,35 @@ model SystemAdmin {
 /// `revenueCents` rolls up PAID invoices' `amountCents`. Mixed-currency rows
 /// would normally need conversion, but every Stripe invoice we ingest is
 /// already in the agency's `preferredCurrency` and we don't currently
+/// PricingV2 — per-agency, per-month counter for regeneration budgets.
+/// Increments atomically inside the server action right after the
+/// capacity check, so races between simultaneous requests can't blow
+/// past the cap. One row per (agencyId, month) enforced by a unique
+/// composite index.
+///
+/// `month` is a YYYY-MM string (e.g. "2026-07") — string is simpler
+/// than DateTime for equality lookups and month rollover is a plain
+/// string change.
+///
+/// Failed renders still increment the counter — the user chose to
+/// retry and each attempt costs us compute. Under-counting would let
+/// abusers grind the system with intentionally-failing requests.
+model AgencyRegenCounter {
+  id              String   @id @default(cuid())
+  agencyId        String
+  month           String
+  clipRegens      Int      @default(0)
+  artworkRegens   Int      @default(0)
+  audiogramRegens Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  agency Agency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+
+  @@unique([agencyId, month])
+  @@index([agencyId])
+}
+
 /// aggregate across agencies in non-USD reporting — see PLAN §3.6.7 for the
 /// multi-currency cohort note.
 model AgencyUsageSnapshot {

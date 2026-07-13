@@ -19,6 +19,10 @@ const isPublicRoute = createRouteMatcher([
   // render for logged-out visitors and crawlers alike.
   "/blog",
   "/blog/(.*)",
+  // Q2 wk15 — public "sample delivery" pages. Cold traffic must be able
+  // to view a curated launch kit without a session; the landing hero
+  // secondary CTA links here as the pre-signup taster.
+  "/samples/(.*)",
   "/sign-in(.*)",
   "/sign-up(.*)",
   // Invite acceptance lands on /invite/[token] BEFORE the recipient has an
