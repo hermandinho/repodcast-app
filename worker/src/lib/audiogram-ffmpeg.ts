@@ -50,9 +50,31 @@ export async function renderAudiogramVideo(input: {
 
   // Escape the SRT path for the subtitles filter.
   const srtEscaped = srtPath.replace(/'/g, "\\'").replace(/:/g, "\\:");
-  const captionStyle =
-    "Fontname=DejaVu Sans,FontSize=36,PrimaryColour=&Hffffff&," +
-    "OutlineColour=&H000000&,Outline=2,BorderStyle=1,MarginV=140";
+  // libass has no idea about our target resolution when reading an SRT —
+  // it defaults to a 384×288 PlayRes and scales the ASS default styles up
+  // to whatever the video is. Result: 36 pt font becomes gigantic on a
+  // 1080×1920 canvas. We pass `original_size` so libass renders at the
+  // intended scale, then FontSize / MarginV / MarginL / MarginR are in
+  // the units we actually mean.
+  //
+  // MarginL/MarginR force wrapping to fit the visible frame; without them
+  // long lines run off the edges. WrapStyle=0 = smart wrap.
+  const captionStyle = [
+    "Fontname=DejaVu Sans",
+    "FontSize=22",
+    "PrimaryColour=&H00FFFFFF&",
+    "OutlineColour=&H00000000&",
+    "BackColour=&H80000000&",
+    "BorderStyle=3", // opaque box behind text — improves legibility on busy backgrounds
+    "Outline=2",
+    "Shadow=0",
+    "Alignment=2", // bottom-center
+    "MarginL=80",
+    "MarginR=80",
+    `MarginV=${Math.round(h * 0.08)}`,
+    "WrapStyle=0",
+    "Bold=1",
+  ].join(",");
 
   // Filter graph. The audio input gets its own trim so the whole file
   // isn't re-encoded; the waveform is generated from the trimmed audio.
@@ -69,7 +91,7 @@ export async function renderAudiogramVideo(input: {
     `[trimaudio]asplit=2[audio][audioWave];` +
     `[audioWave]showwaves=s=${w}x${waveH}:mode=cline:colors=white@0.9:rate=25[wave];` +
     `[bg][wave]overlay=0:${waveY}:shortest=1[bgwave];` +
-    `[bgwave]subtitles='${srtEscaped}':force_style='${captionStyle}'[vout]`;
+    `[bgwave]subtitles='${srtEscaped}':original_size=${w}x${h}:force_style='${captionStyle}'[vout]`;
 
   const inputs = bgImagePath
     ? ["-loop", "1", "-i", bgImagePath, "-i", audioPath]

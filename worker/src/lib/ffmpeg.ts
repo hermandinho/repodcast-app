@@ -42,11 +42,32 @@ export async function renderClipVideo(input: {
 
   // The subtitles filter takes a path; escape single quotes for the filter
   // parser. Font styling matches worker/Dockerfile's `ttf-dejavu` package.
+  //
+  // `original_size` tells libass what canvas the ASS defaults are meant
+  // for. Without it, libass assumes 384×288 and scales font/margins up to
+  // fit our 1080-wide output — captions balloon and run off-screen.
+  // MarginL/MarginR force wrap into the visible frame; WrapStyle=0 =
+  // smart wrap.
   const srtEscaped = srtPath.replace(/'/g, "\\'").replace(/:/g, "\\:");
+  const captionStyle = [
+    "Fontname=DejaVu Sans",
+    "FontSize=24",
+    "PrimaryColour=&H00FFFFFF&",
+    "OutlineColour=&H00000000&",
+    "BackColour=&H80000000&",
+    "BorderStyle=3", // opaque box behind text for readability on any background
+    "Outline=2",
+    "Shadow=0",
+    "Alignment=2",
+    "MarginL=60",
+    "MarginR=60",
+    `MarginV=${Math.round(dims.h * 0.06)}`,
+    "WrapStyle=0",
+    "Bold=1",
+  ].join(",");
   const filter =
     `${dims.cropFilter},scale=${dims.w}:${dims.h},` +
-    `subtitles='${srtEscaped}':force_style='Fontname=DejaVu Sans,FontSize=32,` +
-    `PrimaryColour=&Hffffff&,OutlineColour=&H000000&,Outline=2,BorderStyle=1,MarginV=80'`;
+    `subtitles='${srtEscaped}':original_size=${dims.w}x${dims.h}:force_style='${captionStyle}'`;
 
   await execa(
     "ffmpeg",
