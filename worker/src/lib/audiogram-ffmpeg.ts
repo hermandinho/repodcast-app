@@ -45,12 +45,13 @@ export async function renderAudiogramVideo(input: {
   const { w, h } = OUTPUT_DIMS[aspect];
   const durationSec = Math.max(1, endSec - startSec);
 
-  // Waveform now sits in a bottom band so the caption can occupy the
-  // visual centre without collision. Wave takes ~16 % of the frame,
-  // anchored ~72 % down, leaving the middle ~40 % clear for the
-  // centered caption block.
-  const waveH = Math.round(h * 0.16);
-  const waveY = Math.round(h * 0.72);
+  // Waveform is a thin decorative band at the very bottom now — the
+  // caption is the visual centrepiece, sitting dead-centre both
+  // vertically and horizontally. Wave takes ~7 % of the frame,
+  // anchored ~88 % down, so it reads as a footer rather than
+  // competing with the text.
+  const waveH = Math.round(h * 0.07);
+  const waveY = Math.round(h * 0.88);
 
   // Convert the SRT to a proper ASS file with our styling baked into
   // the [V4+ Styles] block. See worker/src/lib/ass.ts for why we don't
