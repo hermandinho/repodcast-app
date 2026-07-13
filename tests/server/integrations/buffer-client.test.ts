@@ -1,5 +1,5 @@
 /**
- * Phase 3.3 — Buffer API client.
+ * Buffer API client.
  *
  * Behavior pinned:
  *   - OAuth `exchangeCode` + `refreshAccessToken` POST form-encoded bodies

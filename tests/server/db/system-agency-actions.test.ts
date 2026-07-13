@@ -1,5 +1,5 @@
 /**
- * Phase 3.6.5 — ROOT-side agency write actions.
+ * ROOT-side agency write actions.
  *
  * Every action must:
  *   - Reject SUPPORT + ANALYST with ForbiddenError BEFORE any TX opens

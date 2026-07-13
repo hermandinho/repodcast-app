@@ -12,7 +12,7 @@ import {
 } from "@/server/imports/podcastindex";
 
 /**
- * Phase 2.8 followup — direct RSS parser and fallback resolver.
+ * Direct RSS parser and fallback resolver.
  *
  * Podcast Index doesn't crawl every feed (Substack, Patreon, self-hosted
  * publishers routinely absent), so when its lookup misses, we fetch the RSS

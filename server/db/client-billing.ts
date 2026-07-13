@@ -7,7 +7,7 @@ import { requireRole, type TenantContext } from "@/server/auth/tenant";
 import { prisma } from "./client";
 
 /**
- * Phase 2.13.2 — Client billing profile CRUD.
+ * Client billing profile CRUD.
  *
  * Role gating: OWNER + ADMIN only. EDITORs and REVIEWERs aren't business-
  * sensitive enough to see retainer amounts or contract dates, so both the

@@ -4,7 +4,7 @@ import { countSignupsByCampaign, countSignupsBySource } from "@/server/db/attrib
 import { prisma } from "@/server/db/client";
 
 /**
- * Q2 wk14 — acquisition funnel view.
+ * Acquisition funnel view.
  *
  * Two data planes:
  *

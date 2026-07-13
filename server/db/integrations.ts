@@ -24,7 +24,7 @@ import {
 import { prisma } from "./client";
 
 /**
- * Phase 3.3 — per-agency integration wiring for the scheduling surface.
+ * Per-agency integration wiring for the scheduling surface.
  *
  * `AgencyIntegration.accessToken` is stored encrypted at rest via
  * `server/crypto/token-vault.ts`. Every access route in this module reads

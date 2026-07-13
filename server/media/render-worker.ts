@@ -1,7 +1,7 @@
 import "server-only";
 
 /**
- * Q1 wk1 — thin client for the ffmpeg render worker running on a VPS
+ * Thin client for the ffmpeg render worker running on a VPS
  * behind Cloudflare Tunnel. Prod points at `render.repodcastapp.com`,
  * previews at `render-staging.repodcastapp.com` (both configured via
  * `RENDER_WORKER_URL` on the deploy target).
@@ -12,7 +12,7 @@ import "server-only";
  *   POST /render/audiogram     — bearer-auth, waveform video from audio + srt
  *
  * `/render/*` endpoints currently return 501; they land with the ffmpeg
- * pipeline in Q1 wk3. Types below are the contract we're committing to
+ * pipeline later. Types below are the contract we're committing to
  * so caller-side wiring (Inngest bridges, server actions) can compile.
  *
  * All calls share a 30 s AbortController timeout and single-try semantics.

@@ -114,7 +114,7 @@ export async function createCheckoutSessionAction(
     return { ok: false, error: "Stripe did not return a checkout URL." };
   }
 
-  // Phase 3.7 — funnel signal. Fired synchronously so it lands before we
+  // Funnel signal. Fired synchronously so it lands before we
   // redirect the user to Stripe's hosted page; `trackServer` bounds itself
   // to 2s so a PostHog outage can't slow the checkout kick-off.
   await trackServer(

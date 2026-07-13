@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 /**
- * Phase 2.5 — minimal layout for the client portal.
+ * Minimal layout for the client portal.
  *
  * Deliberately bypasses the dashboard chrome (topbar, sidebar, Clerk's
  * `<UserButton>`) — clients viewing the portal aren't Repodcast users.

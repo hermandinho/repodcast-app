@@ -8,7 +8,7 @@ import { getClientForUI, isLiveDb } from "@/server/data/source";
 import { resolveTenantContext } from "@/server/data/tenant";
 
 /**
- * Phase 2.13.4 — Client statements list.
+ * Client statements list.
  *
  * OWNER/ADMIN only — statements are billing material. EDITOR/REVIEWER hit
  * the URL → redirected back to the client overview.

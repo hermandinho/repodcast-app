@@ -1,5 +1,5 @@
 /**
- * Phase 3.6.11 — SystemConfig + AgencyLimitOverride repo helpers.
+ * SystemConfig + AgencyLimitOverride repo helpers.
  *
  * The load-bearing guarantees pinned here:
  *   - Reads open to every system read role (ROOT / OPERATOR / SUPPORT / ANALYST)

@@ -70,7 +70,7 @@ export async function inviteMemberAction(raw: unknown): Promise<ActionResult<{ e
   const auth = await requireAuthContext();
   assertRole(auth, [MemberRole.OWNER, MemberRole.ADMIN]);
 
-  // Seat-limit enforcement uses the existing Phase 1.11 plumbing.
+  // Seat-limit enforcement uses the existing plumbing.
   await assertPlanCapacity(auth.agency.id, auth.agency.plan, "members");
 
   let invite;

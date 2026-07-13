@@ -76,7 +76,7 @@ export async function bulkApproveEpisodesAction(raw: unknown): Promise<BulkAppro
 }
 
 // ============================================================
-// Phase 2.6 — batch generate
+// Batch generate
 // ============================================================
 
 export type BulkGenerateResult =
@@ -129,7 +129,7 @@ export async function bulkGenerateEpisodesAction(raw: unknown): Promise<BulkGene
   const { dispatches, skippedNotEligible } = await bulkGenerateEpisodes(tenant, parsed.data);
 
   if (dispatches.length > 0) {
-    // Phase 3.5 — tag the event with plan + agencyId so the priority.run
+    // Tag the event with plan + agencyId so the priority.run
     // expression on `generate-episode` can bump NETWORK ahead and the
     // per-agency concurrency key caps this batch to N slots. Uses the
     // plan on auth (rather than `getAgencyPlan`) since it's already

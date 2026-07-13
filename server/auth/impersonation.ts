@@ -4,7 +4,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 
 /**
- * Phase 3.6.6 — read-only impersonation envelope.
+ * Read-only impersonation envelope.
  *
  * A platform admin (SystemAdmin) can drop into a tenant view as if they
  * were a specific Member. The envelope is held in an HMAC-signed cookie:

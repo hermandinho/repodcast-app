@@ -41,7 +41,7 @@ function roleLabel(role: string): string {
 export async function Sidebar() {
   const ctx = await getAuthContext();
 
-  // Phase 3.8 — agency-wide unread portal feedback drives the badge on the
+  // Agency-wide unread portal feedback drives the badge on the
   // Clients nav item. Gated on `isLiveDb()` + a live tenant context; sample-
   // data mode and unauthed edges collapse to zero (badge stays hidden).
   const unreadFeedbackCount =

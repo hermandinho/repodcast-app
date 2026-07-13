@@ -20,7 +20,7 @@ import type { Events } from "../events";
 import { inngest } from "../client";
 
 /**
- * Q1 wk4 — real generate-clips orchestrator.
+ * Real generate-clips orchestrator.
  *
  * Pipeline:
  *   1. Load Episode + verify tenant + assert transcriptWords + sourceVideoUrl.
@@ -37,7 +37,7 @@ import { inngest } from "../client";
  *   - The per-agency Inngest concurrency limit (2 in `event registry`) already
  *     rate-limits when multiple agencies fire in parallel.
  *   - Serial + `step.run` keeps each clip visible as its own row in the
- *     Inngest dashboard, which is enough for wk4.
+ *     Inngest dashboard, which is enough.
  */
 
 const MAX_CLIPS_DEFAULT = 5;
@@ -141,7 +141,7 @@ export const generateClips = inngest.createFunction(
         await markClipRendering(clip.id);
         try {
           // Timestamped path so each render lands on a fresh R2 key —
-          // re-renders (wk6 retrim) get a new URL, so browser caches
+          // re-renders (retrim) get a new URL, so browser caches
           // and any <video> elements holding the old URL flip cleanly
           // instead of showing stale bytes. Old objects orphan; R2
           // lifecycle policy handles cleanup.

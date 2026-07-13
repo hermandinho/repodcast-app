@@ -3,7 +3,7 @@ import { getPortalLinkByToken } from "@/server/db/client-portal";
 import { prisma } from "@/server/db/client";
 
 /**
- * Q2 wk15 — client-portal OG card.
+ * Client-portal OG card.
  *
  * A portal URL is a one-time delivery link that agencies share with
  * their clients — the OG here shows the agency's brand + the client's

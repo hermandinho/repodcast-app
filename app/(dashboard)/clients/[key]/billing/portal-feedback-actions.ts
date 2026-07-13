@@ -9,7 +9,7 @@ import { isLiveDb } from "@/server/data/source";
 import { markPortalFeedbackRead, markPortalFeedbackUnread } from "@/server/db/client-portal";
 
 /**
- * Phase 3.8 — agency-side triage actions for `ClientPortalFeedback`.
+ * Agency-side triage actions for `ClientPortalFeedback`.
  *
  * Both actions are OWNER / ADMIN / EDITOR / REVIEWER — same read-tier as
  * viewing the feedback list. The DB helpers enforce the tenant filter and

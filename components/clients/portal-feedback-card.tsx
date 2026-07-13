@@ -9,7 +9,7 @@ import {
 } from "@/app/(dashboard)/clients/[key]/billing/portal-feedback-actions";
 
 /**
- * Phase 3.8 — agency-side inbox for client portal feedback.
+ * Agency-side inbox for client portal feedback.
  *
  * Renders alongside `<PortalLinksCard>` on `/clients/[key]/billing`. Unread
  * feedback sits at the top with a soft accent bar; read items collapse

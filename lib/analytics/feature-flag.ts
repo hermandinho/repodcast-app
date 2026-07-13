@@ -4,7 +4,7 @@ import posthog from "posthog-js";
 import { useEffect, useState } from "react";
 
 /**
- * Phase 3.7 — client-side feature-flag hook.
+ * Client-side feature-flag hook.
  *
  * Thin wrapper around `posthog-js`'s flag API so the app has a single
  * `useFeatureFlag("<key>")` entry point instead of a dozen call sites

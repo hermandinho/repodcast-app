@@ -42,7 +42,7 @@ app.get("/healthz", async () => ({
   version: process.env.IMAGE_TAG ?? "local",
 }));
 
-// Q1 wk3 — clip render. Full pipeline in ./jobs/clip.ts.
+// Clip render. Full pipeline in ./jobs/clip.ts.
 const clipRequestSchema = z.object({
   clipId: z.string().min(1).max(200),
   sourceUrl: z.string().url(),

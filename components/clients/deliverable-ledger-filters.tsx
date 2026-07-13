@@ -5,7 +5,7 @@ import { useEffect, useRef, useTransition } from "react";
 import { OutputStatus, Platform } from "@/lib/enums";
 
 /**
- * Phase 2.13.3 — filter row for the deliverable ledger.
+ * Filter row for the deliverable ledger.
  *
  * Mirrors the `/episodes` filter pattern: URL-state push, page reset on
  * every change, native date inputs cross-anchored via `min`/`max`. Server
@@ -66,7 +66,7 @@ export function DeliverableLedgerFilters({
   csvHref: string;
   /** Hide the Export button for non-OWNER/ADMIN roles. */
   csvDisabled: boolean;
-  /** Phase 3.8 — populate the Show filter dropdown. Empty array hides the
+  /** Populate the Show filter dropdown. Empty array hides the
    *  filter entirely (single-show or new clients). */
   showOptions?: ShowFilterOption[];
 }) {

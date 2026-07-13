@@ -9,7 +9,7 @@ import { downloadSource } from "../lib/source.js";
 import { sliceSrt } from "../lib/srt.js";
 
 /**
- * Q1 wk3 — clip render pipeline. Called per-clip from POST /render/clip.
+ * Clip render pipeline. Called per-clip from POST /render/clip.
  *
  * Steps (in order):
  *   1. Create scratch dir `/tmp/render/clip-{clipId}/`.

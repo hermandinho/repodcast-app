@@ -1,7 +1,7 @@
 import { parseSrt } from "./srt.js";
 
 /**
- * Q1 wk10 — SRT → ASS converter with embedded styles.
+ * SRT → ASS converter with embedded styles.
  *
  * Why not use ffmpeg's `subtitles=file.srt:force_style=…`?
  *   ffmpeg's filter-graph parser and libass have different views on

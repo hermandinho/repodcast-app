@@ -3,7 +3,7 @@ import "server-only";
 import * as Sentry from "@sentry/nextjs";
 
 /**
- * Phase 3.7 — Sentry capture helpers for pipeline + webhook failures.
+ * Sentry capture helpers for pipeline + webhook failures.
  *
  * Two entry points:
  *   - `captureInngestFailure(scope, err, extra?)` — called from an

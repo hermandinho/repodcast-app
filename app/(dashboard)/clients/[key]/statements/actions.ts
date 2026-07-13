@@ -22,7 +22,7 @@ const actionInput = z.object({
 });
 
 /**
- * Phase 2.13.4 — generate a new client statement. OWNER/ADMIN-gated via
+ * Generate a new client statement. OWNER/ADMIN-gated via
  * the repo's `requireRole`. The client redirects to the new statement's
  * detail page on success.
  *
@@ -61,7 +61,7 @@ export async function generateClientStatementAction(
 }
 
 // ============================================================
-// Phase 3.8 — publish / unpublish a statement to the client portal
+// Publish / unpublish a statement to the client portal
 // ============================================================
 
 const shareInput = z.object({

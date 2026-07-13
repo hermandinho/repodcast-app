@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 
 /**
- * Phase 3.1 — dynamic Open Graph image at `/opengraph-image`.
+ * Dynamic Open Graph image at `/opengraph-image`.
  *
  * Rendered via Next's built-in `ImageResponse` (satori under the hood)
  * instead of committing a static PNG. Same visual language as the

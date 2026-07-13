@@ -21,7 +21,7 @@ import {
 } from "@/server/integrations/buffer";
 
 /**
- * Phase 3.3 — server actions backing the calendar + OutputCard scheduling
+ * Server actions backing the calendar + OutputCard scheduling
  * affordances. Actions handle mode-resolution (auto vs force-buffer vs
  * manual) and the Buffer round-trip; DB writes go through
  * `server/db/outputs.ts` helpers which enforce tenant scoping + role gates.

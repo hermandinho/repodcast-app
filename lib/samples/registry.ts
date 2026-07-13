@@ -1,5 +1,5 @@
 /**
- * Q2 wk15 — public sample delivery registry.
+ * Public sample delivery registry.
  *
  * One entry per `/samples/[slug]` marketing page. The data is hardcoded
  * (not DB-sourced) so the page can be statically pre-rendered at build

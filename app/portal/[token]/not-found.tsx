@@ -1,5 +1,5 @@
 /**
- * Phase 2.5 — generic 404 for invalid / revoked / expired portal links.
+ * Generic 404 for invalid / revoked / expired portal links.
  *
  * Deliberately vague — we render the same surface regardless of *why*
  * the token didn't resolve so a probing visitor can't distinguish "no

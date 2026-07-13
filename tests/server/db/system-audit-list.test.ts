@@ -1,5 +1,5 @@
 /**
- * Phase 3.6.2 — `/root/audit` viewer repo helpers.
+ * `/root/audit` viewer repo helpers.
  *
  * Pins the load-bearing surface of `listSystemAuditEntries` +
  * `listActiveSystemAdmins`:

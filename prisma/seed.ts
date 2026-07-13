@@ -132,7 +132,7 @@ async function main() {
           showId: show.id,
           title: episode.episode,
           // Seeded transcript is just a stub — real transcripts arrive via
-          // the Phase 1.6 New Episode flow.
+          // the New Episode flow.
           transcript: `${episode.episode}\n\n${episode.episodeMeta}`,
           source: "PASTE",
           status: "READY",

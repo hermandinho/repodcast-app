@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 
 /**
- * Q1 wk10 — attach an alternate source video to an existing episode.
+ * Attach an alternate source video to an existing episode.
  * Bypasses the audio-transcribe path: the episode's transcript
  * already exists, we're just providing video the clip pipeline can
  * cut against.

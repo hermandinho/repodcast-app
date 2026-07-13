@@ -1,5 +1,5 @@
 /**
- * Phase 3.3 — every 5 minutes the cron walks the SCHEDULED backlog and
+ * Every 5 minutes the cron walks the SCHEDULED backlog and
  * reconciles with Buffer + auto-publishes stale MANUAL rows. This suite
  * pins the per-branch behavior:
  *

@@ -12,7 +12,7 @@ import type { Plan, Platform } from "@prisma/client";
 
 export type EventMap = {
   /**
-   * Q2 wk14 — top-of-funnel pageview events. Fired client-side from tiny
+   * Top-of-funnel pageview events. Fired client-side from tiny
    * one-shot trackers embedded in the landing / pricing / sign-up pages.
    *
    * These are separate from PostHog's autocaptured `$pageview` (which
@@ -50,7 +50,7 @@ export type EventMap = {
     suggestedAgencyName: string;
   };
   /**
-   * Q2 wk14 — per-step wizard completion. Fires from each onboarding
+   * Per-step wizard completion. Fires from each onboarding
    * server action right before the redirect. `step` is 1-indexed
    * matching the visible step counter (1=workspace, 2=plan/checkout,
    * 3=first-client).
@@ -84,8 +84,8 @@ export type EventMap = {
   generation_completed: {
     episodeId: string;
     platform: Platform;
-    /** Token output count — proxy for response length until Phase 1.9
-     *  ships a real heuristic-or-judge quality score. */
+    /** Token output count — proxy for response length until we
+     *  ship a real heuristic-or-judge quality score. */
     outputTokens: number;
     durationMs: number;
   };
@@ -129,7 +129,7 @@ export type EventMap = {
   };
 
   /**
-   * Phase 3.7 — upgrade funnel. Two events:
+   * Upgrade funnel. Two events:
    *   - `upgrade_started` fires server-side from
    *     `createCheckoutSessionAction` right before we return the hosted-
    *     checkout URL. `fromPlan` is the current plan on the agency,
@@ -175,7 +175,7 @@ export type EventMap = {
   };
 
   /**
-   * Phase 3.9 — trial funnel (see MarketingStrategy.md §1). Fires server-
+   * Trial funnel (see MarketingStrategy.md §1). Fires server-
    * side from the Stripe webhook because the client redirect isn't
    * authoritative — Stripe's `subscription.created` / `subscription.updated`
    * / `subscription.deleted` are.
@@ -228,7 +228,7 @@ export type EventMap = {
   };
 
   /**
-   * Q2 wk14 — first-time milestone events. Each fires exactly once per
+   * First-time milestone events. Each fires exactly once per
    * agency, gated by a count check on the underlying resource (or a
    * `MemberAchievement` row for `first_launch_kit_completed`, see
    * Q2.md §"Weeks 17–19"). Read by the ROOT funnel view and used to
@@ -248,7 +248,7 @@ export type EventMap = {
     clipId: string;
   };
   /**
-   * Q2 wk19 reward moment. Fires the first time an agency has ≥1 output
+   * Reward moment. Fires the first time an agency has ≥1 output
    * approved AND ≥1 clip rendered AND ≥1 artwork rendered AND ≥1
    * audiogram rendered on the same episode. See Q2.md §"Weeks 17–19"
    * for the UI reward that stacks alongside.

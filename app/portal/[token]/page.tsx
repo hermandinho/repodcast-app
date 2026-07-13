@@ -20,7 +20,7 @@ import { PortalPasswordForm } from "@/components/portal/password-form";
 import { PortalPendingApprovalCard } from "@/components/portal/pending-approval-card";
 
 /**
- * Phase 3.8 — public client portal.
+ * Public client portal.
  *
  * Auth is the token in the URL — see `middleware.ts` for the public
  * matcher. `getPortalLinkByToken` rejects missing / revoked / expired

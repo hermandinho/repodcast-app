@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 /**
  * Tab nav for `/clients/[key]/...`. Splits the client detail page into
  * an Overview tab (the existing voice / shows surface) and a Deliverables
- * & Billing tab (Phase 2.13). The Billing tab is OWNER/ADMIN-only — the
+ * & Billing tab. The Billing tab is OWNER/ADMIN-only — the
  * parent layout hides this entry for other roles.
  */
 export function ClientTabNav({

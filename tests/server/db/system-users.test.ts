@@ -1,5 +1,5 @@
 /**
- * Phase 3.6.9 — cross-agency user search.
+ * Cross-agency user search.
  *
  * Pins the load-bearing surface:
  *   - role gate rejects non-read roles

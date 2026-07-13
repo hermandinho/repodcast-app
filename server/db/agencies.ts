@@ -21,7 +21,7 @@ export const updateAgencyInput = z.object({
 export type UpdateAgencyInput = z.infer<typeof updateAgencyInput>;
 
 /**
- * Phase 2.13.6 — renewals-reminder toggle. Lives as its own input so the
+ * Renewals-reminder toggle. Lives as its own input so the
  * one-checkbox form on /settings/agency stays simple and the existing
  * name-rename flow doesn't need to know about it.
  */
@@ -31,7 +31,7 @@ export const updateRenewalRemindersInput = z.object({
 export type UpdateRenewalRemindersInput = z.infer<typeof updateRenewalRemindersInput>;
 
 /**
- * Phase 2.9-followup — preferred display + checkout currency. Bounded to
+ * Preferred display + checkout currency. Bounded to
  * SUPPORTED_CURRENCIES at the action layer (the DB column is free-form so
  * we can add currencies without a migration).
  */
@@ -41,7 +41,7 @@ export const updatePreferredCurrencyInput = z.object({
 export type UpdatePreferredCurrencyInput = z.infer<typeof updatePreferredCurrencyInput>;
 
 /**
- * Phase 2.5 — white-label settings (logo + accent color). Both fields
+ * White-label settings (logo + accent color). Both fields
  * are independently nullable so the agency can opt in to either piece.
  * Empty strings collapse to `null` so a "clear" gesture from the form
  * lands as a real unset rather than an empty string in the DB.
@@ -84,7 +84,7 @@ export type CreateAgencyForUserInput = CreateAgencyInput & {
 };
 
 /**
- * Self-service agency creation (Phase 1.0).
+ * Self-service agency creation.
  *
  * Lifecycle:
  *   1. Single interactive `$transaction` creates the `Agency` row and the
@@ -153,7 +153,7 @@ export async function userHasAnyMembership(clerkUserId: string): Promise<boolean
 }
 
 /**
- * Phase 3.x — snapshot used by the `/onboarding` router to decide which
+ * Snapshot used by the `/onboarding` router to decide which
  * substep to send the user to.
  *
  * Returns:
@@ -238,7 +238,7 @@ export async function updateAgency(ctx: TenantContext, patch: UpdateAgencyInput)
 }
 
 /**
- * Phase 2.13.6 — flip the renewals-reminder cron's per-agency mute switch.
+ * Flip the renewals-reminder cron's per-agency mute switch.
  * Same role gate as `updateAgency` (OWNER/ADMIN); `updateMany` keeps the
  * write tenant-scoped atomically (a 0-count → NotFoundError).
  */

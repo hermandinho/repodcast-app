@@ -29,7 +29,7 @@ function truncateReason(message: string): string {
 
 /**
  * Naive token-cost estimate for Sonnet 4.6 (≈ $3/MTok in, $15/MTok out).
- * Refine when Phase 1.11 wires real pricing per model.
+ * Refine when real pricing per model is wired.
  */
 function estimateCostCents(input: number, output: number): number {
   return Math.round(input * 0.0003 + output * 0.0015);
@@ -100,7 +100,7 @@ export const generateEpisode = inngest.createFunction(
         console.error("generate-episode onFailure persistence failed", err);
       }
     },
-    // Phase 3.5 — priority queue.
+    // Priority queue.
     //
     // `priority.run` is evaluated at enqueue time against `event.data`.
     // NETWORK-tier dispatches jump 120 s ahead of anything queued in the
@@ -121,7 +121,7 @@ export const generateEpisode = inngest.createFunction(
     //     next slot fires ahead of a queued STUDIO event.
     //
     // The per-agency key falls back to `event.id` when `agencyId` is
-    // absent — that's a unique run token, so old events (pre-3.5) act
+    // absent — that's a unique run token, so old events act
     // as if unbounded rather than sharing a bucket labeled `undefined`
     // (which would erroneously starve them all together).
     //

@@ -16,7 +16,7 @@ import type { Events } from "../events";
 import { inngest } from "../client";
 
 /**
- * Phase 3.2 — YouTube import pipeline (yt-dlp-backed).
+ * YouTube import pipeline (yt-dlp-backed).
  *
  * Two-stage:
  *   1. Transcript-first — yt-dlp pulls captions (manual > auto, English
@@ -144,7 +144,7 @@ export const importYoutubeEpisode = inngest.createFunction(
           // parsed canonical form so the episode page's "watch source"
           // link always works.
           externalUrl: canonicalUrl,
-          // Q1 wk4 — same canonical URL doubles as the clip pipeline's
+          // Same canonical URL doubles as the clip pipeline's
           // source. The render worker's YouTube branch will still be
           // blocked by datacenter-IP anti-bot on most videos, but the
           // field is populated so the UI can offer a Generate-clips

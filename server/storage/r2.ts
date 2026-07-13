@@ -67,7 +67,7 @@ export function requireR2Client(): { client: S3Client; bucket: string } {
 }
 
 // ============================================================
-// Convenience helpers (Phase 1.3 artwork + Phase 2.7 audio)
+// Convenience helpers
 // ============================================================
 
 export async function putR2Object(
@@ -198,7 +198,7 @@ export async function signR2DownloadUrl(key: string, expiresInSec = 300): Promis
 }
 
 // ============================================================
-// Bulk read / delete (Phase 2.7 orphan-cleanup cron)
+// Bulk read / delete
 // ============================================================
 
 export type R2ObjectSummary = {
@@ -292,7 +292,7 @@ export async function copyR2Object(sourceKey: string, destKey: string): Promise<
 }
 
 // ============================================================
-// Agency-wide quarantine (Phase 3.6.5 hard-delete)
+// Agency-wide quarantine (hard-delete)
 // ============================================================
 
 /** Prefixes we walk when quarantining an agency's assets. Keep in sync with

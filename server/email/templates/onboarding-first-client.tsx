@@ -12,7 +12,7 @@ import {
 } from "@react-email/components";
 
 /**
- * Phase 2.10 — "Add your first client" nudge.
+ * "Add your first client" nudge.
  *
  * Sent by the hourly `onboarding/check-nudges` Inngest cron ~72h after
  * `Agency.createdAt` whenever the agency still has zero `Client` rows.

@@ -6,7 +6,7 @@ import { SampleDeliveryPage } from "@/components/samples/sample-delivery-page";
 import { listSampleSlugs, resolveSample } from "@/lib/samples/registry";
 
 /**
- * Q2 wk15 — public "sample delivery" surface.
+ * Public "sample delivery" surface.
  *
  * Statically pre-rendered at build time via `generateStaticParams` +
  * `dynamic = "force-static"`. Curated slugs live in

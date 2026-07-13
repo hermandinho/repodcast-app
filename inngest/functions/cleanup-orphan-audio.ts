@@ -8,7 +8,7 @@ import { deleteR2Objects, getR2Client, listR2Objects } from "@/server/storage/r2
 import { inngest } from "../client";
 
 /**
- * Phase 2.7 — orphan-audio cleanup cron. Deletes R2 audio objects that
+ * Orphan-audio cleanup cron. Deletes R2 audio objects that
  * are no longer referenced by any Episode row.
  *
  * ## Bail-out uploads (tier 1)
@@ -19,11 +19,11 @@ import { inngest } from "../client";
  * with no DB row referencing it. Left alone these accumulate — agencies
  * commonly cancel mid-upload — and R2 storage isn't free.
  *
- * ## Why the "audio-for-finished-episodes" tier was retired (Q1)
+ * ## Why the "audio-for-finished-episodes" tier was retired
  * The original design also deleted audio for episodes in READY /
  * ARCHIVED status on the assumption that "everything downstream runs
- * off Episode.transcript." That assumption held through Phase 2, but
- * Q1 shipped two features that actively re-read the audio:
+ * off Episode.transcript." That assumption held initially, but
+ * two features shipped later actively re-read the audio:
  *
  *   - Feature #1 clips: `resolveClipSource()` falls back to `audioUrl`
  *     for UPLOAD-source episodes with no `sourceVideoUrl`.

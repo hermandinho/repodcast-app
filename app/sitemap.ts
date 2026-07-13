@@ -2,7 +2,7 @@ import type { MetadataRoute } from "next";
 import { listPublicBlogPostSlugsForSitemap } from "@/server/db/blog-public";
 
 /**
- * Phase 3.1 — public sitemap.
+ * Public sitemap.
  *
  * Only lists surfaces we want crawled. Deliberately omits:
  *   - `/dashboard`, `/settings/*`, `/episodes/*`, `/clients/*` — auth-

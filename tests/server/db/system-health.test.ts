@@ -1,5 +1,5 @@
 /**
- * Phase 3.6.12 — `/root/system` reachability grid.
+ * `/root/system` reachability grid.
  *
  * The load-bearing primitive is `runProbe` — every service probe funnels
  * through it, so the guarantee ("a hung provider must never take the health

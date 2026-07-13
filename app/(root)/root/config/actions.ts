@@ -14,7 +14,7 @@ import {
 import { findKnownConfig } from "@/lib/system-config-catalog";
 
 /**
- * Phase 3.6.11 — server actions behind `/root/config`.
+ * Server actions behind `/root/config`.
  *
  * Each action follows the same shape:
  *   1. `requireSystemAdminContext()` — 404s the ROUTE surface on non-admins.

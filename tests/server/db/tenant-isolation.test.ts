@@ -228,7 +228,7 @@ describe("agencies repo — tenant filter + role gate", () => {
   });
 
   // --------------------------------------------------------------
-  // Phase 2.5 — agency branding (logo + accent color)
+  // Agency branding (logo + accent color)
   // --------------------------------------------------------------
   it("updateAgencyBranding scopes the write to ctx.agencyId + writes both fields", async () => {
     mocks.prisma.agency.updateMany.mockResolvedValue({ count: 1 });
@@ -846,7 +846,7 @@ describe("outputs repo — double-nested tenant filter", () => {
 });
 
 // ============================================================
-// status-flow helpers (Phase 2.3)
+// status-flow helpers
 // ============================================================
 
 describe("outputs repo — status flow + role gating", () => {
@@ -945,11 +945,11 @@ describe("outputs repo — status flow + role gating", () => {
 });
 
 // ============================================================
-// transitions repo — activity feed reads (Phase 2.3)
+// transitions repo — activity feed reads
 // ============================================================
 
 // ============================================================
-// invites repo — homegrown invite flow (Phase 1.0 follow-up)
+// invites repo — homegrown invite flow
 // ============================================================
 
 describe("invites repo — tenant filter", () => {
@@ -1073,7 +1073,7 @@ describe("transitions repo — tenant filter", () => {
 });
 
 // ============================================================
-// member-transitions repo (Phase 2.4 team activity log)
+// member-transitions repo (team activity log)
 // ============================================================
 
 describe("member-transitions repo — tenant filter", () => {
@@ -1127,7 +1127,7 @@ describe("member-transitions repo — tenant filter", () => {
 });
 
 // ============================================================
-// client-billing repo (Phase 2.13.2)
+// client-billing repo
 // ============================================================
 
 describe("client-billing repo — tenant filter + role gate", () => {
@@ -1235,7 +1235,7 @@ describe("client-billing repo — tenant filter + role gate", () => {
 });
 
 // ============================================================
-// deliverables repo (Phase 2.13.3)
+// deliverables repo
 // ============================================================
 
 describe("deliverables repo — tenant filter + filter layering", () => {
@@ -1351,7 +1351,7 @@ describe("deliverables repo — tenant filter + filter layering", () => {
 });
 
 // ============================================================
-// client-statements repo (Phase 2.13.4)
+// client-statements repo
 // ============================================================
 
 describe("client-statements repo — tenant filter + aggregate shape", () => {
@@ -1532,7 +1532,7 @@ describe("client-statements repo — tenant filter + aggregate shape", () => {
 });
 
 // ============================================================
-// client-cost repo (Phase 2.13.5)
+// client-cost repo
 // ============================================================
 
 describe("client-cost repo — tenant filter + role gate", () => {
@@ -1693,7 +1693,7 @@ describe("client-cost repo — tenant filter + role gate", () => {
 });
 
 // ============================================================
-// client-instructions repo — voice customisation save (Phase 2.1)
+// client-instructions repo — voice customisation save
 // ============================================================
 
 describe("client-instructions repo — tenant filter", () => {
@@ -1866,7 +1866,7 @@ describe("voice-samples repo — tenant filter", () => {
 });
 
 // ============================================================
-// client-portal repo (Phase 2.5)
+// client-portal repo
 // ============================================================
 
 describe("client-portal repo — agency writes are tenant-scoped + token-lookup gates", () => {
@@ -2093,7 +2093,7 @@ describe("client-portal repo — agency writes are tenant-scoped + token-lookup 
 });
 
 // ============================================================
-// Phase 2.6 — bulk generate
+// bulk generate
 // ============================================================
 
 describe("episodes repo — bulkGenerateEpisodes", () => {

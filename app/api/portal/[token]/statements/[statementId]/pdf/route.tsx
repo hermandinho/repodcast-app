@@ -12,7 +12,7 @@ import { StatementPdf } from "@/components/statements/statement-pdf";
 import { buildStatementPdfPayload } from "@/server/statements/pdf-payload";
 
 /**
- * Phase 3.8 — client-portal PDF export.
+ * Client-portal PDF export.
  *
  * Auth is the token in the URL — validated the same way as `/portal/[token]`
  * (missing / revoked / expired → 404). Statement must also be explicitly

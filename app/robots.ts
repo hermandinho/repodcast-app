@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 
 /**
- * Phase 3.1 — robots directive. Written as `app/robots.ts` so it renders
+ * Robots directive. Written as `app/robots.ts` so it renders
  * dynamically off `NEXT_PUBLIC_APP_URL` (Vercel preview builds get a
  * host-scoped sitemap URL instead of a hardcoded prod one).
  *

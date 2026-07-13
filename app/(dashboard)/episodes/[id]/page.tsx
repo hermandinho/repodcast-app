@@ -6,9 +6,9 @@ import { resolveTenantContext } from "@/server/data/tenant";
 import { getBufferIntegrationForAgency } from "@/server/db/integrations";
 
 /**
- * Q1 wk10 UI revamp — Outputs tab. The breadcrumb + title + tab bar
- * live on the shared layout at `../layout.tsx`; this page renders only
- * the tab's content (KPI strip, clip moments, outputs grid).
+ * Outputs tab. The breadcrumb + title + tab bar live on the shared
+ * layout at `../layout.tsx`; this page renders only the tab's content
+ * (KPI strip, clip moments, outputs grid).
  */
 export default async function EpisodeOutputsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

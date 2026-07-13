@@ -8,7 +8,7 @@ import { prisma } from "@/server/db/client";
 import { assertSystemRole, SYSTEM_READ_ROLES, type SystemAdminContext } from "@/server/auth/system";
 
 /**
- * Phase 3.6.9 — cross-agency user search.
+ * Cross-agency user search.
  *
  * The `Member` table is scoped per-agency (a Clerk user with N agency
  * memberships has N Member rows, one per agency, all sharing a `clerkUserId`).

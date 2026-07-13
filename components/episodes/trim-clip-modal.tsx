@@ -7,8 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Modal, ModalBody, ModalFooter, ModalHeader } from "@/components/ui/modal";
 
 /**
- * Q1 wk6 — trim editor. Number-input MVP; the waveform scrubber is
- * deferred to wk7+ (Q1.md).
+ * Trim editor. Number-input MVP; the waveform scrubber is
+ * deferred.
  *
  * Inputs are MM:SS or MM:SS.mmm; we parse to milliseconds before firing
  * the action. Client-side validation surfaces span-range errors before

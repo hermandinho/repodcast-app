@@ -9,7 +9,7 @@ import { prisma } from "@/server/db/client";
 import { isLiveDb } from "@/server/data/source";
 
 /**
- * Phase 2.13.4 — Single-statement CSV export.
+ * Single-statement CSV export.
  *
  * Layout: a header block carrying the period + totals (one line per
  * metric, key/value pairs), then a blank row, then a per-platform

@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { track } from "@/lib/analytics/track-client";
 
 /**
- * Q2 wk14 — targeted funnel-step pageview event.
+ * Targeted funnel-step pageview event.
  *
  * PostHog's autocaptured `$pageview` fires on every route change; that's
  * too noisy for building the acquisition funnel. This one-shot tracker

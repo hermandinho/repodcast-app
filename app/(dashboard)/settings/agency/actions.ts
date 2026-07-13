@@ -189,8 +189,8 @@ export async function deleteWorkspaceAction(raw: unknown): Promise<ActionResult<
 }
 
 /**
- * Phase 2.13.6 — flip the renewals-reminder cron's mute switch. Same
- * OWNER/ADMIN role gate as the rename action.
+ * Flip the renewals-reminder cron's mute switch. Same OWNER/ADMIN
+ * role gate as the rename action.
  */
 export async function updateRenewalRemindersAction(
   raw: unknown,

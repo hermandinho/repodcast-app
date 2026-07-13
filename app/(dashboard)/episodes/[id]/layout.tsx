@@ -5,7 +5,7 @@ import { resolveTenantContext } from "@/server/data/tenant";
 import { prisma } from "@/server/db/client";
 
 /**
- * Q1 wk10 UI revamp — shared shell for every /episodes/[id]/* route.
+ * Shared shell for every /episodes/[id]/* route.
  *
  * The layout owns the breadcrumb + title + tab bar; tabs render only
  * their own content. Layout persistence across tab switches is why

@@ -93,7 +93,7 @@ export async function sendWelcomeEmail(to: string, props: WelcomeEmailProps): Pr
 }
 
 /**
- * Phase 3.6.9 — support-initiated one-click sign-in link. Fired only
+ * Support-initiated one-click sign-in link. Fired only
  * from `/root/users` by ROOT/OPERATOR; every send lands a
  * `SUPPORT_RESET_PASSWORD` audit row.
  */
@@ -214,7 +214,7 @@ export async function sendAgencyInviteEmail(
 }
 
 // ============================================================
-// Client contract renewal reminder (Phase 2.13.6)
+// Client contract renewal reminder
 // ============================================================
 
 export async function sendClientRenewalReminderEmail(
@@ -230,7 +230,7 @@ export async function sendClientRenewalReminderEmail(
 }
 
 // ============================================================
-// Onboarding drop-off recovery (Phase 2.10)
+// Onboarding drop-off recovery
 // ============================================================
 
 export async function sendOnboardingFinishSetupEmail(
@@ -258,7 +258,7 @@ export async function sendOnboardingFirstClientEmail(
 }
 
 // ============================================================
-// Trial lifecycle — T-3 nudge (Phase 3.9)
+// Trial lifecycle — T-3 nudge
 // ============================================================
 
 /**

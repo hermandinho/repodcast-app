@@ -8,7 +8,7 @@ import { prisma } from "./client";
 import { computeItemAmountCents } from "./client-statement-items";
 
 /**
- * Phase 2.13.4 — Client statements.
+ * Client statements.
  *
  * Generate / list / read white-labeled period statements per client.
  * Aggregates inside one tenant-scoped transaction and persists the totals
@@ -158,7 +158,7 @@ export async function getClientStatementForPdf(
 }
 
 // ============================================================
-// Portal publish (Phase 3.8)
+// Portal publish
 // ============================================================
 
 /**

@@ -24,7 +24,7 @@ import { prisma } from "./client";
 export { PORTAL_FEEDBACK_BODY_MAX };
 
 /**
- * Phase 2.5 — client-portal links + the public read path.
+ * Client-portal links + the public read path.
  *
  * Two surfaces are served from this module:
  *   1. **Agency-side management** (`createPortalLink`, `revokePortalLink`,
@@ -36,7 +36,7 @@ export { PORTAL_FEEDBACK_BODY_MAX };
  *      route. The token itself is the access credential; expiry and
  *      revocation gates live inside `getPortalLinkByToken`.
  *
- * Delivery filter (Phase 3.8): clients see outputs in APPROVED, SCHEDULED,
+ * Delivery filter: clients see outputs in APPROVED, SCHEDULED,
  * or PUBLISHED — every state where the agency has committed to delivery.
  * Draft states (READY, IN_REVIEW) and FAILED stay hidden. The portal
  * isn't a draft review surface — it's a delivery view spanning the full
@@ -383,7 +383,7 @@ function lifecycleTs(o: PortalDeliverableRow): number {
 }
 
 // ============================================================
-// Portal feedback (Phase 3.8)
+// Portal feedback
 // ============================================================
 // The `PORTAL_FEEDBACK_BODY_MAX` cap is imported from `@/lib/portal-limits`
 // at the top of the file and re-exported from there. See the top of this
@@ -444,7 +444,7 @@ export async function submitPortalFeedback(
 }
 
 // ============================================================
-// Portal approval + revision-request (Phase 3.9)
+// Portal approval + revision-request
 // ============================================================
 // Wrappers around `clientApproveOutputFromPortal` and
 // `clientRequestRevisionFromPortal` in `server/db/outputs.ts`. This file
@@ -557,7 +557,7 @@ function mapPortalWriteError(err: unknown): PortalApprovalResult {
 }
 
 // ============================================================
-// Agency-side feedback reads + triage (Phase 3.8)
+// Agency-side feedback reads + triage
 // ============================================================
 
 export type PortalFeedbackRow = {

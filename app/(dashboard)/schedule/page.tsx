@@ -7,8 +7,8 @@ import { ScheduleCalendar } from "@/components/schedule/schedule-calendar";
 export const dynamic = "force-dynamic";
 
 /**
- * Phase 3.3 — calendar of SCHEDULED + PUBLISHED outputs for the current
- * month, with a day-drawer for detail. Deep-linkable via `?month=YYYY-MM`.
+ * Calendar of SCHEDULED + PUBLISHED outputs for the current month,
+ * with a day-drawer for detail. Deep-linkable via `?month=YYYY-MM`.
  */
 export default async function SchedulePage({
   searchParams,

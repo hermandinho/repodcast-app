@@ -1,7 +1,7 @@
 import "server-only";
 
 /**
- * Q2 wk14 — server-side PostHog HogQL query client.
+ * Server-side PostHog HogQL query client.
  *
  * The client-side `posthog.capture` pushes events INTO PostHog; this helper
  * pulls counts BACK OUT via PostHog's HogQL query endpoint so the ROOT

@@ -3,7 +3,7 @@ import "server-only";
 import { Platform } from "@prisma/client";
 
 /**
- * Phase 3.3 — Buffer API client.
+ * Buffer API client.
  *
  * Buffer's current API is GraphQL at `https://api.buffer.com`, auth via
  * OAuth 2 (PKCE) at `auth.buffer.com`. The classic v1 REST API was

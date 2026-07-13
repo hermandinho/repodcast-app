@@ -9,7 +9,7 @@ import { getResendClient } from "@/server/email/client";
 import { getR2Client } from "@/server/storage/r2";
 
 /**
- * Phase 3.6.12 — `/root/system` reachability grid.
+ * `/root/system` reachability grid.
  *
  * v1 scope: live parallel probes for every backing service. Each probe is
  * bounded to `PROBE_TIMEOUT_MS` — a hung provider must not take the health

@@ -22,7 +22,7 @@ function truncateReason(message: string): string {
 }
 
 /**
- * Phase 2.8 — RSS import pipeline.
+ * RSS import pipeline.
  *
  * Two valid endings depending on what the publisher exposes:
  *   - Transcript present → normalise + persist → `episode/generate.requested`.

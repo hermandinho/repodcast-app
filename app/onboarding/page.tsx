@@ -4,7 +4,7 @@ import { getOnboardingStateForUser } from "@/server/db/agencies";
 import { isLiveDb } from "@/server/data/source";
 
 /**
- * Phase 3.x onboarding router.
+ * Onboarding router.
  *
  * Reads the user's onboarding state and forwards to the right substep:
  *

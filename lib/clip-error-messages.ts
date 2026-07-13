@@ -1,5 +1,5 @@
 /**
- * Q1 wk7 — friendly clip-render error translations.
+ * Friendly clip-render error translations.
  *
  * `VideoClip.renderError` holds the raw error thrown by the render worker
  * (ffmpeg stderr, ytdl exception, R2 upload failure). The UI shows that
@@ -15,7 +15,7 @@
 type Rule = { match: RegExp; friendly: string; hint?: string };
 
 const RULES: Rule[] = [
-  // ---- YouTube-side blocks (the wk3 known issue) ----
+  // ---- YouTube-side blocks ----
   {
     match: /video unavailable/i,
     friendly: "YouTube isn't letting us access this video.",

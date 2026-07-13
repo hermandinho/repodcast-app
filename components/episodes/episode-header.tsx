@@ -5,7 +5,7 @@ import { useSelectedLayoutSegment } from "next/navigation";
 import { EditableTitle } from "@/components/episodes/editable-title";
 
 /**
- * Q1 wk10 UI revamp — shared header + tab bar rendered from the episode
+ * Shared header + tab bar rendered from the episode
  * layout. Every /episodes/[id]/* route inherits this chrome, so
  * switching tabs is instant (Next.js layout persistence) and the tab
  * bar always reflects the currently-active view via

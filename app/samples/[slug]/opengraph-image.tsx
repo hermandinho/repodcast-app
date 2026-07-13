@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og";
 import { listSampleSlugs, resolveSample } from "@/lib/samples/registry";
 
 /**
- * Q2 wk15 — per-sample dynamic OG card.
+ * Per-sample dynamic OG card.
  *
  * Shows episode title + show name + a 4-tile "launch kit" preview strip
  * (posts / clips / artwork / audiograms). Statically generated for every

@@ -65,7 +65,7 @@ export async function createWorkspaceAction(formData: FormData): Promise<void> {
     name,
   });
 
-  // Q2 wk14 — persist the first-touch attribution captured client-side.
+  // Persist the first-touch attribution captured client-side.
   // Best-effort: `captureAttribution` swallows its own errors so a
   // malformed cookie can't block onboarding. Cookie is purged after write
   // so a subsequent agency created on the same browser (dogfooding, test
@@ -83,7 +83,7 @@ export async function createWorkspaceAction(formData: FormData): Promise<void> {
     cookieStore.delete("repodcast_attr");
   }
 
-  // Q2 wk14 — funnel event. Fire before the redirect so PostHog gets
+  // Funnel event. Fire before the redirect so PostHog gets
   // the step-1 completion even if the plan page 4xxs.
   void trackServer(
     "onboarding_step_completed",

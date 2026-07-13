@@ -3,7 +3,7 @@ import "server-only";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 /**
- * Phase 3.3 — AES-256-GCM helper for Buffer / Typefully OAuth tokens.
+ * AES-256-GCM helper for Buffer / Typefully OAuth tokens.
  *
  * Storage format: `<iv_b64>.<ciphertext_b64>.<authTag_b64>` (three base64url
  * segments, joined with `.`). Reasoning: `INTEGRATION_ENCRYPTION_KEY` grants

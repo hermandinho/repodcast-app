@@ -14,7 +14,7 @@ import {
 import { notifyClientPortalLinkShared } from "@/server/db/notifications";
 
 /**
- * Phase 2.5 — mint / revoke client portal links from the agency UI.
+ * Mint / revoke client portal links from the agency UI.
  *
  * Both actions revalidate the client billing tab so the `PortalLinksCard`
  * picks up the new row (or the revoked stamp) on the next render.

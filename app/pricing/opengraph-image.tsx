@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 
 /**
- * Q2 wk15 — /pricing OG card.
+ * /pricing OG card.
  *
  * Same visual language as the global OG (dark navy + mint accent) but
  * with a compact 4-plan preview grid so shared links from the pricing

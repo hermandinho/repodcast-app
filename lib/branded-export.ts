@@ -1,7 +1,7 @@
 import type { Platform } from "@prisma/client";
 
 /**
- * Phase 2.5 — branded HTML export for a single episode's approved
+ * Branded HTML export for a single episode's approved
  * deliverables. Renders a self-contained HTML document (inline styles,
  * no external assets except the agency logo if set) that the agency can
  * hand to their client as a "delivery receipt."

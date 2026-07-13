@@ -151,7 +151,7 @@ export async function checkoutFromOnboardingAction(formData: FormData): Promise<
     throw new Error("Stripe did not return a Checkout URL.");
   }
 
-  // Q2 wk14 — funnel event. Step 2 completion happens when the user
+  // Funnel event. Step 2 completion happens when the user
   // successfully clicks a plan CTA; the actual conversion is `trial_started`
   // or `upgrade_completed` which fire from the Stripe webhook.
   void trackServer(

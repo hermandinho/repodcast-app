@@ -4,7 +4,7 @@ import type { AgencyAttribution, Prisma } from "@prisma/client";
 import { prisma } from "./client";
 
 /**
- * Q2 wk14 — attribution capture.
+ * Attribution capture.
  *
  * The write side is `captureAttribution`, called exactly once from within
  * `createWorkspaceAction` right after the Agency row is created. The read
@@ -98,7 +98,7 @@ export async function captureAttribution(agencyId: string, input: AttributionInp
 
 /**
  * Read the attribution row for one agency. Returns null when no row
- * exists (legacy agencies from before Q2 wk14, or the write failed).
+ * exists (legacy agencies from before attribution capture, or the write failed).
  * Used by the ROOT funnel view.
  */
 export async function getAttributionFor(agencyId: string): Promise<AgencyAttribution | null> {

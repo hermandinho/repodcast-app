@@ -250,12 +250,12 @@ export function OutputsView({
    */
   readOnly?: boolean;
   /**
-   * Phase 3.3 — whether the agency has an active Buffer integration.
+   * Whether the agency has an active Buffer integration.
    * Gates the "Force Buffer" radio in the schedule popover.
    */
   bufferConnected?: boolean;
   /**
-   * Phase 3.3 — which platforms actually have a Buffer channel behind
+   * Which platforms actually have a Buffer channel behind
    * them. `bufferConnected` reflects the account-level OAuth; this list
    * reflects per-channel presence so the Buffer radio can gray out on
    * platforms Buffer hasn't been given a channel for.
@@ -282,7 +282,7 @@ export function OutputsView({
       justCopied: false,
       justApproved: false,
       failureReason: o.failureReason ?? null,
-      // Phase 3.3 — scheduling fields flow straight from the DB read so
+      // Scheduling fields flow straight from the DB read so
       // the OutputCard can render lifecycle rows + state-driven CTAs
       // without a second data fetch.
       scheduledForIso: o.scheduledForIso ?? null,
@@ -963,7 +963,7 @@ export function OutputsView({
           shared header so breadcrumb + title + tab underlines align
           with the content column. */}
       <div className="min-w-0 flex-1 px-4 pb-14 sm:px-6 md:px-7 md:pb-[60px]">
-        {/* Q1 wk10 UI revamp — breadcrumb + title + tab bar moved to the
+        {/* Breadcrumb + title + tab bar moved to the
             shared episode layout. The Outputs tab now opens directly on
             the outputs-specific action row: "Generate all" + optional
             "Download for client". The Artwork/Clips/Audiograms buttons

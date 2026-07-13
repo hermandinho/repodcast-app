@@ -11,7 +11,7 @@ import { SYSTEM_AUDIT_ACTIONS } from "./audit-actions";
 import { withSystemAudit } from "./audit";
 
 /**
- * Phase 3.6.6 — server-side bookkeeping for the impersonation envelope.
+ * Server-side bookkeeping for the impersonation envelope.
  *
  * Cookie minting / clearing happens in the route layer (server actions
  * that call `setImpersonationCookie` / `clearImpersonationCookie`). This

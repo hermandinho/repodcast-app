@@ -9,8 +9,8 @@ import { listClipsForEpisode } from "@/server/db/video-clips";
 import { resolveClipSource } from "@/server/media/clip-source";
 
 /**
- * Q1 wk5 — clip management tab. Renders inside the shared episode
- * layout, which owns the breadcrumb + title + tab bar.
+ * Clip management tab. Renders inside the shared episode layout,
+ * which owns the breadcrumb + title + tab bar.
  */
 export default async function EpisodeClipsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: episodeId } = await params;

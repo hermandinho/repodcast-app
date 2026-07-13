@@ -21,7 +21,7 @@ import type { Events } from "../events";
 import { inngest } from "../client";
 
 /**
- * Q1 wk6 — re-render one existing VideoClip with new start/end bounds.
+ * Re-render one existing VideoClip with new start/end bounds.
  *
  * Pipeline:
  *   1. Load clip + episode via tenant-scoped query.

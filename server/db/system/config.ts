@@ -14,7 +14,7 @@ import { SYSTEM_AUDIT_ACTIONS } from "./audit-actions";
 import { withSystemAudit } from "./audit";
 
 /**
- * Phase 3.6.11 — platform configuration + per-agency limit overrides.
+ * Platform configuration + per-agency limit overrides.
  *
  * Two orthogonal surfaces sharing one file (they read from the same admin
  * page and audit through the same wrapper):

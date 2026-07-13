@@ -5,7 +5,7 @@ import { CLAUDE_MODEL, requireClaudeClient } from "./claude";
 import { extractText } from "./prompt-builder";
 
 /**
- * Q1 wk2 — pick top-N vertical-clip candidates from a transcript.
+ * Pick top-N vertical-clip candidates from a transcript.
  *
  * Input is Deepgram's word list (per-word start/end in seconds). We compress
  * it to a lightly-timestamped transcript ("[MM:SS] utterance") to keep the

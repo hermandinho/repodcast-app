@@ -9,7 +9,7 @@ import {
 import { ALLOWED_AUDIO_CONTENT_TYPES, MAX_AUDIO_UPLOAD_BYTES, formatAudioSize } from "@/lib/audio";
 
 /**
- * Q2 wk15 — audio re-attach for episodes whose `audioUrl` was cleared
+ * Audio re-attach for episodes whose `audioUrl` was cleared
  * by the (now-retired) tier-2 orphan-audio cleanup. Two-step
  * direct-to-R2 flow:
  *

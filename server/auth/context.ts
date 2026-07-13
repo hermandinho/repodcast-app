@@ -55,7 +55,7 @@ export type AuthContext = {
      */
     compAccessExpiresAt: Date | null;
     /**
-     * Phase 3.9 — trial state, surfaced here so the dashboard shell can
+     * Trial state, surfaced here so the dashboard shell can
      * render the "X days left" banner without a second lookup. `trialEndsAt`
      * is null on agencies that never trialed; `trialStatus` is always set.
      */
@@ -75,7 +75,7 @@ export type AuthContext = {
   };
   /**
    * Set when a SystemAdmin is acting as `member` via the impersonation
-   * envelope (Phase 3.6.6). The tenant repo layer treats this as a
+   * envelope. The tenant repo layer treats this as a
    * read-only context — every `requireRole` call throws.
    */
   impersonation: {
@@ -101,16 +101,16 @@ export type AuthContext = {
  * DB. Returns null when the request is unauthenticated OR the user hasn't
  * been onboarded yet (no Member rows for any agency).
  *
- * Agency creation is now in-app (Phase 1.0 — `createAgencyAction`), so the
+ * Agency creation is now in-app (`createAgencyAction`), so the
  * lookup is keyed on Clerk's `userId` + the user's `Member` rows — not on
  * Clerk's `orgId`. This unblocks self-serve signups: users land on
  * /onboarding the moment they sign in without a Member, regardless of
  * whether they've ever touched Clerk's Organization UI.
  *
  * Multi-agency users: the most-recently-touched Member wins. A proper
- * cookie-backed agency switcher is a follow-up after 1.0.
+ * cookie-backed agency switcher is a follow-up.
  *
- * Phase 3.6.6 — when a valid `repodcast_impersonate` cookie is present AND
+ * When a valid `repodcast_impersonate` cookie is present AND
  * the signing user resolves to an active SystemAdmin row, the resolved
  * `agency` + `member` are swapped to the impersonated pair. The original
  * SystemAdmin identity is surfaced via the `impersonation` field so the

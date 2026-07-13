@@ -33,7 +33,7 @@ export type PasswordResetEmailProps = {
 };
 
 /**
- * Phase 3.6.9 — support-initiated password recovery email. Not
+ * Support-initiated password recovery email. Not
  * automated; only fires when a ROOT/OPERATOR clicks "Reset password"
  * on `/root/users`. The email carries a Clerk sign-in token URL
  * (expires in ~1h) that lets the user land inside their account

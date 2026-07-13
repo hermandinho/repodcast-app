@@ -24,7 +24,7 @@ import {
 } from "@/server/db/system/agencies";
 
 /**
- * Phase 3.6.5 — server actions behind `/root/agencies/[id]`.
+ * Server actions behind `/root/agencies/[id]`.
  *
  * Every action follows the same shape as the other /root actions:
  *   1. `requireSystemAdminContext` gates the ROUTE (invisible 404 for non-admins).
@@ -214,7 +214,7 @@ export async function hardDeleteAgencyAction(formData: FormData): Promise<void> 
 }
 
 // ============================================================
-// Extend trial (Phase 3.9)
+// Extend trial
 // ============================================================
 
 export async function extendAgencyTrialAction(formData: FormData): Promise<void> {

@@ -3,7 +3,7 @@ import { startImpersonationAction } from "@/app/(root)/root/agencies/[id]/impers
 import type { AgencyMemberForRoot } from "@/server/db/system/agencies";
 
 /**
- * Phase 3.6.6 — Members section on the Agency Overview tab. Hosts the
+ * Members section on the Agency Overview tab. Hosts the
  * read-only-impersonation button per row until the full Members tab lands.
  *
  * `viewerRole` gates the Impersonate button: SUPPORT and ANALYST see the

@@ -10,7 +10,7 @@ import { LeaveAndNotifyHint } from "./leave-and-notify-hint";
 import { PipelineStepper } from "./pipeline-stepper";
 
 /**
- * Phase 2.7 — empty-state UX on `/episodes/[id]` while an UPLOAD episode
+ * Empty-state UX on `/episodes/[id]` while an UPLOAD episode
  * is mid-transcription. Renders three primary affordances:
  *
  *   1. A friendly "Transcribing..." message + spinner so the page doesn't

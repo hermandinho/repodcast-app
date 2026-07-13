@@ -257,11 +257,11 @@ export async function regenerateOutputAction(
     console.error("markPortalFeedbackReadForOutput failed (regen)", err);
   }
 
-  // Phase 3.5 — tag with plan + agencyId so `regenerate-output`'s
-  // priority.run bumps NETWORK ahead and the per-agency concurrency key
-  // keeps one agency's retry storm from starving other agencies. Reads
-  // plan straight off auth — same QoS-vs-enforcement tradeoff as the
-  // other Phase 3.5 dispatchers.
+  // Tag with plan + agencyId so `regenerate-output`'s priority.run
+  // bumps NETWORK ahead and the per-agency concurrency key keeps one
+  // agency's retry storm from starving other agencies. Reads plan
+  // straight off auth — same QoS-vs-enforcement tradeoff as the
+  // other dispatchers.
   await inngest.send({
     name: "episode/regenerate.output.requested",
     data: {
@@ -440,7 +440,7 @@ export async function listOutputVersionsAction(
 }
 
 // ============================================================
-// Phase 2.7 — transcribe controls
+// Transcribe controls
 // ============================================================
 
 const PLATFORM_VALUES = Object.values(Platform) as [Platform, ...Platform[]];
@@ -589,7 +589,7 @@ export async function updateEpisodeTitleAction(
 }
 
 // ============================================================
-// Q1 wk4 — Request clip generation (episode → highlights → clip rows → renders)
+// Request clip generation (episode → highlights → clip rows → renders)
 // ============================================================
 
 const requestClipsInput = z.object({
@@ -657,7 +657,7 @@ export async function requestClipsAction(
 }
 
 // ============================================================
-// Q1 wk5 — Regenerate all clips (wipe + re-request)
+// Regenerate all clips (wipe + re-request)
 // ============================================================
 
 const regenerateClipsInput = z.object({
@@ -723,7 +723,7 @@ export async function regenerateClipsAction(
 }
 
 // ============================================================
-// Q1 wk5 — Delete a single clip
+// Delete a single clip
 // ============================================================
 
 const deleteClipInput = z.object({
@@ -749,7 +749,7 @@ export async function deleteClipAction(
 }
 
 // ============================================================
-// Q1 wk10 — Attach a source video to an existing episode
+// Attach a source video to an existing episode
 //
 // Two-step direct-to-R2 flow (mirrors the audio-upload wizard). Step
 // 1 signs a PUT URL; the browser uploads; step 2 stamps the resulting
@@ -857,11 +857,11 @@ export async function finalizeSourceVideoUploadAction(
 }
 
 // ============================================================
-// Q2 wk15 — Re-upload audio for an existing episode
+// Re-upload audio for an existing episode
 //
-// The Phase 2.7 orphan-audio cron used to wipe `Episode.audioUrl` for
+// An earlier orphan-audio cron used to wipe `Episode.audioUrl` for
 // READY episodes on the assumption downstream only needed the transcript.
-// That policy was retired when Q1 shipped audiograms + clips (both read
+// That policy was retired once audiograms + clips shipped (both read
 // the audio at render time), but rows that were already cleaned up
 // still need a way to restore the file. Same two-step direct-to-R2
 // shape as the source-video upload above.
@@ -1174,7 +1174,7 @@ export async function requestArtworkAction(
 }
 
 // ============================================================
-// Q1 wk7 — Retry a FAILED clip (same bounds)
+// Retry a FAILED clip (same bounds)
 // ============================================================
 
 const retryClipInput = z.object({
@@ -1222,7 +1222,7 @@ export async function retryClipAction(raw: unknown): Promise<ActionResult<{ clip
 }
 
 // ============================================================
-// Q1 wk6 — Retrim a single clip
+// Retrim a single clip
 // ============================================================
 
 const CLIP_MIN_SPAN_MS = 15_000;

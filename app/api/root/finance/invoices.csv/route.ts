@@ -10,7 +10,7 @@ import {
 } from "@/server/db/system/finance";
 
 /**
- * Phase 3.6.7 — CSV export of the global invoice ledger.
+ * CSV export of the global invoice ledger.
  *
  * Same filter shape as the dashboard query string (`search`, `status`,
  * `createdFrom`, `createdTo`) — the dashboard's "Export CSV" link just

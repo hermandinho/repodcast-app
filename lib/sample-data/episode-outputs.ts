@@ -22,7 +22,7 @@ export type SampleOutput = {
   versionCount: number;
   /** Set when status is "failed" — the underlying error from the pipeline. */
   failureReason?: string | null;
-  /** Phase 3.3 — populated when status ∈ {"scheduled", "published"}. */
+  /** Populated when status ∈ {"scheduled", "published"}. */
   scheduledForIso?: string | null;
   publishedAtIso?: string | null;
   externalScheduler?: "BUFFER" | "MANUAL" | null;
@@ -73,7 +73,7 @@ export type SampleEpisode = {
    */
   keyMoments?: KeyMoment[];
   /**
-   * Phase 2.7 — pipeline state surfaced to the page so the
+   * Pipeline state surfaced to the page so the
    * "Transcribing..." / "Importing..." / "Failed" panels can render
    * while the underlying Episode is mid-pipeline. Always populated for
    * live-mode episodes; left `undefined` in sample-data mode so the

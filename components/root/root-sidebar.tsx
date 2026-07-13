@@ -98,7 +98,7 @@ export function RootSidebar() {
               return (
                 <span
                   key={item.href}
-                  title="Coming next in Phase 3.6"
+                  title="Coming soon"
                   className="flex cursor-not-allowed items-center justify-between rounded-[9px] px-[11px] py-[9px] text-[13.5px] text-white/30"
                 >
                   {item.label}

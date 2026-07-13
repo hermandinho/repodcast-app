@@ -1,5 +1,5 @@
 /**
- * Plan-limit enforcement (Phase 1.11). Verifies that:
+ * Plan-limit enforcement. Verifies that:
  *
  *  - `planCapacity` queries the correct table + tenant-anchored where clause
  *    for each LimitedResource (the cap-meter UI and the soft banner both
@@ -25,7 +25,7 @@ const mocks = vi.hoisted(() => ({
     episode: { count: vi.fn() },
     generatedOutput: { count: vi.fn() },
     /**
-     * Phase 3.6.11 wired `planCapacity` through `getEffectiveLimitOverride`,
+     * `planCapacity` was wired through `getEffectiveLimitOverride`,
      * which reads from this table. Default mock resolves to `null` (no
      * override) so every pre-existing test stays green — the tests below
      * override this to exercise the override path explicitly.
@@ -291,7 +291,7 @@ describe("assertMinPlan", () => {
 });
 
 // ============================================================
-// planCapacity — AgencyLimitOverride consumption (Phase 3.6.11)
+// planCapacity — AgencyLimitOverride consumption
 // ============================================================
 //
 // The override replaces the plan default absolutely — an override of 5 on a

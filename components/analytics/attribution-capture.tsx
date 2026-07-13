@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 
 /**
- * Q2 wk14 — client-side attribution capture.
+ * Client-side attribution capture.
  *
  * On the visitor's first landing (any page), reads utm_* query params +
  * `document.referrer` + `location.pathname` and stashes them in a

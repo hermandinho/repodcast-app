@@ -1,5 +1,5 @@
 /**
- * Tests for the snapshot rollup helpers (Phase 3.6.18 step 4).
+ * Tests for the snapshot rollup helpers.
  *
  * The date math is pure and gets pinned hard — the cron's correctness rides
  * on UTC midnight anchoring. The `rollupAgencyForDay` worker is mocked at

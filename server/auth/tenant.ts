@@ -9,7 +9,7 @@ import type { ImpersonationMode } from "./impersonation";
  * details) keeps repos easy to unit-test with synthetic contexts.
  *
  * `impersonation` is set when the caller is a SystemAdmin acting as the
- * resolved member via the Phase 3.6.6 envelope. Repositories don't need to
+ * resolved member via the impersonation envelope. Repositories don't need to
  * branch on it — `requireRole` enforces the read-only rule centrally.
  */
 export type TenantContext = {

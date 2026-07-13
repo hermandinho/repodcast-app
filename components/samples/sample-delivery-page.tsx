@@ -3,7 +3,7 @@ import { platforms, type PlatformKey } from "@/lib/sample-data/platforms";
 import type { ResolvedSample } from "@/lib/samples/registry";
 
 /**
- * Q2 wk15 — public "sample delivery" surface. Renders one curated
+ * Public "sample delivery" surface. Renders one curated
  * episode's full launch kit (seven text posts + three clip tiles + three
  * artwork tiles + three audiogram tiles) so cold traffic can see what a
  * real deliverable looks like without signing up.

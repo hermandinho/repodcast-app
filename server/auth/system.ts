@@ -24,7 +24,7 @@ import { ForbiddenError } from "./errors";
  * may also be a `Member` of one or more agencies; the two contexts are looked
  * up independently and a route is either ROOT-scoped (uses this) or tenant-
  * scoped (uses `getAuthContext`), never both at once. The only crossover is
- * the impersonation envelope (Phase 3.6.6), where a SystemAdminContext is
+ * the impersonation envelope, where a SystemAdminContext is
  * resolved first and then USED to swap the resolved TenantContext — handled
  * inside `getAuthContext`, not here.
  */

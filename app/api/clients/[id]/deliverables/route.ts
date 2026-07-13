@@ -8,7 +8,7 @@ import { prisma } from "@/server/db/client";
 import { isLiveDb } from "@/server/data/source";
 
 /**
- * Phase 2.13.3 — CSV export of the deliverable ledger for a single client.
+ * CSV export of the deliverable ledger for a single client.
  *
  * Auth: OWNER/ADMIN only (the in-app ledger is open to all roles, but the
  * downloadable CSV is treated like a billing export — restricted to the

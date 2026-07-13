@@ -1,5 +1,5 @@
 /**
- * Bootstrap the first ROOT user (Phase 3.6.1).
+ * Bootstrap the first ROOT user.
  *
  * Usage:  npm run admin:bootstrap-root
  *

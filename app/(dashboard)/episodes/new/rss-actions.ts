@@ -9,7 +9,7 @@ import { PodcastIndexError, type PodcastIndexEpisode } from "@/server/imports/po
 import { resolveFeed, RssFeedError } from "@/server/imports/rss-feed";
 
 /**
- * Phase 2.8 — wizard-side RSS helpers. The "Import from RSS" step calls
+ * Wizard-side RSS helpers. The "Import from RSS" step calls
  * `connectRssFeedAction` to validate a user-typed URL (Podcast Index first,
  * direct RSS parse as fallback) and persist it onto `Show.rssUrl` for next
  * time, then calls `listFeedEpisodesAction` to render the picker.

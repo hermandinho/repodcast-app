@@ -4,7 +4,7 @@ import { sendClientRenewalReminderEmail } from "@/server/email/send";
 import { inngest } from "../client";
 
 /**
- * Phase 2.13.6 — daily renewals cron.
+ * Daily renewals cron.
  *
  * Scans every active agency's `ClientBillingProfile` rows and fires the
  * renewal-reminder email at two pre-renewal markers: 30 days out and 7

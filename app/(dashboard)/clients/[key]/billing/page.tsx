@@ -160,7 +160,7 @@ export default async function ClientBillingPage({
   // the card treats it as unlocked so the design preview still works.
   const agencyPlan: Plan | null = isLiveDb() ? await getAgencyPlan(tenant.agencyId) : null;
 
-  // Phase 3.8 — portal feedback inbox for this client. Every role that
+  // Portal feedback inbox for this client. Every role that
   // can see the ledger can also triage feedback (READ_ROLES); the DB
   // helper enforces the tenant filter.
   const portalFeedback: PortalFeedbackListItem[] = isLiveDb()
@@ -288,7 +288,7 @@ export default async function ClientBillingPage({
         />
       )}
 
-      {/* Phase 2.5 — client portal links. Read-only for non-OWNER/ADMIN. */}
+      {/* Client portal links. Read-only for non-OWNER/ADMIN. */}
       <PortalLinksCard
         clientId={client.key}
         initialLinks={portalLinks}
@@ -297,7 +297,7 @@ export default async function ClientBillingPage({
         plan={agencyPlan}
       />
 
-      {/* Phase 3.8 — portal feedback inbox. All READ_ROLES can triage. */}
+      {/* Portal feedback inbox. All READ_ROLES can triage. */}
       <PortalFeedbackCard clientId={client.key} feedback={portalFeedback} />
 
       {/* Deliverable ledger */}
@@ -370,7 +370,7 @@ function DeliverableRowItem({
   showShowName,
 }: {
   row: DeliverableRow;
-  /** Phase 3.8 — prepend the show name to the episode title for clients
+  /** Prepend the show name to the episode title for clients
    *  with more than one show. Single-show clients suppress it so the row
    *  doesn't visually duplicate the surface's already-implicit context. */
   showShowName: boolean;

@@ -1,5 +1,5 @@
 /**
- * Phase 3.6.7 — finance dashboard repo helpers.
+ * Finance dashboard repo helpers.
  *
  * Pins the load-bearing math:
  *   - MRR per-plan + per-currency rollups vs. `lib/plans.ts` price source

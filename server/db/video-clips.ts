@@ -5,7 +5,7 @@ import { NotFoundError } from "@/server/auth/errors";
 import { prisma } from "./client";
 
 /**
- * Q1 wk4 — CRUD for `VideoClip` rows.
+ * CRUD for `VideoClip` rows.
  *
  * Convention departure: helpers take `agencyId: string` directly, not
  * `TenantContext`. Reasons: (a) writes are only called from Inngest
@@ -168,7 +168,7 @@ export async function deleteClipById(agencyId: string, clipId: string): Promise<
 }
 
 // ---------------------------------------------------------------------------
-// Retrim (Q1 wk6)
+// Retrim
 // ---------------------------------------------------------------------------
 
 /**

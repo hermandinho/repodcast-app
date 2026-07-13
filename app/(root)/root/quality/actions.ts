@@ -15,7 +15,7 @@ import {
 } from "@/server/db/system/quality";
 
 /**
- * Phase 3.6.10 — server actions behind `/root/quality`.
+ * Server actions behind `/root/quality`.
  *
  * Same shape as `/root/config/actions.ts`: `requireSystemAdminContext` gates
  * the surface, the repo helper enforces the write-role gate + wraps every
