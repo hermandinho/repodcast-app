@@ -1,6 +1,9 @@
 import { notFound } from "next/navigation";
+import { RegenQuotaMeter, type RegenQuota } from "@/components/billing/regen-quota-meter";
 import { ArtworkStrip } from "@/components/episodes/artwork-strip";
 import { ArtworkTrigger } from "@/components/episodes/artwork-trigger";
+import type { Plan } from "@/lib/enums";
+import { loadRegenQuotasForUI } from "@/server/billing/limits";
 import { isLiveDb } from "@/server/data/source";
 import { resolveTenantContext } from "@/server/data/tenant";
 import { prisma } from "@/server/db/client";
@@ -20,16 +23,19 @@ export default async function EpisodeArtworkPage({ params }: { params: Promise<{
     );
   }
 
-  const row = await prisma.episode.findFirst({
-    where: { id: episodeId, show: { client: { agencyId: tenant.agencyId } } },
-    select: {
-      transcript: true,
-      heroImageUrl: true,
-      squareCoverUrl: true,
-      verticalCoverUrl: true,
-      artworkConcept: true,
-    },
-  });
+  const [row, regenQuotas] = await Promise.all([
+    prisma.episode.findFirst({
+      where: { id: episodeId, show: { client: { agencyId: tenant.agencyId } } },
+      select: {
+        transcript: true,
+        heroImageUrl: true,
+        squareCoverUrl: true,
+        verticalCoverUrl: true,
+        artworkConcept: true,
+      },
+    }),
+    loadRegenQuotasForUI(tenant.agencyId),
+  ]);
   if (!row) notFound();
 
   const concept =
@@ -49,6 +55,8 @@ export default async function EpisodeArtworkPage({ params }: { params: Promise<{
         concept,
       }}
       transcriptTooShort={!row.transcript || row.transcript.trim().length < 200}
+      regenQuota={regenQuotas.artwork}
+      plan={regenQuotas.plan}
     />
   );
 }
@@ -57,6 +65,8 @@ function ArtworkTab({
   episodeId,
   artwork,
   transcriptTooShort,
+  regenQuota = null,
+  plan = null,
   sampleMode = false,
 }: {
   episodeId: string;
@@ -67,6 +77,8 @@ function ArtworkTab({
     concept: Record<string, unknown> | null;
   } | null;
   transcriptTooShort: boolean;
+  regenQuota?: RegenQuota | null;
+  plan?: Plan | null;
   sampleMode?: boolean;
 }) {
   const anyUrl =
@@ -92,6 +104,10 @@ function ArtworkTab({
         </div>
         {!sampleMode && !transcriptTooShort && <ArtworkTrigger episodeId={episodeId} />}
       </div>
+
+      {plan && regenQuota && (
+        <RegenQuotaMeter kind="artwork" plan={plan} quota={regenQuota} className="mb-4" />
+      )}
 
       {sampleMode && (
         <p className="text-muted-2 text-[13px]">

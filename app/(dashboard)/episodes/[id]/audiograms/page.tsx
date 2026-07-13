@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
+import { RegenQuotaMeter } from "@/components/billing/regen-quota-meter";
 import { AudiogramsList } from "@/components/episodes/audiograms-list";
+import { loadRegenQuotasForUI } from "@/server/billing/limits";
 import { isLiveDb } from "@/server/data/source";
 import { resolveTenantContext } from "@/server/data/tenant";
 import { prisma } from "@/server/db/client";
@@ -33,30 +35,33 @@ export default async function EpisodeAudiogramsPage({
     );
   }
 
-  const episode = await prisma.episode.findFirst({
-    where: { id: episodeId, show: { client: { agencyId: tenant.agencyId } } },
-    select: {
-      id: true,
-      audioUrl: true,
-      transcriptWords: true,
-      outputs: {
-        where: { supersededAt: null },
-        orderBy: [{ platform: "asc" }, { version: "desc" }],
-        select: {
-          id: true,
-          platform: true,
-          content: true,
-          audiogramStatus: true,
-          audiogramUrl: true,
-          audiogramPosterUrl: true,
-          audiogramError: true,
-          audiogramStartMs: true,
-          audiogramEndMs: true,
-          audiogramAspect: true,
+  const [episode, regenQuotas] = await Promise.all([
+    prisma.episode.findFirst({
+      where: { id: episodeId, show: { client: { agencyId: tenant.agencyId } } },
+      select: {
+        id: true,
+        audioUrl: true,
+        transcriptWords: true,
+        outputs: {
+          where: { supersededAt: null },
+          orderBy: [{ platform: "asc" }, { version: "desc" }],
+          select: {
+            id: true,
+            platform: true,
+            content: true,
+            audiogramStatus: true,
+            audiogramUrl: true,
+            audiogramPosterUrl: true,
+            audiogramError: true,
+            audiogramStartMs: true,
+            audiogramEndMs: true,
+            audiogramAspect: true,
+          },
         },
       },
-    },
-  });
+    }),
+    loadRegenQuotasForUI(tenant.agencyId),
+  ]);
   if (!episode) notFound();
 
   const isReady = Boolean(episode.audioUrl && episode.transcriptWords);
@@ -75,6 +80,12 @@ export default async function EpisodeAudiogramsPage({
       title="Audiograms"
       description="Waveform videos with burnt-in captions. Attach to social posts on platforms that carry video, or download and upload manually."
     >
+      <RegenQuotaMeter
+        kind="audiogram"
+        plan={regenQuotas.plan}
+        quota={regenQuotas.audiogram}
+        className="mb-4"
+      />
       <AudiogramsList
         episodeId={episodeId}
         outputs={episode.outputs.map((o) => ({

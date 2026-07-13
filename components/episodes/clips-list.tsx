@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ClipRenderStatus } from "@prisma/client";
+import { ClipRenderStatus, type Plan } from "@prisma/client";
 import {
   deleteClipAction,
   regenerateClipsAction,
   requestClipsAction,
   retryClipAction,
 } from "@/app/(dashboard)/episodes/[id]/actions";
+import { ClipsPerEpisodeHint } from "@/components/billing/regen-quota-meter";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { AttachSourceVideo } from "@/components/episodes/attach-source-video";
@@ -44,9 +45,14 @@ type Props = {
   isReady: boolean;
   notReadyReason: string | null;
   readOnly: boolean;
+  /**
+   * Effective plan of the current agency. Null in sample-data mode.
+   * Powers the per-episode clips-cap hint next to the count.
+   */
+  plan: Plan | null;
 };
 
-export function ClipsList({ episodeId, clips, isReady, notReadyReason, readOnly }: Props) {
+export function ClipsList({ episodeId, clips, isReady, notReadyReason, readOnly, plan }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -191,10 +197,13 @@ export function ClipsList({ episodeId, clips, isReady, notReadyReason, readOnly 
           clips below are still viewable.
         </div>
       )}
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div className="text-muted-2 text-[13px]">
-          {clips.length} clip{clips.length === 1 ? "" : "s"}
-          {inFlightCount > 0 && <> · {inFlightCount} rendering</>}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="text-muted-2 text-[13px]">
+            {clips.length} clip{clips.length === 1 ? "" : "s"}
+            {inFlightCount > 0 && <> · {inFlightCount} rendering</>}
+          </span>
+          {plan && <ClipsPerEpisodeHint plan={plan} currentCount={clips.length} />}
         </div>
         {!readOnly && (
           <div className="flex items-center gap-2">

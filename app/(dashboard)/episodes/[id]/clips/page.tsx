@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
+import { RegenQuotaMeter } from "@/components/billing/regen-quota-meter";
 import { ClipsList } from "@/components/episodes/clips-list";
+import { loadRegenQuotasForUI } from "@/server/billing/limits";
 import { isLiveDb } from "@/server/data/source";
 import { resolveTenantContext } from "@/server/data/tenant";
 import { prisma } from "@/server/db/client";
@@ -26,6 +28,7 @@ export default async function EpisodeClipsPage({ params }: { params: Promise<{ i
           isReady={false}
           notReadyReason="Sample-data mode — clip generation needs a live database."
           readOnly
+          plan={null}
         />
       </TabIntro>
     );
@@ -43,7 +46,10 @@ export default async function EpisodeClipsPage({ params }: { params: Promise<{ i
   });
   if (!episode) notFound();
 
-  const clips = await listClipsForEpisode(tenant.agencyId, episodeId);
+  const [clips, regenQuotas] = await Promise.all([
+    listClipsForEpisode(tenant.agencyId, episodeId),
+    loadRegenQuotasForUI(tenant.agencyId),
+  ]);
   const source = resolveClipSource(episode);
   const isReady = Boolean(source && episode.transcriptWords);
   const notReadyReason = !source
@@ -58,6 +64,12 @@ export default async function EpisodeClipsPage({ params }: { params: Promise<{ i
       title="Short-form clips"
       description="Vertical 9:16 clips generated from the strongest moments in this episode. Ready to publish to Reels, Shorts, and TikTok."
     >
+      <RegenQuotaMeter
+        kind="clip"
+        plan={regenQuotas.plan}
+        quota={regenQuotas.clip}
+        className="mb-4"
+      />
       <ClipsList
         episodeId={episodeId}
         clips={clips.map((c) => ({
@@ -75,6 +87,7 @@ export default async function EpisodeClipsPage({ params }: { params: Promise<{ i
         isReady={isReady}
         notReadyReason={notReadyReason}
         readOnly={readOnly}
+        plan={regenQuotas.plan}
       />
     </TabIntro>
   );
