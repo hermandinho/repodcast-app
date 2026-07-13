@@ -16,7 +16,7 @@ import { CONTACT_EMAILS } from "@/lib/contact-emails";
 export const metadata: Metadata = {
   title: "About — Repodcast",
   description:
-    "Repodcast is voice-true content generation built for podcast agencies. This is who it's for, what it does, and what we won't do with your content.",
+    "Repodcast turns every episode into a full launch kit — posts, clips, artwork, and audiograms — in your client's voice. Built for podcast agencies.",
 };
 
 export default async function AboutPage() {
@@ -87,9 +87,9 @@ function Hero() {
           className="mt-6 text-[18px]"
           style={{ color: "#5A6473", lineHeight: 1.65, maxWidth: 640 }}
         >
-          Repodcast turns every client episode into platform-ready content — X threads, LinkedIn
-          posts, show notes, and more — written in your client&rsquo;s exact voice, in under sixty
-          seconds. Built for the podcast agencies quietly producing at scale.
+          Repodcast turns every client episode into a full launch kit — seven written posts,
+          vertical clips, hero artwork, and audiograms — all in your client&rsquo;s exact voice,
+          ready to publish in a minute. Built for the podcast agencies quietly producing at scale.
         </p>
       </div>
     </section>
@@ -102,17 +102,23 @@ function Hero() {
 
 function WhatWeDo() {
   return (
-    <Section eyebrow="What Repodcast is" title="A voice engine, not a template mill.">
+    <Section
+      eyebrow="What Repodcast is"
+      title="A full launch kit per episode — in each client's voice."
+    >
       <p>
-        Every generic content tool starts from a prompt and finishes with the same beige LinkedIn
-        post you&rsquo;ve read a hundred times this week. Repodcast starts from the opposite end.
+        One transcript becomes seven written posts across every social platform, vertical clips with
+        captions burned in, hero artwork in three aspect ratios, and audiograms ready to attach to
+        each post. The whole set — text, video, image, and audio deliverables — lands in the same
+        folder, in a minute.
       </p>
       <p>
-        For each of your clients we build a voice-style profile from their prior writing and the
-        episodes you&rsquo;ve approved. Every output — a thread, a caption, a show note — is
-        generated against <em>that specific voice</em>. When you approve or edit an output, the
-        profile learns. Episode two sounds sharper than episode one, and episode ten sounds like
-        your client wrote it at their best.
+        The catch every other tool hits is the voice. Generic AI produces the same beige LinkedIn
+        post you&rsquo;ve read a hundred times this week. Repodcast builds a voice-style profile per
+        client, and every output — thread, caption, clip caption, show note — is generated against{" "}
+        <em>that specific voice</em>. Approvals teach it what&rsquo;s right; edits teach it what to
+        fix. Episode two sounds sharper than episode one, and episode ten sounds like your client
+        wrote it at their best.
       </p>
     </Section>
   );
@@ -281,8 +287,8 @@ function FinalCTA({ isSignedIn }: { isSignedIn: boolean }) {
           className="mx-auto mt-4 text-[16px]"
           style={{ color: "#5A6473", lineHeight: 1.6, maxWidth: 520 }}
         >
-          Start on any plan — the voice engine, seven output formats, and per-client workspaces are
-          included from the first minute.
+          Start on any plan — the full launch kit (posts, clips, artwork, audiograms), the voice
+          engine, and per-client workspaces are included from the first minute.
         </p>
         <div className="mt-8 flex items-center justify-center gap-3">
           <Link

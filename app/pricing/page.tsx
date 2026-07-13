@@ -16,7 +16,7 @@ import { PricingPageBody } from "@/components/pricing/pricing-page-body";
 export const metadata: Metadata = {
   title: "Pricing — Repodcast",
   description:
-    "Simple, honest pricing for podcast agencies. Monthly or annual (two months free), five currencies, no hidden tiers.",
+    "One plan per studio, one price. Seven posts, vertical clips, hero artwork, and audiograms per episode — everything included, no per-render fees.",
 };
 
 export const dynamic = "force-dynamic";
