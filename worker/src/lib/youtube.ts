@@ -12,6 +12,28 @@ import { open } from "node:fs/promises";
  * can re-raise as the same class on its side. Codes match the app's
  * `YouTubeImportErrorCode` union 1:1 — keep them in sync when adding new
  * failure modes.
+ *
+ * ── Status: PO-token path parked (2026-07-14) ────────────────────────
+ * The bgutil PO-provider sidecar is currently commented out in
+ * `docker-compose.yml`. Debugging showed the VPS IP is flagged hard
+ * enough that YouTube returns LOGIN_REQUIRED on every player client
+ * (android_vr / web_safari / web / mweb) before the PO provider is ever
+ * consulted — so PO tokens alone can't unblock this workload.
+ *
+ * When picking this back up, the correct architecture is cookies + PO +
+ * curl-cffi in combination, load-bearing on cookies:
+ *   1. Add YT_DLP_COOKIES_PATH env var + bind-mount a Netscape-format
+ *      cookies.txt (from a burner Google account logged in on a
+ *      residential IP) into the render container.
+ *   2. Splice `--cookies ${YT_DLP_COOKIES_PATH}` into every yt-dlp call
+ *      in this file (extend the existing `withPotProviderArgs` pattern).
+ *   3. Uncomment the bgutil-provider service + `depends_on` in
+ *      docker-compose.yml so PO tokens ride alongside cookies.
+ *   4. Add a `cookies_expired` matcher in `classifyYtDlpError` so
+ *      operators get a distinct signal when it's time to rotate.
+ *   5. Refresh cookies every ~90 days via scp overwrite (yt-dlp reads
+ *      the file per-invocation — no container restart needed).
+ * ─────────────────────────────────────────────────────────────────────
  */
 
 export type YouTubeImportErrorCode =

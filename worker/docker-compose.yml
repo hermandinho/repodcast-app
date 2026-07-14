@@ -8,28 +8,29 @@
 # need to run compose directly.
 
 services:
-  # BotGuard-backed PO token provider — the yt-dlp plugin
-  # (bgutil-ytdlp-pot-provider, pip-installed inside the render image) hits
-  # this sidecar over HTTP to mint the tokens YouTube's "Sign in to confirm
-  # you're not a bot" gate demands. The provider caches sessions across
-  # requests, so keeping it long-lived is much cheaper than the script-mode
-  # variant that spawns a Node.js VM per yt-dlp invocation.
-  bgutil-provider:
-    image: brainicism/bgutil-ytdlp-pot-provider:latest
-    restart: unless-stopped
-    expose:
-      - "4416"
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4416/ping"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+  # BotGuard-backed PO token provider — DISABLED pending a cookies-based
+  # fix for YouTube import. Even with the plugin, deno JS runtime, and
+  # curl-cffi, YouTube's flagging of the VPS IP short-circuits every
+  # client (android_vr / web_safari / web / mweb) at LOGIN_REQUIRED before
+  # PO consultation happens. Re-enable this block when reintroducing the
+  # cookies + PO flow (see YT_DLP_COOKIES_PATH plumbing).
+  #
+  # bgutil-provider:
+  #   image: brainicism/bgutil-ytdlp-pot-provider:latest
+  #   restart: unless-stopped
+  #   expose:
+  #     - "4416"
+  #   healthcheck:
+  #     test: ["CMD", "wget", "-qO-", "http://localhost:4416/ping"]
+  #     interval: 30s
+  #     timeout: 5s
+  #     retries: 3
+  #     start_period: 15s
+  #   logging:
+  #     driver: json-file
+  #     options:
+  #       max-size: "10m"
+  #       max-file: "3"
 
   render:
     build: .
@@ -41,9 +42,9 @@ services:
     # Hostname (URL = http://render:8080).
     expose:
       - "8080"
-    depends_on:
-      bgutil-provider:
-        condition: service_started
+    # depends_on:
+    #   bgutil-provider:
+    #     condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
       interval: 30s
