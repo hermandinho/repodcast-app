@@ -1,0 +1,13 @@
+# Files consumed by Linux tooling (bash, docker RUN, entrypoints, etc.)
+# MUST land on checkout with LF line endings, even on Windows workstations.
+# Windows CRLF endings cause bash to read `$'\r'` at the end of `set -euo
+# pipefail` and blow up before running any real work — the failure mode
+# that silently broke worker deploys prior to this file being added.
+#
+# `text eol=lf` also normalizes what's stored in the repo, so a Windows
+# editor auto-CRLF'ing a file on save can't sneak past `git add` again.
+
+*.sh          text eol=lf
+*.bash        text eol=lf
+Dockerfile    text eol=lf
+*.dockerfile  text eol=lf
