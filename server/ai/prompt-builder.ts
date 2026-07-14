@@ -275,10 +275,21 @@ export type BuiltPrompt = {
 /**
  * Build the messages array for a single platform generation.
  *
- * Caching strategy: identity + samples + global instructions are stable
- * across all 7 platform calls for the same episode, so we mark them
- * ephemeral. The platform-specific guidance + per-platform rules + the
- * transcript change per call.
+ * Caching strategy: identity + samples + global instructions + transcript
+ * are stable across all N platform calls for the same episode, so each
+ * carries a `cache_control: ephemeral` breakpoint (Anthropic allows up to
+ * 4). Only the trailing platform-specific block varies per call. The user
+ * message is a one-liner ask — putting the transcript into the *system*
+ * lets it participate in the cached prefix, cutting input-token latency
+ * and cost by ~90 % on the sibling parallel calls and on later regenerates
+ * within the 5-minute TTL.
+ *
+ * Block order (least → most variable):
+ *   1. identity                (per client, stable per episode)   [cached]
+ *   2. samples                 (per client, stable per episode)   [cached]
+ *   3. global instructions     (per client, stable per episode)   [cached]
+ *   4. transcript              (per episode, stable across calls) [cached]
+ *   5. platform + extraInstr   (per call)                         uncached
  *
  * Result is ready to splat into `client.messages.create(...)`.
  */
@@ -323,6 +334,16 @@ export function buildMessages(opts: {
     });
   }
 
+  // Transcript block: stable across the N platform calls of the same
+  // episode (and across regenerates). Marked as the final cache
+  // breakpoint so identity/samples/global partial-match cache hits still
+  // work when transcript changes but the voice profile is stable.
+  systemBlocks.push({
+    type: "text",
+    text: `Episode transcript:\n\n${opts.transcript}`,
+    cache_control: { type: "ephemeral" },
+  });
+
   // Platform-specific block (per call) — not cached.
   const platformRule = opts.voice.perPlatformInstructions[opts.platform];
   const platformConstraints: RuleConstraint[] = platformRule ? parseVoiceRules(platformRule) : [];
@@ -348,7 +369,7 @@ export function buildMessages(opts: {
     content: [
       {
         type: "text",
-        text: `Episode transcript:\n\n${opts.transcript}\n\nGenerate the ${cfg.fullName} now.`,
+        text: `Generate the ${cfg.fullName} now.`,
       },
     ],
   };

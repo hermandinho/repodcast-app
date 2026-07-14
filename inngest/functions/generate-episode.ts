@@ -9,6 +9,7 @@ import { NonRetriableError } from "inngest";
 import { CLAUDE_MODEL, requireClaudeClient } from "@/server/ai/claude";
 import { isPlaceholderTitle, suggestEpisodeTitle } from "@/server/ai/episode-title";
 import { extractKeyMoments } from "@/server/ai/key-moments";
+import { platformConfig } from "@/server/ai/platforms";
 import { buildMessages, extractText, type VoiceContext } from "@/server/ai/prompt-builder";
 import { scoreOutput } from "@/server/ai/quality-score";
 import { checkRuleAdherence } from "@/server/ai/rule-adherence";
@@ -245,32 +246,39 @@ export const generateEpisode = inngest.createFunction(
     // call here — cheap next to the platform fan-out — so the dashboard
     // doesn't fill up with placeholder rows. Best-effort: if the call
     // errors or returns nothing usable, we keep the placeholder.
-    if (isPlaceholderTitle(episode.title)) {
-      await step.run("auto-title", async () => {
-        const suggested = await suggestEpisodeTitle(episode.transcript, {
-          showName: episode.show.name,
-          hostName: episode.show.host,
-        });
-        if (!suggested) return { skipped: true } as const;
-        // Guard against the row being renamed in-flight (user edited
-        // the title while generate was running) — only overwrite if
-        // it's still the placeholder we saw at step start. `updateMany`
-        // + tenant/status conditions would be safer, but this is a
-        // best-effort cosmetic fill so a race just means we skip.
-        const current = await prisma.episode.findUnique({
-          where: { id: episodeId },
-          select: { title: true },
-        });
-        if (!current || !isPlaceholderTitle(current.title)) {
-          return { skipped: true } as const;
-        }
-        await prisma.episode.update({
-          where: { id: episodeId },
-          data: { title: suggested },
-        });
-        return { title: suggested };
-      });
-    }
+    //
+    // Kicked off here but NOT awaited — the auto-title step runs
+    // concurrently with the platform fan-out below. It's a cheap Claude
+    // call with a 60-token cap, independent of any platform output, so
+    // gating the fan-out on it was pure serial waste. We await it late
+    // (before `mark-ready`) so the completion email + UI see the final
+    // title.
+    const autoTitlePromise = isPlaceholderTitle(episode.title)
+      ? step.run("auto-title", async () => {
+          const suggested = await suggestEpisodeTitle(episode.transcript, {
+            showName: episode.show.name,
+            hostName: episode.show.host,
+          });
+          if (!suggested) return { skipped: true } as const;
+          // Guard against the row being renamed in-flight (user edited
+          // the title while generate was running) — only overwrite if
+          // it's still the placeholder we saw at step start. `updateMany`
+          // + tenant/status conditions would be safer, but this is a
+          // best-effort cosmetic fill so a race just means we skip.
+          const current = await prisma.episode.findUnique({
+            where: { id: episodeId },
+            select: { title: true },
+          });
+          if (!current || !isPlaceholderTitle(current.title)) {
+            return { skipped: true } as const;
+          }
+          await prisma.episode.update({
+            where: { id: episodeId },
+            data: { title: suggested },
+          });
+          return { title: suggested };
+        })
+      : null;
 
     // ---- 5. Voice context ----
     const samples = await prisma.voiceSample.findMany({
@@ -294,34 +302,8 @@ export const generateEpisode = inngest.createFunction(
       })),
     };
 
-    // ---- 6. Fan out — parallel generation per platform ----
+    // ---- 6. Fan out — cache-warm one call, then parallel per platform ----
     const transcriptWithMoments = `${episode.transcript}\n\n--- KEY MOMENTS ---\n${JSON.stringify(moments, null, 2)}`;
-
-    const settled = await Promise.allSettled(
-      platforms.map((platform: Platform) =>
-        step.run(`generate-${platform.toLowerCase()}`, async () => {
-          const client = requireClaudeClient();
-          const built = buildMessages({
-            platform,
-            voice,
-            transcript: transcriptWithMoments,
-            model: CLAUDE_MODEL,
-          });
-          const response = await client.messages.create({
-            model: built.model,
-            max_tokens: built.maxTokens,
-            system: built.system,
-            messages: built.messages,
-          });
-          return {
-            platform,
-            content: extractText(response),
-            inputTokens: response.usage.input_tokens,
-            outputTokens: response.usage.output_tokens,
-          };
-        }),
-      ),
-    );
 
     type StepResult = {
       platform: Platform;
@@ -329,6 +311,57 @@ export const generateEpisode = inngest.createFunction(
       inputTokens: number;
       outputTokens: number;
     };
+
+    const generateOne = (platform: Platform) =>
+      step.run(`generate-${platform.toLowerCase()}`, async () => {
+        const client = requireClaudeClient();
+        const built = buildMessages({
+          platform,
+          voice,
+          transcript: transcriptWithMoments,
+          model: CLAUDE_MODEL,
+        });
+        const response = await client.messages.create({
+          model: built.model,
+          max_tokens: built.maxTokens,
+          system: built.system,
+          messages: built.messages,
+        });
+        return {
+          platform,
+          content: extractText(response),
+          inputTokens: response.usage.input_tokens,
+          outputTokens: response.usage.output_tokens,
+        } satisfies StepResult;
+      });
+
+    // Cache-warm ordering: fire the smallest-maxTokens platform first,
+    // await it, then fan out the rest in parallel. The warm-up writes the
+    // shared prefix (identity + samples + global instructions + transcript)
+    // to Anthropic's ephemeral cache; the N-1 siblings then read it,
+    // saving both input-token cost (~90 %) and cache-hit latency on the
+    // long tail (mostly BLOG at 3500 max tokens). Trade-off: adds ~1–2 s
+    // to the fastest platform's tail while subtracting more from every
+    // sibling. When there's only one platform, no warm-up is needed.
+    const sorted = [...platforms].sort(
+      (a, b) => platformConfig(a).maxTokens - platformConfig(b).maxTokens,
+    );
+    const [warmupPlatform, ...restPlatforms] = sorted;
+
+    const resultByPlatform = new Map<Platform, PromiseSettledResult<StepResult>>();
+    if (warmupPlatform !== undefined) {
+      const [warmupResult] = await Promise.allSettled([generateOne(warmupPlatform)]);
+      resultByPlatform.set(warmupPlatform, warmupResult);
+    }
+    if (restPlatforms.length > 0) {
+      const restResults = await Promise.allSettled(restPlatforms.map(generateOne));
+      restPlatforms.forEach((p, i) => resultByPlatform.set(p, restResults[i]));
+    }
+    // Re-align with the caller's original `platforms` ordering so
+    // `successful` / `failed` downstream keep their historical order.
+    const settled: PromiseSettledResult<StepResult>[] = platforms.map((p) =>
+      resultByPlatform.get(p)!,
+    );
 
     const successful = settled
       .map((r, i) => ({ result: r, platform: platforms[i] }))
@@ -451,6 +484,18 @@ export const generateEpisode = inngest.createFunction(
     }
 
     // ---- 8. Episode → READY (even on partial failure) ----
+    // Join the auto-title branch (kicked off in step 4b in parallel with
+    // the fan-out) before flipping status so the funnel event fires against
+    // a title-finalised episode row. Best-effort — the auto-title step
+    // itself already swallows model errors, but a Prisma blip surfaces
+    // as a rejected promise. `.catch` keeps it non-fatal: an untitled
+    // episode is a cosmetic issue, not worth failing the whole run.
+    if (autoTitlePromise) {
+      await autoTitlePromise.catch((err: unknown) => {
+        console.warn("[generate-episode] auto-title branch failed", err);
+      });
+    }
+
     // Combine the status flip with a post-update READY-count so we can fire
     // the onboarding funnel's `first_episode_generated` exactly once per
     // agency. step.run memoization keeps this idempotent across retries.

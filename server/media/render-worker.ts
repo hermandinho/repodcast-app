@@ -15,14 +15,34 @@ import "server-only";
  * pipeline later. Types below are the contract we're committing to
  * so caller-side wiring (Inngest bridges, server actions) can compile.
  *
- * All calls share a 30 s AbortController timeout and single-try semantics.
+ * Timeout policy: health probes are meant to fail fast (30 s); render
+ * endpoints run ffmpeg + upload against real media and routinely take
+ * minutes, so they get a much larger window. Prod audiograms hit the
+ * old 30 s cap and surfaced as `"This operation was aborted"` — an
+ * AbortController firing on a still-in-flight render.
+ *
  * Retry lives in Inngest (`step.run`), not here — a duplicated render is
  * expensive, so we don't want casual retries under the caller's feet.
  */
 
 const RENDER_WORKER_URL = process.env.RENDER_WORKER_URL;
 const WORKER_SHARED_SECRET = process.env.WORKER_SHARED_SECRET;
-const REQUEST_TIMEOUT_MS = 30_000;
+const HEALTH_TIMEOUT_MS = 30_000;
+/**
+ * 10-minute ceiling for /render/* calls. Rationale: a 90-second audiogram
+ * with subtitle burn-in + waveform + background composite runs 30–180 s
+ * on the VPS, plus 5–30 s of audio download from R2 and 5–20 s upload.
+ * Clips can go longer (up to a few minutes of source with the same
+ * pipeline). 10 min covers p99 without leaving zombie fetches open for
+ * hours if the worker actually hangs. Override with
+ * `RENDER_WORKER_TIMEOUT_MS` in the environment if a specific deployment
+ * needs headroom.
+ */
+const RENDER_TIMEOUT_MS = (() => {
+  const raw = process.env.RENDER_WORKER_TIMEOUT_MS;
+  const parsed = raw ? Number(raw) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 10 * 60_000;
+})();
 
 export class RenderWorkerError extends Error {
   readonly status: number;
@@ -107,17 +127,24 @@ export function isRenderWorkerConfigured(): boolean {
 }
 
 export async function checkHealth(): Promise<WorkerHealth> {
-  return call<WorkerHealth>("GET", "/healthz", undefined, { authenticated: false });
+  return call<WorkerHealth>("GET", "/healthz", undefined, {
+    authenticated: false,
+    timeoutMs: HEALTH_TIMEOUT_MS,
+  });
 }
 
 export async function renderClip(request: RenderClipRequest): Promise<RenderClipResponse> {
-  return call<RenderClipResponse>("POST", "/render/clip", request);
+  return call<RenderClipResponse>("POST", "/render/clip", request, {
+    timeoutMs: RENDER_TIMEOUT_MS,
+  });
 }
 
 export async function renderAudiogram(
   request: RenderAudiogramRequest,
 ): Promise<RenderAudiogramResponse> {
-  return call<RenderAudiogramResponse>("POST", "/render/audiogram", request);
+  return call<RenderAudiogramResponse>("POST", "/render/audiogram", request, {
+    timeoutMs: RENDER_TIMEOUT_MS,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -128,7 +155,7 @@ async function call<T>(
   method: "GET" | "POST",
   path: string,
   body?: unknown,
-  options: { authenticated?: boolean } = {},
+  options: { authenticated?: boolean; timeoutMs?: number } = {},
 ): Promise<T> {
   if (!RENDER_WORKER_URL) throw new RenderWorkerConfigError("RENDER_WORKER_URL");
   const authenticated = options.authenticated ?? true;
@@ -140,7 +167,8 @@ async function call<T>(
   if (authenticated) headers.authorization = `Bearer ${WORKER_SHARED_SECRET}`;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeoutMs = options.timeoutMs ?? HEALTH_TIMEOUT_MS;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const url = `${RENDER_WORKER_URL.replace(/\/$/, "")}${path}`;
     const res = await fetch(url, {
@@ -153,6 +181,19 @@ async function call<T>(
     const text = await res.text();
     if (!res.ok) throw new RenderWorkerError(res.status, text);
     return text ? (JSON.parse(text) as T) : ({} as T);
+  } catch (err) {
+    // Surface AbortErrors as a clearly-typed RenderWorkerError so callers
+    // (the Inngest audiogram/clip functions) can log a diagnostic reason
+    // like "render worker did not respond within 10 min" instead of the
+    // opaque DOMException `"This operation was aborted"` — that message
+    // is exactly what surfaced in the FAILED transition rows on prod.
+    if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
+      throw new RenderWorkerError(
+        504,
+        `Render worker did not respond within ${Math.round(timeoutMs / 1000)}s (client abort)`,
+      );
+    }
+    throw err;
   } finally {
     clearTimeout(timeout);
   }

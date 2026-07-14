@@ -215,9 +215,12 @@ describe("buildMessages", () => {
     expect(prompt.maxTokens).toBeGreaterThan(0);
     expect(Array.isArray(prompt.system)).toBe(true);
     const system = prompt.system as Array<{ type: string; text: string; cache_control?: unknown }>;
-    // Identity + samples + global = 3 cacheable blocks; platform-specific = 1 non-cached.
+    // Identity + samples + global + transcript = up to 4 cacheable blocks;
+    // platform-specific = 1 non-cached.
     const cacheable = system.filter((b) => b.cache_control);
-    expect(cacheable.length).toBeGreaterThanOrEqual(2);
+    expect(cacheable.length).toBeGreaterThanOrEqual(3);
+    // Anthropic caps cache_control breakpoints at 4 per request.
+    expect(cacheable.length).toBeLessThanOrEqual(4);
     // The final block (platform-specific) should NOT be marked ephemeral.
     expect(system[system.length - 1].cache_control).toBeUndefined();
   });
@@ -295,19 +298,30 @@ describe("buildMessages", () => {
     expect(customRuleIdx).toBeGreaterThan(platformGuidanceIdx);
   });
 
-  it("user message contains the transcript", () => {
+  it("transcript lives in a cached system block; user message is the ask only", () => {
+    // The transcript is the largest payload and it's stable across the N
+    // parallel platform calls of the same episode — pinning it into a
+    // cached system block lets the sibling calls read Anthropic's
+    // ephemeral cache instead of re-processing the whole transcript from
+    // scratch. The user message stays short so it doesn't get retokenised
+    // for the cache prefix.
     const prompt = buildMessages({
       platform: Platform.BLOG,
       voice,
       transcript: TRANSCRIPT,
       model: MODEL,
     });
+    const system = prompt.system as Array<{ text: string; cache_control?: unknown }>;
+    const transcriptBlock = system.find((b) => b.text.includes(TRANSCRIPT.slice(0, 50)));
+    expect(transcriptBlock).toBeDefined();
+    expect(transcriptBlock!.cache_control).toBeDefined();
+
     const userContent = prompt.messages[0].content;
     const userText =
       typeof userContent === "string"
         ? userContent
         : (userContent as Array<{ type: string; text: string }>)[0].text;
-    expect(userText).toContain(TRANSCRIPT.slice(0, 50));
+    expect(userText).not.toContain(TRANSCRIPT.slice(0, 50));
     expect(userText).toContain("Blog Post");
   });
 
