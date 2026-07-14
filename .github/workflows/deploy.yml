@@ -3,6 +3,15 @@ name: Deploy
 on:
   push:
     branches: [main, dev]
+  workflow_dispatch:
+    # Manual trigger — pick the env from the UI. Handy for re-running
+    # migrations without pushing an empty commit.
+    inputs:
+      environment:
+        description: "Which env to deploy"
+        type: choice
+        options: [prod, staging]
+        default: staging
 
 # Serialize per branch so two pushes can't race the same DB.
 # cancel-in-progress: false — let an in-flight migration finish before
@@ -16,6 +25,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Resolve target environment
+        id: env
+        # main branch OR workflow_dispatch with input=prod → prod. Otherwise staging.
+        run: |
+          if [ "$GITHUB_REF" = "refs/heads/main" ] || [ "${{ inputs.environment }}" = "prod" ]; then
+            echo "name=prod" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=staging" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
@@ -26,16 +45,30 @@ jobs:
       - run: npm ci
 
       - name: Apply pending migrations
+        # DATABASE_URL: pooled PgBouncer URL (?pgbouncer=true) — Prisma uses it
+        #   for schema introspection during migrate.
+        # DIRECT_URL:   same PgBouncer host but ?pgbouncer=false so Prisma opens
+        #   session-level connections for DDL. PgBouncer runs in transaction
+        #   mode; Prisma migration transactions fit within a single tx so this
+        #   works. If it ever doesn't, add an SSH-into-VPS step and run
+        #   `docker exec ... prisma` there instead.
         env:
-          DIRECT_URL: ${{ github.ref == 'refs/heads/main' && secrets.DIRECT_URL_PROD || secrets.DIRECT_URL_STAGING }}
-        run: npx prisma migrate deploy
+          DATABASE_URL: ${{ steps.env.outputs.name == 'prod' && secrets.DATABASE_URL_PROD || secrets.DATABASE_URL_STAGING }}
+          DIRECT_URL: ${{ steps.env.outputs.name == 'prod' && secrets.DIRECT_URL_PROD   || secrets.DIRECT_URL_STAGING }}
+        run: |
+          if [ -z "$DIRECT_URL" ]; then
+            echo "::error::DIRECT_URL_${{ steps.env.outputs.name == 'prod' && 'PROD' || 'STAGING' }} secret is missing. See infra/db/README.md §6."
+            exit 1
+          fi
+          echo "==> applying migrations to ${{ steps.env.outputs.name }}"
+          npx prisma migrate deploy
 
       - name: Trigger Vercel deploy
         env:
-          HOOK: ${{ github.ref == 'refs/heads/main' && secrets.VERCEL_DEPLOY_HOOK_PROD || secrets.VERCEL_DEPLOY_HOOK_STAGING }}
+          HOOK: ${{ steps.env.outputs.name == 'prod' && secrets.VERCEL_DEPLOY_HOOK_PROD || secrets.VERCEL_DEPLOY_HOOK_STAGING }}
         run: |
           if [ -z "$HOOK" ]; then
-            echo "::error::Deploy hook secret missing for ${{ github.ref }}"
+            echo "::error::VERCEL_DEPLOY_HOOK_${{ steps.env.outputs.name == 'prod' && 'PROD' || 'STAGING' }} secret is missing"
             exit 1
           fi
           curl -fsSL --retry 3 -X POST "$HOOK"

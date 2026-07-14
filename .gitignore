@@ -52,3 +52,6 @@ Q1.md
 Q2.md
 scripts/draw-architecture.py
 docs/architecture.png
+/.lego/
+/infra/db/rclone/rclone.conf.staging
+/infra/db/rclone/rclone.conf.prod

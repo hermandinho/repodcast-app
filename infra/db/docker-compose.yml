@@ -1,0 +1,168 @@
+# Single template used for both prod and staging DB stacks.
+#
+# Invoke per-env with --env-file and --project-name (deploy.sh does this):
+#   docker compose --env-file .env -p repodcast-db-prod    up -d
+#   docker compose --env-file .env -p repodcast-db-staging up -d
+#
+# Named volumes are project-scoped, so prod and staging get separate
+# data directories on the same box without colliding.
+#
+# What connects where:
+#   Vercel (app)      -> pgbouncer:6432 over public TLS  (DATABASE_URL)
+#   prisma migrate    -> postgres:5432 via SSH to VPS    (DIRECT_URL, run on box)
+#   psql from laptop  -> cloudflared TCP tunnel -> postgres:5432 (Zero Trust gated)
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD come from .env
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    # Not exposed to host — pgbouncer and cloudflared reach it over the compose network.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  pgbouncer:
+    # community-maintained; Bitnami removed their pgbouncer image from Docker Hub in 2025.
+    image: edoburu/pgbouncer:v1.25.2-p0
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:?POSTGRES_USER missing from .env}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD missing from .env}
+      DB_NAME: ${POSTGRES_DB:?POSTGRES_DB missing from .env}
+      LISTEN_PORT: 6432
+      POOL_MODE: transaction
+      DEFAULT_POOL_SIZE: 25
+      MAX_CLIENT_CONN: 1000
+      MAX_DB_CONNECTIONS: 50
+      # scram-sha-256 for hashed passwords (matches postgresql.conf setting).
+      AUTH_TYPE: scram-sha-256
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits,application_name,search_path
+      # Public TLS — Vercel talks to us over the internet.
+      CLIENT_TLS_SSLMODE: require
+      CLIENT_TLS_CERT_FILE: /etc/pgbouncer/certs/fullchain.pem
+      CLIENT_TLS_KEY_FILE: /etc/pgbouncer/certs/privkey.pem
+    volumes:
+      - ./certs:/etc/pgbouncer/certs:ro
+    ports:
+      # Bound to host:6432 — this is the ONE port the firewall opens to the world.
+      - "6432:6432"
+    healthcheck:
+      # pg_isready does a lightweight TCP + startup probe. Doesn't need
+      # admin_users, credentials, or handle TLS mode negotiation the way a
+      # full psql query would.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432 -U $$DB_USER"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  backup:
+    image: prodrigestivill/postgres-backup-local:17
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_EXTRA_OPTS: "--format=custom --no-owner --no-acl --compress=9"
+      SCHEDULE: "${BACKUP_SCHEDULE:-0 3 * * *}"
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
+      BACKUP_KEEP_WEEKS: ${BACKUP_KEEP_WEEKS:-4}
+      BACKUP_KEEP_MONTHS: ${BACKUP_KEEP_MONTHS:-6}
+      HEALTHCHECK_PORT: 8080
+    volumes:
+      - ./backups:/backups
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  backup_offsite:
+    image: rclone/rclone:1.68
+    restart: unless-stopped
+    depends_on:
+      - backup
+    env_file: .env
+    volumes:
+      - ./backups:/backups:ro
+      - ./rclone/rclone.conf:/config/rclone/rclone.conf:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        REMOTE="${OFFSITE_REMOTE:?OFFSITE_REMOTE missing from .env (e.g. r2:repodcast-db-backups-prod)}"
+        INTERVAL="${OFFSITE_INTERVAL_SECONDS:-3600}"
+        echo "==> offsite sync every $${INTERVAL}s to $${REMOTE}"
+        while true; do
+          rclone sync /backups "$${REMOTE}" \
+            --config /config/rclone/rclone.conf \
+            --transfers 4 --checkers 8 \
+            --log-level INFO
+          sleep "$${INTERVAL}"
+        done
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Admin access only — psql/pgdump from your laptop over Cloudflare Access.
+  # Vercel does NOT use this path; it hits pgbouncer:6432 publicly.
+  # Configure the tunnel with a TCP Private Network route to tcp://postgres:5432.
+  cloudflared:
+    image: cloudflare/cloudflared:2024.11.0
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN missing from .env}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  postgres_data:
