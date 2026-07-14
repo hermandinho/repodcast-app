@@ -2,7 +2,6 @@ import { EpisodePipelineStage, EpisodeStatus, TranscriptSource } from "@prisma/c
 import { NonRetriableError } from "inngest";
 import { prisma } from "@/server/db/client";
 import { captureInngestFailure } from "@/server/observability/sentry";
-import { putR2Object } from "@/server/storage/r2";
 import {
   downloadYouTubeAudio,
   fetchYouTubeMetadata,
@@ -48,6 +47,10 @@ const NON_RETRYABLE_YT_CODES = new Set([
   "no_audio",
   "parse_failed",
   "too_long",
+  // Bot challenge means the PO provider sidecar isn't minting good tokens.
+  // Retrying just burns Inngest's retry budget — ops needs to fix the
+  // worker, then the user can re-trigger the import.
+  "bot_challenge",
 ]);
 
 export const importYoutubeEpisode = inngest.createFunction(
@@ -219,16 +222,17 @@ export const importYoutubeEpisode = inngest.createFunction(
     }
 
     // ---- 4b. Audio-fallback path ----
+    // Worker downloads with yt-dlp and streams the bytes into R2 itself —
+    // we just tell it the key prefix, and it appends the sniffed
+    // container extension (m4a/webm/opus/mp3).
+    const keyPrefix = `audio/${agencyId}/${episode.showId}/${episodeId}`;
     const audioKey = await step.run("download-audio-to-r2", async () => {
-      let audio;
       try {
-        audio = await downloadYouTubeAudio(videoId);
+        const audio = await downloadYouTubeAudio(videoId, keyPrefix);
+        return audio.r2Key;
       } catch (err) {
         throw rewrapYouTubeError(err);
       }
-      const key = `audio/${agencyId}/${episode.showId}/${episodeId}.${extForContentType(audio.contentType)}`;
-      await putR2Object(key, audio.buffer, audio.contentType);
-      return key;
     });
 
     await step.run("persist-audio-key", () =>
@@ -269,19 +273,4 @@ function rewrapYouTubeError(err: unknown): Error {
     return new NonRetriableError(err.message);
   }
   return err instanceof Error ? err : new Error(String(err));
-}
-
-function extForContentType(ct: string): string {
-  switch (ct) {
-    case "audio/mp4":
-      return "m4a";
-    case "audio/webm":
-      return "webm";
-    case "audio/ogg":
-      return "opus";
-    case "audio/mpeg":
-      return "mp3";
-    default:
-      return "bin";
-  }
 }
