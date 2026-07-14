@@ -2,6 +2,8 @@ import Fastify from "fastify";
 import { z } from "zod";
 import { renderAudiogram } from "./jobs/audiogram.js";
 import { renderClip } from "./jobs/clip.js";
+import { jobAudio, jobCaptions, jobMetadata } from "./jobs/youtube.js";
+import { YouTubeImportError } from "./lib/youtube.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
 const HOST = process.env.HOST ?? "0.0.0.0";
@@ -115,6 +117,98 @@ app.post("/render/audiogram", async (req, reply) => {
       error: err instanceof Error ? err.message : String(err),
       outputId: input.outputId,
     });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// YouTube import — three endpoints mirror the app's adapter fns
+// (server/imports/youtube.ts). Running yt-dlp from the worker rather than
+// Vercel dodges YouTube's datacenter-IP anti-bot check.
+//
+// On `YouTubeImportError` we return 400 with `{ error: { code, message,
+// stderr } }` so the app-side HTTP client can re-throw the same class
+// with the same code, keeping the Inngest fn's terminal/retryable
+// classifier unchanged.
+// ---------------------------------------------------------------------------
+
+const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+
+function sendYouTubeError(reply: import("fastify").FastifyReply, err: unknown) {
+  if (err instanceof YouTubeImportError) {
+    return reply.code(400).send({
+      error: { code: err.code, message: err.message, stderr: err.stderr },
+    });
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  return reply.code(500).send({ error: { code: "fetch_failed", message } });
+}
+
+const metadataRequestSchema = z.object({
+  videoId: z.string().regex(VIDEO_ID_RE, "videoId must be an 11-char YouTube id"),
+});
+
+app.post("/import/youtube/metadata", async (req, reply) => {
+  const parsed = metadataRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return reply.code(400).send({ error: "invalid request", details: parsed.error.flatten() });
+  }
+  try {
+    return await jobMetadata(parsed.data.videoId);
+  } catch (err) {
+    req.log.warn({ err, videoId: parsed.data.videoId }, "import/youtube/metadata failed");
+    return sendYouTubeError(reply, err);
+  }
+});
+
+const captionsRequestSchema = z.object({
+  videoId: z.string().regex(VIDEO_ID_RE),
+  track: z.object({
+    languageCode: z.string().min(1).max(40),
+    name: z.string().max(200),
+    isGenerated: z.boolean(),
+  }),
+});
+
+app.post("/import/youtube/captions", async (req, reply) => {
+  const parsed = captionsRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return reply.code(400).send({ error: "invalid request", details: parsed.error.flatten() });
+  }
+  try {
+    return await jobCaptions(parsed.data);
+  } catch (err) {
+    req.log.warn({ err, videoId: parsed.data.videoId }, "import/youtube/captions failed");
+    return sendYouTubeError(reply, err);
+  }
+});
+
+const audioRequestSchema = z.object({
+  videoId: z.string().regex(VIDEO_ID_RE),
+  // Reject `..` and absolute paths — keyPrefix becomes an R2 key prefix, same
+  // discipline as the render endpoints' `outputPrefix`.
+  keyPrefix: z
+    .string()
+    .min(1)
+    .max(500)
+    .refine((s) => !s.includes(".."), "keyPrefix must not contain '..'")
+    .refine((s) => !s.startsWith("/"), "keyPrefix must not start with '/'"),
+  maxBytes: z
+    .number()
+    .int()
+    .min(1024 * 1024)
+    .max(2 * 1024 * 1024 * 1024),
+});
+
+app.post("/import/youtube/audio", async (req, reply) => {
+  const parsed = audioRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return reply.code(400).send({ error: "invalid request", details: parsed.error.flatten() });
+  }
+  try {
+    return await jobAudio(parsed.data);
+  } catch (err) {
+    req.log.warn({ err, videoId: parsed.data.videoId }, "import/youtube/audio failed");
+    return sendYouTubeError(reply, err);
   }
 });
 

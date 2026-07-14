@@ -118,7 +118,13 @@ services:
         max-file: "3"
 
   backup_offsite:
-    image: rclone/rclone:1.68
+    # Pinned to 1.71+ because Cloudflare R2's edge rejected the TLS
+    # ClientHello from older rclone builds (1.68 in particular) with a
+    # bare `handshake failure` — no cipher/version overlap with R2's
+    # current accept-list. Bump the tag on subsequent rclone releases as
+    # long as the image ships a curl/OpenSSL stack current with
+    # Cloudflare's TLS policy.
+    image: rclone/rclone:1.71
     restart: unless-stopped
     depends_on:
       - backup
