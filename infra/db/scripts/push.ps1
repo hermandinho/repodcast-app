@@ -85,24 +85,38 @@ if ($SkipMigrate) {
     }
     $password = $envMap['POSTGRES_PASSWORD']
     $domain   = $envMap['DB_DOMAIN']
+    $port     = $envMap['PGBOUNCER_PORT']
     if (-not $password) { Write-Error "POSTGRES_PASSWORD not found in $EnvFile"; exit 1 }
     if (-not $domain)   { Write-Error "DB_DOMAIN not found in $EnvFile"; exit 1 }
+    if (-not $port)     { $port = '6432' }  # default matches docker-compose.yml
+
+    # Strip surrounding quotes if the user pasted them into .env.
+    $password = $password.Trim('"', "'")
 
     # URL-encode password — handles /, +, @, :, %, etc.
     $encodedPw = [System.Uri]::EscapeDataString($password)
 
-    $baseUrl   = "postgresql://repodcast:${encodedPw}@${domain}:6432/repodcast?sslmode=require"
+    $baseUrl   = "postgresql://repodcast:${encodedPw}@${domain}:${port}/repodcast?sslmode=require"
     $dbUrl     = "${baseUrl}&pgbouncer=true"
     $directUrl = "${baseUrl}&pgbouncer=false"
 
     # Repo root: infra/db/scripts → ../../..
     $RepoRoot = Split-Path -Parent (Split-Path -Parent $DbDir)
 
+    # Invoke prisma via the local binary directly — `npx prisma` on Windows
+    # PowerShell is flaky ("could not determine executable to run" from
+    # PowerShell contexts that don't inherit npm's shim resolution cleanly).
+    $prismaCmd = Join-Path $RepoRoot 'node_modules\.bin\prisma.cmd'
+    if (-not (Test-Path $prismaCmd)) {
+        Write-Error "prisma binary not found at $prismaCmd. Run ``npm install`` in the repo root first."
+        exit 1
+    }
+
     Push-Location $RepoRoot
     try {
         $env:DATABASE_URL = $dbUrl
         $env:DIRECT_URL   = $directUrl
-        & npx prisma migrate deploy
+        & $prismaCmd migrate deploy
         if ($LASTEXITCODE -ne 0) { Write-Error "prisma migrate deploy exited $LASTEXITCODE"; exit $LASTEXITCODE }
     } finally {
         Pop-Location

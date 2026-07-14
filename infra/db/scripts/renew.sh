@@ -61,6 +61,13 @@ needs_renewal() {
     log "no cert at $CERT_FILE — will issue"
     return 0
   fi
+  # If DB_DOMAIN changed since the cert was issued (e.g. someone renamed the
+  # hostname), the current cert no longer covers it — force a reissue so
+  # PgBouncer's TLS matches what clients expect.
+  if ! openssl x509 -in "$CERT_FILE" -noout -checkhost "$DB_DOMAIN" >/dev/null 2>&1; then
+    log "cert doesn't cover $DB_DOMAIN — will reissue"
+    return 0
+  fi
   local seconds=$((RENEW_WITHIN_DAYS * 24 * 3600))
   if openssl x509 -checkend "$seconds" -noout -in "$CERT_FILE" >/dev/null 2>&1; then
     local end_epoch now_epoch days_left
@@ -121,16 +128,12 @@ install_cert() {
 }
 
 reload_stack() {
-  # No-op if stack isn't up yet (first-time issue before initial `docker compose up`).
-  if ! docker compose --env-file "$TARGET/.env" -p "$PROJECT" ps --status running --services 2>/dev/null | grep -qE '^(postgres|pgbouncer)$'; then
-    log "stack not running — skipping reload (will pick up cert on next `docker compose up`)"
+  # No-op if pgbouncer isn't up yet (first-time issue before initial `docker compose up`).
+  # Only pgbouncer terminates TLS — postgres SSL is off, so no reload there.
+  if ! docker compose --env-file "$TARGET/.env" -p "$PROJECT" ps --status running --services 2>/dev/null | grep -qx pgbouncer; then
+    log "pgbouncer not running — skipping reload (will pick up cert on next docker compose up)"
     return 0
   fi
-
-  log "reloading postgres SSL config (pg_reload_conf)"
-  docker compose --env-file "$TARGET/.env" -p "$PROJECT" \
-    exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-    -c 'SELECT pg_reload_conf();' >/dev/null
 
   log "restarting pgbouncer to pick up new cert"
   docker compose --env-file "$TARGET/.env" -p "$PROJECT" restart pgbouncer >/dev/null

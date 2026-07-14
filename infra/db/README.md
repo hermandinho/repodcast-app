@@ -23,11 +23,13 @@ Same deploy pattern as `worker/`: one box, per-env compose project
 
 ## What connects where
 
-| Client           | Endpoint                                  | Notes                                            |
-| ---------------- | ----------------------------------------- | ------------------------------------------------ |
-| Vercel app       | `db.repodcastapp.com:6432` (PgBouncer)    | `DATABASE_URL`, `sslmode=require&pgbouncer=true` |
-| `prisma migrate` | `db.repodcastapp.com:6432` (PgBouncer)    | `DIRECT_URL`, `sslmode=require&pgbouncer=false`  |
-| Laptop `psql`    | `localhost:5432` via `cloudflared access` | Zero Trust-gated TCP tunnel                      |
+| Client           | Prod endpoint                              | Staging endpoint                               | Notes                                            |
+| ---------------- | ------------------------------------------ | ---------------------------------------------- | ------------------------------------------------ |
+| Vercel app       | `db.repodcastapp.com:6432` (PgBouncer)     | `db-staging.repodcastapp.com:6433` (PgBouncer) | `DATABASE_URL`, `sslmode=require&pgbouncer=true` |
+| `prisma migrate` | `db.repodcastapp.com:6432` (PgBouncer)     | `db-staging.repodcastapp.com:6433` (PgBouncer) | `DIRECT_URL`, `sslmode=require&pgbouncer=false`  |
+| Laptop `psql`    | `localhost:15432` via `cloudflared access` | `localhost:15433` via `cloudflared access`     | Zero Trust-gated TCP tunnel                      |
+
+**Why different ports:** prod and staging share the same VPS, so their PgBouncer containers can't both bind host port 6432. Prod keeps 6432 (canonical); staging uses 6433. Controlled by `PGBOUNCER_PORT` in each `.env`.
 
 Vercel does **not** go through Cloudflare — it hits the public PgBouncer
 port directly over TLS.
@@ -39,10 +41,11 @@ port directly over TLS.
 ### 1. VPS prep
 
 Reuse the existing render-worker VPS (already has Docker + `deploy` user from
-`worker/scripts/bootstrap.sh`). Open port 6432 in the firewall for Vercel:
+`worker/scripts/bootstrap.sh`). Open both PgBouncer ports in the firewall
+for Vercel:
 
 ```bash
-ssh root@<vps-ip> "ufw allow 6432/tcp && ufw reload"
+ssh root@<vps-ip> "ufw allow 6432/tcp && ufw allow 6433/tcp && ufw reload"
 ```
 
 Port 5432 stays closed to the public — only cloudflared reaches it.

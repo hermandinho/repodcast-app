@@ -72,8 +72,9 @@ services:
     volumes:
       - ./certs:/etc/pgbouncer/certs:ro
     ports:
-      # Bound to host:6432 — this is the ONE port the firewall opens to the world.
-      - "6432:6432"
+      # Host port is configurable per env so prod (6432) and staging (6433)
+      # can share the same VPS. Container always listens on 6432.
+      - "${PGBOUNCER_PORT:-6432}:6432"
     healthcheck:
       # pg_isready does a lightweight TCP + startup probe. Doesn't need
       # admin_users, credentials, or handle TLS mode negotiation the way a
