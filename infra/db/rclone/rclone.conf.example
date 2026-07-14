@@ -1,0 +1,34 @@
+# Copy to rclone.conf on your laptop, fill in creds, then push.ps1 uploads it
+# to the VPS as ./rclone/rclone.conf. NEVER commit filled-in copies.
+#
+# One remote per storage backend you use. The `OFFSITE_REMOTE` value in .env
+# picks which one the sidecar syncs to (e.g. "r2:repodcast-db-backups-prod").
+#
+# Cloudflare R2 credentials come from: dash.cloudflare.com -> R2 -> Manage API tokens.
+# Endpoint format: https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+
+[r2]
+type = s3
+provider = Cloudflare
+access_key_id = REPLACE_ME
+secret_access_key = REPLACE_ME
+endpoint = https://REPLACE_ACCOUNT_ID.r2.cloudflarestorage.com
+region = auto
+acl = private
+no_check_bucket = true
+
+# --- Backblaze B2 alternative (uncomment if using B2 instead of R2) --------
+# [b2]
+# type = b2
+# account = REPLACE_KEY_ID
+# key = REPLACE_APPLICATION_KEY
+# hard_delete = false
+
+# --- Generic S3 (AWS or S3-compatible) ------------------------------------
+# [s3]
+# type = s3
+# provider = AWS
+# access_key_id = REPLACE_ME
+# secret_access_key = REPLACE_ME
+# region = us-east-1
+# acl = private
