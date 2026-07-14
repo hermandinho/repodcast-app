@@ -1,0 +1,9 @@
+{
+  "clipId": "smoke-03",
+  "sourceUrl": "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_5MB.mp4",
+  "startMs": 1000,
+  "endMs": 25000,
+  "captionsSrt": "1\n00:00:01,000 --> 00:00:08,000\nSmoke test — caption line one.\n\n2\n00:00:10,000 --> 00:00:20,000\nCaption line two.\n",
+  "aspect": "9:16",
+  "outputPrefix": "clips/smoke/smoke-03"
+}

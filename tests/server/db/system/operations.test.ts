@@ -1,5 +1,5 @@
 /**
- * Phase 3.6.8 — operations dashboard repo helpers.
+ * Operations dashboard repo helpers.
  *
  * Pure-helper coverage: month-end forecast math + 30-day daily-series
  * bucket builder. The orchestration in `getOperationsSummary` is mostly

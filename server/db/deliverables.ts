@@ -13,7 +13,7 @@ import { requireReadRole, type TenantContext } from "@/server/auth/tenant";
 import { prisma } from "./client";
 
 /**
- * Phase 2.13.3 — Deliverable ledger.
+ * Deliverable ledger.
  *
  * Reads the per-client record of every (current-version) `GeneratedOutput`
  * the agency has produced, joined to its episode + the approving member.
@@ -42,7 +42,7 @@ export const listDeliverablesFilterInput = z.object({
   to: z.coerce.date().optional(),
   platform: z.nativeEnum(Platform).optional(),
   status: z.nativeEnum(OutputStatus).optional(),
-  /** Phase 3.8 — restrict to one show under the client. Composes with every
+  /** Restrict to one show under the client. Composes with every
    *  other filter; a cross-tenant showId collapses to zero matches via the
    *  existing `episode.show.client.agencyId` guard. */
   showId: z.string().min(1).optional(),

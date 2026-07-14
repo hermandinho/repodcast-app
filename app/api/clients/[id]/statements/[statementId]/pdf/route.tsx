@@ -16,7 +16,7 @@ import { StatementPdf } from "@/components/statements/statement-pdf";
 import { buildStatementPdfPayload } from "@/server/statements/pdf-payload";
 
 /**
- * Phase 3.8 — Single-statement PDF export (agency-side).
+ * Single-statement PDF export (agency-side).
  *
  * Auth-gated OWNER/ADMIN, mirrors the CSV route's tenant guard. Renders
  * the PDF on-demand — statement totals are frozen at generation time, so

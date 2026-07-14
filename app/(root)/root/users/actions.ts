@@ -15,7 +15,7 @@ import { prisma } from "@/server/db/client";
 import { sendPasswordResetEmail, sendWelcomeEmail } from "@/server/email/send";
 
 /**
- * Phase 3.6.9 — server actions behind `/root/users`.
+ * Server actions behind `/root/users`.
  *
  * Two support-track ROOT actions:
  *   - resetPasswordAction — mints a Clerk sign-in token (one-click,

@@ -30,7 +30,7 @@ const createInput = z
     episodeId: z.string().min(1).optional(),
     source: z.nativeEnum(TranscriptSource).default(TranscriptSource.PASTE),
     /**
-     * Phase 2.8 — RSS path. Publisher GUID + feed URL are pinned onto the
+     * RSS path. Publisher GUID + feed URL are pinned onto the
      * Episode at create time so the import function (which may not run
      * for seconds) gets stable lookup keys even if the show's `rssUrl`
      * mutates in the meantime.
@@ -40,7 +40,7 @@ const createInput = z
     /** Title pre-filled from the publisher feed — surfaced as default. */
     rssTitle: z.string().min(1).max(240).optional(),
     /**
-     * Phase 3.2 — YouTube path. The wizard collects a full URL; the
+     * YouTube path. The wizard collects a full URL; the
      * importer parses it inside the Inngest fn so a mis-typed URL fails
      * with a clear error the episode page can render.
      */
@@ -144,7 +144,7 @@ export async function createEpisodeAction(raw: unknown): Promise<CreateEpisodeRe
   assertActiveSubscription(auth);
   const tenant = toTenantContext(auth);
 
-  // Phase 3.5 — carry plan + agencyId through the Inngest event so the
+  // Carry plan + agencyId through the Inngest event so the
   // priority.run + per-agency concurrency keys on the downstream fns
   // pick them up at enqueue time. We read plan straight off auth (already
   // loaded) rather than round-tripping through `getAgencyPlan` — that

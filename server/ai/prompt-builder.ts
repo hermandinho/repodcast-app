@@ -13,7 +13,7 @@ import { parseVoiceRules, renderConstraint, type RuleConstraint } from "./rule-p
 export type VoiceContext = {
   clientName: string;
   hostName: string;
-  /** AI-generated narrative of the voice — Phase 2.1 keeps this fresh. */
+  /** AI-generated narrative of the voice — kept fresh by the voice-refresh pipeline. */
   voiceDescription: string | null;
   /** Global custom instructions ("always do …"). */
   globalInstructions: string | null;

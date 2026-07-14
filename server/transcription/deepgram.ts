@@ -1,7 +1,7 @@
 import "server-only";
 
 /**
- * Lightweight Deepgram REST client. Phase 2.7's transcribe pipeline points
+ * Lightweight Deepgram REST client. The transcribe pipeline points
  * Deepgram at a signed R2 GET URL — Deepgram fetches the audio itself —
  * which means we never proxy the bytes through our own server.
  *

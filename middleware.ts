@@ -19,6 +19,10 @@ const isPublicRoute = createRouteMatcher([
   // render for logged-out visitors and crawlers alike.
   "/blog",
   "/blog/(.*)",
+  // Public "sample delivery" pages. Cold traffic must be able
+  // to view a curated launch kit without a session; the landing hero
+  // secondary CTA links here as the pre-signup taster.
+  "/samples/(.*)",
   "/sign-in(.*)",
   "/sign-up(.*)",
   // Invite acceptance lands on /invite/[token] BEFORE the recipient has an
@@ -35,13 +39,13 @@ const isPublicRoute = createRouteMatcher([
   // fresh clones can demo the palette; opting into `isPublicRoute` lets
   // the handler make that decision.
   "/api/search",
-  // Phase 2.5 — client portal: the token itself is the credential, no
+  // Client portal: the token itself is the credential, no
   // Clerk login required. Route handler validates expiry + revocation.
   "/portal/(.*)",
-  // Phase 3.8 — portal-side API routes (e.g. statement PDF download).
+  // Portal-side API routes (e.g. statement PDF download).
   // Each handler re-validates the token; Clerk would 401 otherwise.
   "/api/portal/(.*)",
-  // Phase 3.6.10 — public abuse-report intake. Anonymous submission is
+  // Public abuse-report intake. Anonymous submission is
   // the whole point; the queue at /root/quality picks it up for triage.
   "/legal/(.*)",
   // Pre-launch splash — when `NEXT_PUBLIC_COMING_SOON="true"` we route

@@ -1,7 +1,7 @@
 import "server-only";
 
 /**
- * Phase 2.8 — fetch + flatten a publisher-supplied transcript file.
+ * Fetch + flatten a publisher-supplied transcript file.
  *
  * Podcast Index exposes transcripts as VTT, SRT, plain text, or JSON
  * (Podcasting 2.0 spec). Our LLM consumer wants prose — speaker labels

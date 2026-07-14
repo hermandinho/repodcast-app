@@ -11,7 +11,7 @@ import { listRecentPostsForOrg } from "@/server/integrations/buffer";
 import { inngest } from "../client";
 
 /**
- * Phase 3.3 — every 5 minutes, walk the SCHEDULED backlog and reconcile
+ * Every 5 minutes, walk the SCHEDULED backlog and reconcile
  * with the provider:
  *
  *   1. BUFFER-backed rows: call `GET /updates/{id}.json`; if Buffer reports

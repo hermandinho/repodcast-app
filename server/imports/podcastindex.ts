@@ -3,7 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 
 /**
- * Phase 2.8 — Podcast Index REST client. Used by the RSS import path to
+ * Podcast Index REST client. Used by the RSS import path to
  * resolve an RSS feed URL to its episodes, look up a specific episode, and
  * surface transcript URLs when the publisher exposes them.
  *

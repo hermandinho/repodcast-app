@@ -153,15 +153,15 @@ describe("createEpisodeAction — live mode end-to-end", () => {
       title: "Smoke episode",
       transcript: LONG_TRANSCRIPT,
       source: TranscriptSource.PASTE,
-      // Phase 2.7 — UPLOAD source threads an R2 object key through; PASTE
+      // UPLOAD source threads an R2 object key through; PASTE
       // input doesn't carry one, so the action defaults it to null.
       audioUrl: null,
-      // Phase 2.8 — RSS pins the publisher GUID here; non-RSS paths null it.
+      // RSS pins the publisher GUID here; non-RSS paths null it.
       externalUrl: null,
     });
 
     // Generation request goes out with the platforms the user selected,
-    // plus the Phase 3.5 QoS tags (plan + agencyId) so the priority-queue
+    // plus the QoS tags (plan + agencyId) so the priority-queue
     // expression on `generate-episode` can bump NETWORK-tier dispatches.
     expect(mocks.inngestSend).toHaveBeenCalledOnce();
     expect(mocks.inngestSend).toHaveBeenCalledWith({
@@ -206,7 +206,7 @@ describe("createEpisodeAction — live mode end-to-end", () => {
   });
 
   // ----------------------------------------------------------------
-  // Phase 2.7 — UPLOAD source path. The action threads the R2 object key
+  // UPLOAD source path. The action threads the R2 object key
   // onto the Episode + dispatches transcribe (not generate) so the
   // transcribe pipeline can fill the transcript and chain into generate.
   // ----------------------------------------------------------------
@@ -288,7 +288,7 @@ describe("createEpisodeAction — live mode end-to-end", () => {
   });
 
   // ----------------------------------------------------------------
-  // Phase 2.8 — RSS source path. The action threads the publisher GUID
+  // RSS source path. The action threads the publisher GUID
   // onto Episode.externalUrl, pins the feed URL on the event payload so
   // a later show.rssUrl edit doesn't shift the lookup, and dispatches
   // `episode/rss.import.requested` instead of generate.

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FunnelPageview } from "@/components/analytics/funnel-pageview";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { ClerkSignUpMount } from "@/components/auth/clerk-widget-mount";
 
@@ -28,6 +29,7 @@ export default function SignUpPage() {
         </>
       }
     >
+      <FunnelPageview event="signup_started" />
       <ClerkSignUpMount fallbackRedirectUrl="/after-sign-in" signInUrl="/sign-in" />
     </AuthShell>
   );

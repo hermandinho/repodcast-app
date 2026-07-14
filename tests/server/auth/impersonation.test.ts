@@ -1,5 +1,5 @@
 /**
- * Phase 3.6.6 — impersonation cookie + chokepoint coverage.
+ * Impersonation cookie + chokepoint coverage.
  *
  * Tests live in two halves:
  *   1. Pure encode/decode + signing: round-trip, tampering, expiry, missing key.

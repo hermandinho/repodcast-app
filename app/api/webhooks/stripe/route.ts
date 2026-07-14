@@ -152,7 +152,7 @@ async function syncSubscription(
 
   const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
 
-  // Phase 3.9 — trial state. Read the current row so we can detect the
+  // Trial state. Read the current row so we can detect the
   // transition `ACTIVE → CONVERTED` (`trialing → active` on first successful
   // charge). Other transitions land here too: a `trialing` sub → ACTIVE, a
   // paid sub with no trial → leave trial fields alone.
@@ -203,13 +203,13 @@ async function syncSubscription(
     },
   });
 
-  // Phase 3.7 — upgrade funnel completion. Only fires on
+  // Upgrade funnel completion. Only fires on
   // `customer.subscription.created` (not on updates) so the funnel
   // metric doesn't double-count every subscription mutation. The
   // webhook is the authoritative signal: client redirects lie
   // (users close the tab, Stripe retries, etc.).
   if (fireUpgradeCompleted) {
-    // Phase 3.9 — differentiate the two ways a subscription is born:
+    // Differentiate the two ways a subscription is born:
     //   - `trialing` → fire `trial_started` (no revenue yet)
     //   - anything else → fire `upgrade_completed` (first revenue moment)
     const isTrial = sub.status === "trialing";
@@ -351,7 +351,7 @@ async function sendTrialConvertedForAgency(agencyId: string, props: { plan: Plan
 }
 
 /**
- * Phase 3.9 — `customer.subscription.trial_will_end` fires ~3 days before
+ * `customer.subscription.trial_will_end` fires ~3 days before
  * the trial ends (or immediately for trials shorter than 3 days). We use it
  * for the T-3 nudge email; Stripe drives the timing so we don't own a cron.
  */
@@ -388,7 +388,7 @@ async function handleTrialWillEnd(sub: Stripe.Subscription): Promise<void> {
 async function handleSubscriptionDeleted(sub: Stripe.Subscription): Promise<void> {
   const agencyId = sub.metadata?.agencyId;
   if (!agencyId) return;
-  // Phase 3.9 — differentiate trial teardown from paid churn. If the deleted
+  // Differentiate trial teardown from paid churn. If the deleted
   // sub was still on trial, `sub.status === "trialing"` OR the agency's
   // stored trialStatus is ACTIVE — either signal is enough.
   const current = await prisma.agency.findUnique({

@@ -1,25 +1,31 @@
 import type { Metadata } from "next";
 import { auth } from "@clerk/nextjs/server";
+import { FunnelPageview } from "@/components/analytics/funnel-pageview";
 import { LandingPage } from "@/components/landing/landing-page";
 import { getLandingTrustedBy } from "@/lib/landing-trusted-by";
 
 export const metadata: Metadata = {
-  title: "Repodcast — Sounds exactly like you. Gets better every episode.",
+  title: "Repodcast — A full launch kit per episode, in your show's voice.",
   description:
-    "Turn every client episode into platform-ready content — X threads, LinkedIn posts, show notes, and more — written in your client's exact voice, in under 60 seconds.",
+    "Every episode ships seven written posts, vertical clips, hero artwork, and audiograms — all in your show's voice, ready in a minute.",
   openGraph: {
-    title: "Repodcast — Voice-true content for podcast agencies",
+    title: "Repodcast — A full launch kit per episode",
     description:
-      "Per-client voice models, white-label workflow, and seven formats per episode in under a minute.",
+      "Seven posts, vertical clips, hero artwork, and audiograms — every episode, in your show's voice.",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Repodcast — Voice-true content for podcast agencies",
+    title: "Repodcast — A full launch kit per episode",
   },
 };
 
 export default async function HomePage() {
   const [{ userId }, trustedBy] = await Promise.all([auth(), getLandingTrustedBy()]);
-  return <LandingPage isSignedIn={!!userId} trustedBy={trustedBy} />;
+  return (
+    <>
+      <FunnelPageview event="landing_hero_viewed" />
+      <LandingPage isSignedIn={!!userId} trustedBy={trustedBy} />
+    </>
+  );
 }

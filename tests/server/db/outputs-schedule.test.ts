@@ -1,5 +1,5 @@
 /**
- * Phase 3.3 — schedule/unschedule/mark-published DB helpers.
+ * Schedule/unschedule/mark-published DB helpers.
  *
  * Pinned behavior:
  *   - Every helper filters by `episode.show.client.agencyId === ctx.agencyId`

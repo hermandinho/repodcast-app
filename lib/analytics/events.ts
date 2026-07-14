@@ -12,8 +12,35 @@ import type { Plan, Platform } from "@prisma/client";
 
 export type EventMap = {
   /**
+   * Top-of-funnel pageview events. Fired client-side from tiny
+   * one-shot trackers embedded in the landing / pricing / sign-up pages.
+   *
+   * These are separate from PostHog's autocaptured `$pageview` (which
+   * fires on EVERY route change) because we care about them
+   * specifically as funnel steps; putting them under distinct names
+   * keeps the PostHog funnel query readable and stops false positives
+   * from tab-hopping.
+   *
+   * `funnelPath` distinguishes the entry point when the same event can
+   * fire from multiple surfaces (e.g. `pricing_viewed` from `/pricing`
+   * vs from the landing embedded pricing section).
+   */
+  landing_hero_viewed: {
+    funnelPath: string;
+  };
+  pricing_viewed: {
+    funnelPath: string;
+  };
+  signup_started: {
+    /** Where the visitor came from before landing on /sign-up — helps
+     *  distinguish direct sign-up clicks from pricing-page conversions. */
+    funnelPath: string;
+  };
+
+  /**
    * Onboarding funnel — fired in order:
-   * onboarding_started → agency_created → first_client_added → first_episode_generated
+   * onboarding_started → agency_created → onboarding_step_completed (step=N)
+   * → first_client_added → first_episode_generated
    *
    * `first_*` events are gated server-side (count check before fire) so they
    * land exactly once per agency, not once per create.
@@ -21,6 +48,17 @@ export type EventMap = {
   onboarding_started: {
     /** The default-suggested name the user is shown (helps measure rename rate). */
     suggestedAgencyName: string;
+  };
+  /**
+   * Per-step wizard completion. Fires from each onboarding
+   * server action right before the redirect. `step` is 1-indexed
+   * matching the visible step counter (1=workspace, 2=plan/checkout,
+   * 3=first-client).
+   */
+  onboarding_step_completed: {
+    agencyId: string;
+    step: 1 | 2 | 3;
+    stepName: "workspace" | "plan" | "first_client";
   };
   agency_created: {
     agencyId: string;
@@ -46,8 +84,8 @@ export type EventMap = {
   generation_completed: {
     episodeId: string;
     platform: Platform;
-    /** Token output count — proxy for response length until Phase 1.9
-     *  ships a real heuristic-or-judge quality score. */
+    /** Token output count — proxy for response length until we
+     *  ship a real heuristic-or-judge quality score. */
     outputTokens: number;
     durationMs: number;
   };
@@ -91,7 +129,7 @@ export type EventMap = {
   };
 
   /**
-   * Phase 3.7 — upgrade funnel. Two events:
+   * Upgrade funnel. Two events:
    *   - `upgrade_started` fires server-side from
    *     `createCheckoutSessionAction` right before we return the hosted-
    *     checkout URL. `fromPlan` is the current plan on the agency,
@@ -137,7 +175,7 @@ export type EventMap = {
   };
 
   /**
-   * Phase 3.9 — trial funnel (see MarketingStrategy.md §1). Fires server-
+   * Trial funnel (see MarketingStrategy.md §1). Fires server-
    * side from the Stripe webhook because the client redirect isn't
    * authoritative — Stripe's `subscription.created` / `subscription.updated`
    * / `subscription.deleted` are.
@@ -187,6 +225,37 @@ export type EventMap = {
   workspace_deleted: {
     agencyId: string;
     plan: Plan;
+  };
+
+  /**
+   * First-time milestone events. Each fires exactly once per
+   * agency, gated by a count check on the underlying resource (or a
+   * `MemberAchievement` row for `first_launch_kit_completed`, see
+   * Q2.md §"Weeks 17–19"). Read by the ROOT funnel view and used to
+   * measure activation depth beyond bare signup.
+   *
+   * Fire order in a well-activated agency:
+   *   agency_created → first_output_approved → first_clip_generated
+   *   → first_launch_kit_completed → trial_converted
+   */
+  first_output_approved: {
+    agencyId: string;
+    outputId: string;
+  };
+  first_clip_generated: {
+    agencyId: string;
+    episodeId: string;
+    clipId: string;
+  };
+  /**
+   * Reward moment. Fires the first time an agency has ≥1 output
+   * approved AND ≥1 clip rendered AND ≥1 artwork rendered AND ≥1
+   * audiogram rendered on the same episode. See Q2.md §"Weeks 17–19"
+   * for the UI reward that stacks alongside.
+   */
+  first_launch_kit_completed: {
+    agencyId: string;
+    episodeId: string;
   };
 };
 

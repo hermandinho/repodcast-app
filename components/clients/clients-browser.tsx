@@ -20,7 +20,7 @@ export type ClientWithStats = {
   showCount: number;
   episodeCount: number;
   voiceSamples: number;
-  /** Phase 3.8 — unread portal feedback for this client. Zero when the
+  /** Unread portal feedback for this client. Zero when the
    *  agency has no pending triage; positive counts float the card to the
    *  top of the list and render an inline pill. */
   unreadFeedback: number;
@@ -92,7 +92,7 @@ export function ClientsBrowser({ clients }: { clients: ClientWithStats[] }) {
       return hay.includes(q);
     });
     out.sort((a, b) => {
-      // Phase 3.8 — clients with unread portal feedback always float to the
+      // Clients with unread portal feedback always float to the
       // top regardless of the chosen sort. When both sides have unread, the
       // one with more pending notes wins. Everyone else drops to the
       // selected sort key below.

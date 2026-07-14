@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { markerWindow } from "@/inngest/functions/check-onboarding-nudges";
 
 /**
- * Phase 2.10 — pure marker math for the onboarding drop-off cron. The cron
+ * Pure marker math for the onboarding drop-off cron. The cron
  * itself needs a Prisma + Inngest harness to exercise (same blocker as
  * `check-renewals`); these tests pin the hourly window so the function
  * fires each marker exactly once per (agency, marker) under normal scheduling.

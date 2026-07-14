@@ -1,5 +1,5 @@
 /**
- * Phase 3.3 — token vault coverage.
+ * Token vault coverage.
  *
  * Verifies:
  *   - Round-trip encrypt/decrypt with a known key.

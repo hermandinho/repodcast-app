@@ -1,5 +1,5 @@
 /**
- * Phase 3.5 — pin the Inngest priority-queue + concurrency config on the
+ * Pin the Inngest priority-queue + concurrency config on the
  * two generation fns. This is a config-shape test, not a behavior test:
  * without a live Inngest dev server there's no way to verify that a
  * NETWORK event actually cuts ahead of a STUDIO one queued 30 s earlier.
@@ -21,7 +21,7 @@ function optsOf(fn: unknown): Record<string, unknown> {
   return (fn as FnWithOpts).opts;
 }
 
-describe("generateEpisode — Phase 3.5 priority queue", () => {
+describe("generateEpisode — priority queue", () => {
   const opts = optsOf(generateEpisode);
 
   it("bumps NETWORK-tier dispatches ahead of default priority", () => {
@@ -40,7 +40,7 @@ describe("generateEpisode — Phase 3.5 priority queue", () => {
     //   Global limit protects Anthropic rate + monthly $ budget.
     //   Per-agency limit stops one agency's batch from monopolizing the
     //   global pool. Key falls back to `event.id` so events missing an
-    //   agencyId (legacy dispatchers pre-3.5) don't erroneously share a
+    //   agencyId (legacy dispatchers) don't erroneously share a
     //   bucket labeled `undefined`. CEL syntax note — Inngest uses
     //   Google CEL, not JS, so the "coalesce" is `has() ? x : fallback`
     //   rather than the JS-style `??`.
@@ -55,7 +55,7 @@ describe("generateEpisode — Phase 3.5 priority queue", () => {
   });
 });
 
-describe("regenerateOutput — Phase 3.5 priority queue", () => {
+describe("regenerateOutput — priority queue", () => {
   const opts = optsOf(regenerateOutput);
 
   it("mirrors generateEpisode's priority so both hot paths honor NETWORK", () => {

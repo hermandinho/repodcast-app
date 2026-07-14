@@ -4,7 +4,7 @@ import Link from "next/link";
 import { PipelineStepper, type PipelineStep } from "./pipeline-stepper";
 
 /**
- * Phase 2.8 follow-up — error banner rendered on `/episodes/[id]` when
+ * Error banner rendered on `/episodes/[id]` when
  * the pipeline tripped a non-retriable error (RSS guid no longer on
  * the feed, audio enclosure 404, transcribe 4xx, etc.). The pipeline's
  * `onFailure` handler persists `Episode.status = FAILED` +

@@ -1,15 +1,17 @@
 /**
- * Audio upload allowlist + extension map for Phase 2.7. Used by:
+ * Upload allowlist + extension map for the episode source file.
+ * Used by:
  *   - `signAudioUploadAction` (server-side content-type gate)
  *   - `<AudioUpload>` (client-side <input accept="…">)
  *   - `transcribe-episode.ts` (for the upload step's response logging)
  *
- * Stay conservative — the transcription pipeline downstream only needs
- * codecs Deepgram natively handles, and these cover what podcast tools
- * actually export.
+ * Accepts both audio and video containers: transcription pulls the
+ * audio track from either shape, and video uploads populate
+ * Episode.sourceVideoUrl so the clip pipeline can trim + burn captions
+ * against the same file.
  */
 
-export const ALLOWED_AUDIO_CONTENT_TYPES = [
+const AUDIO_TYPES = [
   "audio/mpeg", // .mp3
   "audio/mp4", // .m4a (browsers often label it this)
   "audio/x-m4a",
@@ -23,18 +25,33 @@ export const ALLOWED_AUDIO_CONTENT_TYPES = [
   "audio/webm",
 ] as const;
 
+const VIDEO_TYPES = [
+  "video/mp4",
+  "video/quicktime", // .mov
+  "video/webm",
+  "video/x-matroska", // .mkv
+] as const;
+
+export const ALLOWED_AUDIO_CONTENT_TYPES = [...AUDIO_TYPES, ...VIDEO_TYPES] as const;
+
 export type AllowedAudioContentType = (typeof ALLOWED_AUDIO_CONTENT_TYPES)[number];
 
+/** True when a content type carries a video track (drives clip readiness). */
+export function isVideoContentType(value: string): boolean {
+  return (VIDEO_TYPES as readonly string[]).includes(value);
+}
+
 /**
- * Hard ceiling on a single audio upload — Cloudflare R2's per-PUT limit
- * is much higher, but we stop at 500 MB so a misclicked video upload
- * doesn't run up egress bills before we error out.
+ * Hard ceiling on a single upload — R2's per-PUT limit is much higher,
+ * but we stop at 2 GB so a misclicked upload doesn't run up bandwidth
+ * before we error out. Video files are naturally larger than audio,
+ * so this is 4x the pre-video ceiling.
  */
-export const MAX_AUDIO_UPLOAD_BYTES = 500 * 1024 * 1024; // 500 MB
+export const MAX_AUDIO_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
 
 /**
  * Pick a sensible extension for the R2 object key. Mostly cosmetic (R2
- * doesn't care), but a recognisable extension helps Cloudflare's content-
+ * doesn't care), but a recognisable extension helps CDN content-
  * disposition guesses and lets us debug the bucket browser without
  * cross-referencing the DB.
  */
@@ -64,6 +81,14 @@ export function audioExtensionFor(contentType: string, filename: string): string
       return "flac";
     case "audio/webm":
       return "webm";
+    case "video/mp4":
+      return "mp4";
+    case "video/quicktime":
+      return "mov";
+    case "video/webm":
+      return "webm";
+    case "video/x-matroska":
+      return "mkv";
     default:
       return "bin";
   }

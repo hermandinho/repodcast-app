@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { generateClientStatementAction } from "@/app/(dashboard)/clients/[key]/statements/actions";
 
 /**
- * Phase 2.13.4 — Generate-statement form.
+ * Generate-statement form.
  *
  * Defaults to the current calendar month (first → today's date). Submit
  * routes the user to the new statement's detail page on success.

@@ -6,8 +6,8 @@ import { statusMeta, type EpisodeStatus } from "@/lib/sample-data/episode-status
 import type { PlatformMeta } from "@/lib/sample-data/platforms";
 
 /**
- * Phase 3.3+ revamp (see ref/UI/Episode Details/details-full.html) — compact
- * tile for the grid. Layout matches the reference exactly:
+ * Compact tile for the grid (see ref/UI/Episode Details/details-full.html).
+ * Layout matches the reference exactly:
  *
  *   ┌─────────────────────────────────────────┐
  *   │ [BADGE]  Title                 [PILL]   │  ← header

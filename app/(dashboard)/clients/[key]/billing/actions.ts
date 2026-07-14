@@ -17,7 +17,7 @@ const updateInput = z.object({
 });
 
 /**
- * Phase 2.13.2 — write the billing profile for a client. Role-gated to
+ * Write the billing profile for a client. Role-gated to
  * OWNER/ADMIN via the repo `requireRole`; cross-tenant ids land as
  * NotFoundError on the parent-client lookup.
  *

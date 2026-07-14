@@ -2,7 +2,7 @@ import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 import type { Platform } from "@prisma/client";
 
 /**
- * Phase 3.8 — client-statement PDF renderer.
+ * Client-statement PDF renderer.
  *
  * Rendered via `@react-pdf/renderer`'s `renderToBuffer` inside a Node route
  * handler; no DOM primitives, only `<Document>`, `<Page>`, `<View>`,

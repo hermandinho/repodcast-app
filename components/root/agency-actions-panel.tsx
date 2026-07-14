@@ -26,7 +26,7 @@ function isCompAccessActive(expiresAt: Date | null): boolean {
 }
 
 /**
- * Phase 3.6.5 — ROOT-side actions rendered on the agency drilldown's
+ * ROOT-side actions rendered on the agency drilldown's
  * Overview tab. Server-rendered; each form POSTs to a `"use server"`
  * action. Destructive actions gate on typing the agency name (server-side
  * comparison against a hidden expected-name field).
@@ -673,7 +673,7 @@ function ActionCard({
 }
 
 // ============================================================
-// Extend trial (Phase 3.9)
+// Extend trial
 // ============================================================
 
 function ExtendTrialCard({

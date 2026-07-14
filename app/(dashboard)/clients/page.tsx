@@ -8,8 +8,8 @@ import { unreadPortalFeedbackByClient } from "@/server/db/client-portal";
  * Customer clients list. Each row = one parent customer. A separate `/shows`
  * route lists individual podcast shows across all clients.
  *
- * Phase 3.8 — the sidebar surfaces an unread portal-feedback badge on this
- * item. Landing here needs to answer "where is that feedback and what do I
+ * The sidebar surfaces an unread portal-feedback badge on this item.
+ * Landing here needs to answer "where is that feedback and what do I
  * do about it": we fetch per-client unread counts, thread them through the
  * browser so client cards with pending notes float to the top with an
  * inline pill, and render a summary strip at the top explaining the trail.

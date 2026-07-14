@@ -8,7 +8,7 @@ import {
 import { inngest } from "../client";
 
 /**
- * Phase 3.6.18 step 4 — nightly per-agency usage rollup.
+ * Nightly per-agency usage rollup.
  *
  * Runs at 02:00 UTC, two hours after the day closes, so any in-flight
  * pipeline writes from end-of-day activity have settled. Writes one

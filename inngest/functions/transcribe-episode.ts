@@ -1,4 +1,4 @@
-import { EpisodePipelineStage, EpisodeStatus, TranscriptSource } from "@prisma/client";
+import { EpisodePipelineStage, EpisodeStatus, TranscriptSource, type Prisma } from "@prisma/client";
 import { NonRetriableError } from "inngest";
 import { prisma } from "@/server/db/client";
 import { captureInngestFailure } from "@/server/observability/sentry";
@@ -14,7 +14,7 @@ function truncateReason(message: string): string {
 }
 
 /**
- * Phase 2.7 — audio → transcript pipeline.
+ * Audio → transcript pipeline.
  *
  * Inputs: an Episode row with `audioUrl` holding the R2 object key (NOT
  * a URL — we sign one on demand). Source is UPLOAD (direct upload),
@@ -38,7 +38,7 @@ function truncateReason(message: string): string {
  *   - Anything else (5xx, network) falls through Inngest's default
  *     retry policy.
  *
- * Whisper fallback is deferred (PLAN 2.7) — needs OPENAI_API_KEY which
+ * Whisper fallback is deferred — needs OPENAI_API_KEY which
  * we don't ship yet. When it lands it slots in around step 4.
  */
 
@@ -173,6 +173,7 @@ export const transcribeEpisode = inngest.createFunction(
         );
         return {
           transcript: result.transcript,
+          words: result.words,
           durationSec: result.durationSec,
           language: result.language,
           wordCount,
@@ -207,11 +208,21 @@ export const transcribeEpisode = inngest.createFunction(
         where: { id: episodeId },
         data: {
           transcript: transcribeResult.transcript,
+          // Persist per-word timings for the clip pipeline.
+          // JSON column, cast to Prisma's JsonArray shape at write time.
+          transcriptWords: transcribeResult.words as unknown as Prisma.InputJsonValue,
           stage: EpisodePipelineStage.GENERATING,
           durationSec:
             transcribeResult.durationSec != null
               ? Math.round(transcribeResult.durationSec)
               : undefined,
+          // For UPLOAD sources whose audioUrl file happens to be
+          // a video, populate sourceVideoUrl so the clip pipeline can use
+          // the same object as its render source. Audio-only files will
+          // still populate; the render worker's ffmpeg step surfaces
+          // "no video stream" and the clip row is marked FAILED. Real
+          // audiogram fallback lands later.
+          sourceVideoUrl: episode.source === TranscriptSource.UPLOAD ? episode.audioUrl : undefined,
         },
       }),
     );

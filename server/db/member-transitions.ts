@@ -10,7 +10,7 @@ import { requireReadRole, type TenantContext } from "@/server/auth/tenant";
 import { prisma } from "./client";
 
 /**
- * Append-only audit trail for team / membership changes (Phase 2.4).
+ * Append-only audit trail for team / membership changes.
  * Counterpart to `OutputTransition` — same tenant-denormalized + index
  * pattern, scoped to people instead of outputs.
  */

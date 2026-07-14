@@ -1,5 +1,5 @@
 /**
- * Phase 3.6.10 — anti-fraud signals + public abuse-report intake.
+ * Anti-fraud signals + public abuse-report intake.
  *
  * Covers:
  *   - `ownerEmailDomain` normalizes + lowercases + rejects malformed inputs

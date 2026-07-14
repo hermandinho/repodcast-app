@@ -863,7 +863,7 @@ export async function markOutputRegenerating(
 }
 
 // ============================================================
-// Phase 3.3 — Scheduling helpers
+// Scheduling helpers
 // ============================================================
 
 /** Roles allowed to schedule, unschedule, and mark-published outputs. */

@@ -9,17 +9,17 @@ import { utcDayStart } from "@/server/db/system/rollup";
 /**
  * The numbers behind `/root` — the platform-overview dashboard.
  *
- * Implementation posture (Phase 3.6.4, ship-order step 3):
+ * Implementation posture:
  *
  *   - Every aggregate is computed live on each request, no snapshot table.
- *     This is intentional. Step 4 of the ship order swaps the hot paths to
+ *     This is intentional. A later change swaps the hot paths to
  *     read from an `AgencyUsageSnapshot` rollup; until then we eat the cost
  *     of `groupBy`s on every page load. With < 1M output rows this is fine.
  *   - "Paying" means `stripeSubscriptionId IS NOT NULL`. An agency that
  *     signed up without going through Stripe (dev rows, comp accounts, the
  *     bootstrap) doesn't count toward MRR.
  *   - Cohort retention, MoM movement waterfall, and historic MRR series all
- *     live in `/root/finance` (step 6 of the ship order); the dashboard only
+ *     live in `/root/finance`; the dashboard only
  *     surfaces today's numbers + a 12-week activity chart that doesn't need
  *     historic plan state.
  *

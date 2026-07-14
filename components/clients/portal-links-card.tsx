@@ -33,7 +33,7 @@ export type PortalLinkRow = {
 };
 
 /**
- * Phase 2.5 — mint / revoke client portal links on the billing tab.
+ * Mint / revoke client portal links on the billing tab.
  *
  * Lists every link minted for the client, newest first. Each row carries
  * a "Copy URL" affordance + a "Revoke" button (active links only).

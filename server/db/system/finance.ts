@@ -7,9 +7,9 @@ import { assertSystemRole, SYSTEM_READ_ROLES, type SystemAdminContext } from "@/
 import { prisma } from "@/server/db/client";
 
 /**
- * Phase 3.6.7 — finance dashboard repo helpers.
+ * Finance dashboard repo helpers.
  *
- * v1 scope (ship-order step 6):
+ * v1 scope:
  *   - `getFinanceSummary` — MRR by plan + by currency, signup-cohort table
  *     (12-month lookback), invoice rollups (lifetime paid, MTD paid,
  *     outstanding-open).

@@ -3,7 +3,7 @@ import { day2Window } from "@/inngest/functions/check-trial-nudges";
 import { TRIAL_DAYS } from "@/lib/plans";
 
 /**
- * Phase 3.9 — window math for the mid-trial nudge cron. Pins the "2 days
+ * Window math for the mid-trial nudge cron. Pins the "2 days
  * in" bracket so a daily cron fire lands the email exactly once per
  * (agency, "day_2") without slop from clock skew.
  *

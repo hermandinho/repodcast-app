@@ -12,7 +12,7 @@ export type UpdateBrandingResult =
   | { ok: false; error: string };
 
 /**
- * Phase 2.5 — save the agency's white-label settings.
+ * Save the agency's white-label settings.
  *
  * Sample-data mode short-circuits without touching the DB so the design
  * preview can exercise the form without a `DATABASE_URL`. The returned

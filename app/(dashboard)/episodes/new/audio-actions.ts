@@ -15,7 +15,7 @@ import { prisma } from "@/server/db/client";
 import { getR2Client, signR2UploadUrl } from "@/server/storage/r2";
 
 /**
- * Phase 2.7 — direct-to-R2 audio upload for the New Episode wizard's
+ * Direct-to-R2 audio upload for the New Episode wizard's
  * "Upload audio" path. Mirrors `signArtworkUploadAction`: the browser PUTs
  * straight to R2 with a 10-minute pre-signed URL, then submits the wizard
  * with the returned object key + pre-minted episodeId. The transcribe

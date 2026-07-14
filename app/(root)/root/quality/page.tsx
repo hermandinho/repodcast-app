@@ -175,8 +175,8 @@ function FraudSignalsSection({ rows }: { rows: FraudSignalRow[] }) {
           Nothing suspicious right now.
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-zinc-800">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-xl border border-zinc-800">
+          <table className="w-full min-w-[720px] text-sm">
             <thead className="bg-zinc-900/80 text-left font-mono text-[10.5px] tracking-wider text-zinc-500 uppercase">
               <tr>
                 <th className="px-4 py-2 font-normal">Agency</th>

@@ -19,7 +19,7 @@ import { SYSTEM_AUDIT_ACTIONS } from "./audit-actions";
 import { withSystemAudit } from "./audit";
 
 /**
- * Phase 3.6.10 — quality, abuse, and moderation.
+ * Quality, abuse, and moderation.
  *
  * Two orthogonal read surfaces sharing the same admin page:
  *
@@ -30,7 +30,7 @@ import { withSystemAudit } from "./audit";
  *     is wrapped in `withSystemAudit`.
  *
  *   - Flagged outputs — cross-agency list of `GeneratedOutput` rows with
- *     `flaggedAt IS NOT NULL`. v1 has no tenant-facing "flag" UI (Phase 4);
+ *     `flaggedAt IS NOT NULL`. v1 has no tenant-facing "flag" UI;
  *     ROOT-initiated flags land through `flagOutput` here.
  *
  * Role posture:
@@ -706,7 +706,7 @@ function normalizeOptional(value: string | undefined): string | undefined {
 }
 
 // ============================================================
-// Anti-fraud signals (Phase 3.6.10)
+// Anti-fraud signals
 // ============================================================
 
 /**

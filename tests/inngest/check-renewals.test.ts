@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { daysBetween, markerWindow } from "@/inngest/functions/check-renewals";
 
 /**
- * Phase 2.13.6 — pure helpers used by the renewals cron. The cron itself
+ * Pure helpers used by the renewals cron. The cron itself
  * needs a Prisma + Inngest harness to exercise (deferred); these tests
  * pin the marker math that decides which `ClientBillingProfile` rows are
  * "due" on each daily run.

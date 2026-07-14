@@ -1,5 +1,5 @@
 /**
- * Phase 3.3 — server actions behind the calendar + OutputCard scheduling
+ * Server actions behind the calendar + OutputCard scheduling
  * affordances. Live-mode wiring the tests pin:
  *
  *   - `mode: 'auto'` picks BUFFER when a Buffer integration exists AND the

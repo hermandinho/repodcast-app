@@ -110,7 +110,7 @@ export async function notifyClientPostPublished(outputId: string): Promise<void>
 }
 
 // ============================================================
-// Client-facing portal-link share (Phase 2.5 — password rollout)
+// Client-facing portal-link share (password rollout)
 // ============================================================
 
 /**

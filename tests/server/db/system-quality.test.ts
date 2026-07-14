@@ -1,5 +1,5 @@
 /**
- * Phase 3.6.10 — abuse reports + flagged outputs.
+ * Abuse reports + flagged outputs.
  *
  * Pins the load-bearing guarantees:
  *   - Reads open to every system read role

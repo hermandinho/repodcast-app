@@ -6,7 +6,7 @@ import { requireRole, type TenantContext } from "@/server/auth/tenant";
 import { prisma } from "./client";
 
 /**
- * Phase 2.13.5 — Cost-to-serve & profitability.
+ * Cost-to-serve & profitability.
  *
  * Reads `UsageLog.costCents` joined through `Episode → Show → Client` so the
  * agency can see what each client cost to serve in a window, then crosses
@@ -229,7 +229,7 @@ export async function costByClient(
 }
 
 // ============================================================
-// Agency-wide daily trend (Phase 3.7)
+// Agency-wide daily trend
 // ============================================================
 
 export type UsageTrendBucket = {

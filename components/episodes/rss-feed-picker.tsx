@@ -8,7 +8,7 @@ import {
 } from "@/app/(dashboard)/episodes/new/rss-actions";
 
 /**
- * Phase 2.8 — wizard step-2 panel for the "Import from RSS" method.
+ * Wizard step-2 panel for the "Import from RSS" method.
  *
  * Two modes:
  *  - Show has no `rssUrl` saved → URL input + "Connect feed" button →

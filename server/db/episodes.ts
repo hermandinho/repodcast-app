@@ -389,7 +389,7 @@ export async function getEpisode(ctx: TenantContext, episodeId: string): Promise
 // ============================================================
 
 /**
- * Phase 2.7 — manual transcript correction. EDITOR+. Used when the
+ * Manual transcript correction. EDITOR+. Used when the
  * automatic Deepgram pass produced a poor transcript and the user wants
  * to paste their own, or to tweak it before generation runs.
  *
@@ -446,7 +446,7 @@ export async function updateEpisodeTranscript(
 }
 
 /**
- * Phase 2.6 — batch generation. Given a list of episode ids, this:
+ * Batch generation. Given a list of episode ids, this:
  *   1. Filters to the ones that actually belong to the caller's agency
  *      (cross-tenant ids silently drop — the UI never lets them be
  *      selected, but a tampered request must not surface other tenants).

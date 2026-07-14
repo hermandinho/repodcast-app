@@ -9,7 +9,7 @@ import { SUPPORTED_CURRENCIES, CURRENCY_META } from "@/lib/currencies";
 import { updateClientBillingProfileAction } from "@/app/(dashboard)/clients/[key]/billing/actions";
 
 /**
- * Phase 2.13.2 — Billing profile form.
+ * Billing profile form.
  *
  * Shape mirrors `ClientBillingProfileInput`. Retainer vs. per-episode-rate
  * is a radio (mutually exclusive), and the schema layer enforces it too in

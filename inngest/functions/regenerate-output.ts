@@ -12,7 +12,7 @@ import { inngest } from "../client";
 
 /**
  * Cost estimate per call — same heuristic as the multi-output orchestrator
- * (`generate-episode.ts`). Replace with real per-model pricing in Phase 1.11.
+ * (`generate-episode.ts`). Replace with real per-model pricing later.
  */
 function estimateCostCents(input: number, output: number): number {
   return Math.round(input * 0.0003 + output * 0.0015);
@@ -40,7 +40,7 @@ export const regenerateOutput = inngest.createFunction(
     id: "regenerate-output",
     triggers: [{ event: "episode/regenerate.output.requested" }],
     retries: 3,
-    // Phase 3.5 — same priority + concurrency model as `generate-episode`.
+    // Same priority + concurrency model as `generate-episode`.
     // Regenerate is the user-facing hot path (a Reviewer clicked "Try
     // again" and is staring at a spinner), so priority.run mattering here
     // is arguably more visible than on batch generation.

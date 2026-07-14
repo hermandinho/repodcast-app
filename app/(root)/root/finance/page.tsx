@@ -133,8 +133,8 @@ function PlanBreakdown({ summary }: { summary: FinanceSummary }) {
   return (
     <section className="flex flex-col gap-3">
       <h2 className="font-display text-lg font-semibold text-white">MRR by plan</h2>
-      <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/40">
-        <table className="w-full text-left text-sm">
+      <div className="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900/40">
+        <table className="w-full min-w-[480px] text-left text-sm">
           <thead className="text-[11px] tracking-wider text-zinc-500 uppercase">
             <tr className="border-b border-zinc-800">
               <th className="px-4 py-3">Plan</th>
@@ -167,8 +167,8 @@ function CurrencyBreakdown({ summary }: { summary: FinanceSummary }) {
   return (
     <section className="flex flex-col gap-3">
       <h2 className="font-display text-lg font-semibold text-white">MRR by currency</h2>
-      <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/40">
-        <table className="w-full text-left text-sm">
+      <div className="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900/40">
+        <table className="w-full min-w-[480px] text-left text-sm">
           <thead className="text-[11px] tracking-wider text-zinc-500 uppercase">
             <tr className="border-b border-zinc-800">
               <th className="px-4 py-3">Currency</th>
@@ -204,8 +204,8 @@ function CohortTable({ summary }: { summary: FinanceSummary }) {
         <h2 className="font-display text-lg font-semibold text-white">Signup cohorts</h2>
         <span className="text-sm text-zinc-500">Last 12 months</span>
       </div>
-      <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/40">
-        <table className="w-full text-left text-sm">
+      <div className="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900/40">
+        <table className="w-full min-w-[640px] text-left text-sm">
           <thead className="text-[11px] tracking-wider text-zinc-500 uppercase">
             <tr className="border-b border-zinc-800">
               <th className="px-4 py-3">Cohort</th>
@@ -337,8 +337,8 @@ function InvoiceTable({
 
   return (
     <section className="flex flex-col gap-3">
-      <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/40">
-        <table className="w-full text-left text-sm">
+      <div className="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900/40">
+        <table className="w-full min-w-[720px] text-left text-sm">
           <thead className="text-[11px] tracking-wider text-zinc-500 uppercase">
             <tr className="border-b border-zinc-800">
               <th className="px-4 py-3">Date</th>

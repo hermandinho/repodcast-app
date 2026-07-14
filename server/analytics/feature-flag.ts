@@ -1,7 +1,7 @@
 import "server-only";
 
 /**
- * Phase 3.7 — server-side feature flag lookup.
+ * Server-side feature flag lookup.
  *
  * Reads PostHog's `/decide` endpoint for a given `distinctId`. Fails
  * open (returns `false`) on network / auth / missing-env errors — same

@@ -44,13 +44,13 @@ export const listAgenciesForRootInput = z.object({
   plan: z.enum(["SOLO", "STUDIO", "AGENCY", "NETWORK"]).optional(),
   /**
    * "active" excludes suspended rows; "suspended" only suspended; "all" both.
-   * NOTE: `Agency.suspendedAt` lands in 3.6.5's write surface — until then
+   * NOTE: `Agency.suspendedAt` lands in a later write surface — until then
    * every row resolves to "active". We accept the param now so the URL
    * surface stays stable.
    */
   status: z.enum(["all", "active", "suspended"]).default("all"),
   /**
-   * Phase 3.9 — filter by TrialStatus. Defaults to "all" so operators land on
+   * Filter by TrialStatus. Defaults to "all" so operators land on
    * the full list; the ROOT list page adds a chip for the "currently on trial"
    * view (maps to "active").
    */
@@ -106,7 +106,7 @@ export type AgencyDetailForRoot = {
   brandLogoUrl: string | null;
   brandAccentColor: string | null;
   renewalRemindersEnabled: boolean;
-  /** Phase 3.9 — trial lifecycle. Surfaces the extend-trial action + the
+  /** Trial lifecycle. Surfaces the extend-trial action + the
    *  status pill on the ROOT drilldown. */
   trialStatus: TrialStatus;
   trialEndsAt: Date | null;
@@ -563,7 +563,7 @@ export async function listAgencyMembers(
 }
 
 // ============================================================
-// Write helpers — Phase 3.6.5 ROOT-side actions
+// Write helpers — ROOT-side actions
 // ============================================================
 //
 // Every write funnels through `withSystemAudit` — one prisma.$transaction
@@ -1003,7 +1003,7 @@ export const extendAgencyTrialInput = z.object({
 export type ExtendAgencyTrialInput = z.input<typeof extendAgencyTrialInput>;
 
 /**
- * Phase 3.9 — extend an ACTIVE trial by N days. Updates both Stripe (source of
+ * Extend an ACTIVE trial by N days. Updates both Stripe (source of
  * truth for the day-15 charge attempt) and the local `Agency.trialEndsAt`
  * mirror in the same audit TX so a Stripe failure rolls the mirror back.
  *
@@ -1364,7 +1364,7 @@ export async function recordInvoiceRefundIntent(
 }
 
 // ============================================================
-// Phase 3.6.5 step 11 — hard-delete agency
+// Hard-delete agency
 // ============================================================
 //
 // Irreversible tenant-graph erasure. ROOT-only. Every step is designed so a

@@ -3,7 +3,7 @@ import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["charming-creative-sunbird.ngrok-free.app"],
-  // Phase 3.2 — yt-dlp integration.
+  // yt-dlp integration.
   //
   // 1. `serverExternalPackages` — don't bundle yt-dlp-exec into the
   //    server build. When bundled by Turbopack, the package's

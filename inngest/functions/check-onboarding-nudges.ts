@@ -7,7 +7,7 @@ import {
 import { inngest } from "../client";
 
 /**
- * Phase 2.10 — hourly onboarding drop-off-recovery cron.
+ * Hourly onboarding drop-off-recovery cron.
  *
  * Two markers, both keyed off `Agency.createdAt`:
  *  - `24h` — Agency created ~24h ago and still doesn't carry a live Stripe

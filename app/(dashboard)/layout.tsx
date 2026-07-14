@@ -21,7 +21,7 @@ function formatShortDate(d: Date): string {
 }
 
 /**
- * Dashboard gate (Phase 3.x onboarding rebuild).
+ * Dashboard gate.
  *
  * Two gates, checked off a single `getAuthContext` payload:
  *   1. Signed in and belongs to an agency? If not → /onboarding (the
@@ -36,9 +36,9 @@ function formatShortDate(d: Date): string {
  *
  * Sample-data mode skips both — the demo tenant is always "set up".
  *
- * Phase 3.6.6 — the same `getAuthContext` surfaces an `impersonation`
- * field when the request carries a valid envelope cookie. The orange
- * banner mounts above the main scroller so it's always visible.
+ * The same `getAuthContext` surfaces an `impersonation` field when the
+ * request carries a valid envelope cookie. The orange banner mounts
+ * above the main scroller so it's always visible.
  */
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const auth = isLiveDb() ? await getAuthContext() : null;

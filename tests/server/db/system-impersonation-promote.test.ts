@@ -1,5 +1,5 @@
 /**
- * Phase 3.6.6 step 10 — write-mode impersonation promote helper.
+ * Write-mode impersonation promote helper.
  *
  * Pinned guarantees:
  *   - `promoteImpersonationToWrite` is ROOT-only. OPERATOR, SUPPORT, ANALYST

@@ -6,9 +6,9 @@ import { assertSystemRole, SYSTEM_READ_ROLES, type SystemAdminContext } from "@/
 import { prisma } from "@/server/db/client";
 
 /**
- * Phase 3.6.8 — operational analytics repo helpers.
+ * Operational analytics repo helpers.
  *
- * v1 scope (ship-order step 7) — everything derivable from existing rows:
+ * v1 scope — everything derivable from existing rows:
  *   - AI spend rollup: today / MTD / lifetime, by model, by agency (top 20),
  *     per-agency margin (MRR − cost), straight-line month-end forecast.
  *   - Queue health (DB-side only): in-flight episode count, failed counts

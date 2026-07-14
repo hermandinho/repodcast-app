@@ -5,7 +5,7 @@ import {
 } from "@/app/(root)/root/agencies/[id]/impersonate-actions";
 
 /**
- * Phase 3.6.6 — sticky banner mounted in `(dashboard)/layout.tsx` whenever
+ * Sticky banner mounted in `(dashboard)/layout.tsx` whenever
  * the resolved tenant context carries an active impersonation envelope.
  *
  * Per PLAN: bright orange in read-only mode, red in write mode so the

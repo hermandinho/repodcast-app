@@ -12,7 +12,7 @@ import {
 } from "@/lib/branded-export";
 
 /**
- * Phase 2.5 — branded HTML export for one episode.
+ * Branded HTML export for one episode.
  *
  * GET /api/episodes/[id]/export — agency-only, tenant-scoped via
  * `getEpisode(ctx, id)` (404 on cross-tenant id). Returns a single

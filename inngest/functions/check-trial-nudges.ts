@@ -5,7 +5,7 @@ import { TRIAL_DAYS } from "@/lib/plans";
 import { inngest } from "../client";
 
 /**
- * Phase 3.9 — daily mid-trial nudge cron.
+ * Daily mid-trial nudge cron.
  *
  * One marker today: `day_2` — the portal-preview email that fires ~2 days
  * into a `TRIAL_DAYS`-day trial. Day 0 (welcome) is event-driven off the

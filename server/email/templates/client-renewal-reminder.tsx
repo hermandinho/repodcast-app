@@ -12,7 +12,7 @@ import {
 } from "@react-email/components";
 
 /**
- * Phase 2.13.6 — client-contract renewal reminder.
+ * Client-contract renewal reminder.
  *
  * Sent by the daily `billing/check-renewals` Inngest cron at the 30-day and
  * 7-day pre-renewal markers. Recipients are OWNER + ADMIN members of the

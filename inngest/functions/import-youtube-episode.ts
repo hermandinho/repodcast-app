@@ -16,7 +16,7 @@ import type { Events } from "../events";
 import { inngest } from "../client";
 
 /**
- * Phase 3.2 — YouTube import pipeline (yt-dlp-backed).
+ * YouTube import pipeline (yt-dlp-backed).
  *
  * Two-stage:
  *   1. Transcript-first — yt-dlp pulls captions (manual > auto, English
@@ -132,6 +132,7 @@ export const importYoutubeEpisode = inngest.createFunction(
     }
 
     // ---- 3. Status → PROCESSING, stage → IMPORTING ----
+    const canonicalUrl = `https://www.youtube.com/watch?v=${videoId}`;
     await step.run("mark-processing", () =>
       prisma.episode.update({
         where: { id: episodeId },
@@ -142,7 +143,14 @@ export const importYoutubeEpisode = inngest.createFunction(
           // wizard put the raw user paste here; we prefer the yt-dlp-
           // parsed canonical form so the episode page's "watch source"
           // link always works.
-          externalUrl: `https://www.youtube.com/watch?v=${videoId}`,
+          externalUrl: canonicalUrl,
+          // Same canonical URL doubles as the clip pipeline's
+          // source. The render worker's YouTube branch will still be
+          // blocked by datacenter-IP anti-bot on most videos, but the
+          // field is populated so the UI can offer a Generate-clips
+          // button; the resulting VideoClip row lands in FAILED with
+          // ytdl's error verbatim so the user knows what happened.
+          sourceVideoUrl: canonicalUrl,
         },
       }),
     );

@@ -5,7 +5,7 @@ import { PORTAL_FEEDBACK_BODY_MAX } from "@/lib/portal-limits";
 import { submitPortalFeedbackAction } from "@/app/portal/[token]/actions";
 
 /**
- * Portal-side output card (Phase 3.8 redesign).
+ * Portal-side output card.
  *
  * The parent `/portal/[token]/page.tsx` is a server component that renders
  * one of these per approved / scheduled / published deliverable. Everything

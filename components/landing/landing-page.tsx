@@ -12,8 +12,8 @@ import { LandingNav } from "./nav";
  * Section order mirrors the ref exactly: Hero (with inline product
  * mock), TrustedBy strip, Problem (heading + stat grid), HowItWorks
  * (three numbered steps), VoiceEngine (dark navy band with traits
- * card), Outputs (seven format tiles + accent chip), Pricing, FAQ,
- * FinalCTA.
+ * card), LaunchKit (four pipeline tiles — Written/Video/Visual/Audio),
+ * Pricing, FAQ, FinalCTA.
  *
  * The testimonial block from the previous revision was removed — the
  * quotes were placeholder copy, and shipping invented endorsements
@@ -49,7 +49,7 @@ export function LandingPage({
       <HowItWorks />
       <VideoShowcase />
       <VoiceEngine />
-      <Outputs />
+      <LaunchKit />
       <Pricing isSignedIn={isSignedIn} />
       <FAQ />
       <FinalCTA isSignedIn={isSignedIn} />
@@ -101,16 +101,17 @@ function Hero({ isSignedIn }: { isSignedIn: boolean }) {
               color: INK,
             }}
           >
-            Sounds exactly like you.
+            A full launch kit,
             <br />
-            <span style={{ color: MUTED_2 }}>Gets better every episode.</span>
+            <span style={{ color: MUTED_2 }}>every episode.</span>
           </h1>
           <p
-            className="m-0 mt-5 mb-7 max-w-[480px] text-[16px] leading-[1.6] sm:mt-6 sm:mb-8 sm:text-[18px]"
+            className="m-0 mt-5 mb-7 max-w-[520px] text-[16px] leading-[1.6] sm:mt-6 sm:mb-8 sm:text-[18px]"
             style={{ color: MUTED }}
           >
-            Turn every client episode into platform-ready content — X threads, LinkedIn posts, show
-            notes, and more — written in your client&apos;s exact voice, in under 60 seconds.
+            Seven platform posts, vertical clips, hero artwork, and audiograms — all in your
+            show&apos;s voice, ready in a minute. One transcript in, a folder of publish-ready
+            deliverables out.
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <Link
@@ -120,8 +121,8 @@ function Hero({ isSignedIn }: { isSignedIn: boolean }) {
             >
               {isSignedIn ? "Continue" : "Get started"}
             </Link>
-            <a
-              href="#voice"
+            <Link
+              href="/samples/founders-frequency"
               className="rounded-[9px] px-5 py-3 text-[14px] font-semibold no-underline sm:px-[22px] sm:py-3 sm:text-[15px]"
               style={{
                 background: "#fff",
@@ -129,8 +130,8 @@ function Hero({ isSignedIn }: { isSignedIn: boolean }) {
                 border: `1px solid #D4DBE7`,
               }}
             >
-              See the voice engine
-            </a>
+              See a sample delivery
+            </Link>
           </div>
           {!isSignedIn && (
             <p className="mt-4 text-[13px]" style={{ color: MUTED_2 }}>
@@ -383,9 +384,9 @@ function HowItWorks() {
     },
     {
       num: "02",
-      title: "Get content in their voice",
-      body: "A full set of platform-ready posts, written in that specific client's voice — not generic AI copy.",
-      tags: ["7 formats", "< 60s"],
+      title: "The full launch kit lands",
+      body: "Seven written posts, up to ten vertical clips, hero artwork, and audiograms per episode — everything in your client's voice, ready to publish.",
+      tags: ["posts", "clips", "artwork", "audiograms"],
       highlight: false,
     },
     {
@@ -633,24 +634,39 @@ function VoiceEngine() {
 }
 
 // ============================================================
-// Outputs — every format
+// LaunchKit — the four deliverable pipelines per episode
 // ============================================================
 
-function Outputs() {
-  const tiles = [
-    { badge: "X", title: "X thread", sub: "8–12 posts", bg: INK, fg: "#fff" },
+function LaunchKit() {
+  const pipelines = [
     {
-      badge: "in",
-      title: "LinkedIn post",
-      sub: "long-form",
-      bg: "var(--color-accent)",
-      fg: "#fff",
+      kicker: "Written",
+      title: "Seven platform posts",
+      body: "X thread · LinkedIn · Instagram · TikTok script · show notes · blog · newsletter.",
+      accent: "var(--color-accent)",
+      tags: ["7 platforms", "in-voice"],
     },
-    { badge: "Ig", title: "Instagram caption", sub: "+ hashtags", bg: MUTED, fg: "#fff" },
-    { badge: "Tk", title: "TikTok script", sub: "60–90s", bg: INK, fg: "#fff" },
-    { badge: "≡", title: "Show notes", sub: "episode page", bg: MUTED, fg: "#fff" },
-    { badge: "B", title: "Blog post", sub: "SEO-ready", bg: "var(--color-accent)", fg: "#fff" },
-    { badge: "✉", title: "Newsletter", sub: "email-ready", bg: INK, fg: "#fff" },
+    {
+      kicker: "Video",
+      title: "Vertical clips",
+      body: "Up to ten 9:16 highlight cuts per episode with captions burned in — ready for Reels, TikTok, and Shorts.",
+      accent: INK,
+      tags: ["9:16 · captions", "trim + retry"],
+    },
+    {
+      kicker: "Visual",
+      title: "Hero artwork",
+      body: "Three aspect ratios — 16:9 for YouTube and blog, 1:1 for Apple Podcasts and Instagram, 9:16 for vertical.",
+      accent: "var(--color-accent)",
+      tags: ["3 aspect ratios", "on-brand"],
+    },
+    {
+      kicker: "Audio",
+      title: "Audiograms",
+      body: "Waveform video with burnt-in captions — one per social post, ready to publish with audio attached.",
+      accent: INK,
+      tags: ["waveform · captions", "per output"],
+    },
   ];
   return (
     <section
@@ -660,46 +676,59 @@ function Outputs() {
       <div className="mx-auto" style={{ maxWidth: 1180 }}>
         <div className="flex flex-wrap items-end justify-between gap-4 sm:gap-6">
           <div>
-            <Kicker>Every output, every episode</Kicker>
-            <H2>One transcript. Seven formats.</H2>
+            <Kicker>The launch kit</Kicker>
+            <H2 maxWidth={620}>Everything one episode produces.</H2>
           </div>
           <div className="pb-1 text-[13px] sm:text-[14px]" style={{ color: MUTED_2 }}>
-            7× the output, one draft pass
+            One transcript → four deliverable types
           </div>
         </div>
-        <div className="mt-7 grid grid-cols-1 gap-3 sm:mt-9 sm:grid-cols-2 sm:gap-[14px] lg:grid-cols-4">
-          {tiles.map((t) => (
+        <div className="mt-7 grid grid-cols-1 gap-3 sm:mt-9 sm:grid-cols-2 sm:gap-[14px]">
+          {pipelines.map((p) => (
             <div
-              key={t.title}
-              className="flex items-center gap-3 rounded-[10px] p-4 sm:p-[18px]"
+              key={p.title}
+              className="rounded-[12px] p-5 sm:p-[22px]"
               style={{ border: `1px solid ${BORDER}` }}
             >
               <div
-                className="grid h-[34px] w-[34px] flex-shrink-0 place-items-center rounded-[8px] text-[13px] font-extrabold"
-                style={{ background: t.bg, color: t.fg }}
+                className="mb-2 font-mono text-[11px] font-semibold uppercase"
+                style={{ letterSpacing: "0.14em", color: p.accent }}
               >
-                {t.badge}
+                {p.kicker}
               </div>
-              <div>
-                <div className="text-[14.5px] font-bold" style={{ color: INK }}>
-                  {t.title}
-                </div>
-                <div className="text-[12px]" style={{ color: MUTED_2 }}>
-                  {t.sub}
-                </div>
+              <div className="text-[18px] font-bold sm:text-[19px]" style={{ color: INK }}>
+                {p.title}
+              </div>
+              <p className="m-0 mt-2 text-[14px] leading-[1.6]" style={{ color: MUTED }}>
+                {p.body}
+              </p>
+              <div className="mt-4 flex flex-wrap gap-[6px]">
+                {p.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded-full px-[10px] py-[4px] font-mono text-[11px]"
+                    style={{ background: "#F1F4F9", color: MUTED }}
+                  >
+                    {tag}
+                  </span>
+                ))}
               </div>
             </div>
           ))}
-          <div
-            className="flex items-center rounded-[10px] p-4 text-[14.5px] font-bold sm:col-span-2 sm:p-[18px] lg:col-span-1"
-            style={{
-              background: "var(--color-accent-soft)",
-              color: "var(--color-accent)",
-            }}
-          >
-            All written in the client&apos;s voice.
-          </div>
         </div>
+        <Link
+          href="/samples/founders-frequency"
+          className="mt-6 flex flex-wrap items-center justify-center gap-2 rounded-[10px] p-4 text-center text-[14.5px] font-bold no-underline transition-[filter] hover:brightness-95 sm:mt-7 sm:p-[18px]"
+          style={{
+            background: "var(--color-accent-soft)",
+            color: "var(--color-accent)",
+          }}
+        >
+          <span>See a real launch kit — one episode, every deliverable</span>
+          <span aria-hidden style={{ fontWeight: 700 }}>
+            →
+          </span>
+        </Link>
       </div>
     </section>
   );

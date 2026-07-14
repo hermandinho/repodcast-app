@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 
 /**
- * Phase 3.2 — YouTube import via yt-dlp.
+ * YouTube import via yt-dlp.
  *
  * Two paths, tried in order:
  *   1. Transcript path — pull the auto or manual captions via

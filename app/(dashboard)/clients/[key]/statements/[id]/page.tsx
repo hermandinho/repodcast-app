@@ -13,8 +13,7 @@ import { resolveTenantContext } from "@/server/data/tenant";
 import { prisma } from "@/server/db/client";
 
 /**
- * Phase 2.13.4 — Statement detail. Phase 3.8 wired up PDF export + the
- * "Send to client portal" toggle.
+ * Statement detail — PDF export + the "Send to client portal" toggle.
  *
  * The share button is enabled once the client has at least one active
  * (unrevoked, unexpired) portal link — sharing without a live token would

@@ -36,7 +36,7 @@ export type SampleShow = {
   /** Empty string when unset — UI falls back to the initials avatar on `avatarBg`. */
   artworkUrl: string;
   /**
-   * Persisted RSS feed URL (Phase 2.8). `null` when no feed is connected
+   * Persisted RSS feed URL. `null` when no feed is connected
    * yet — the wizard's RSS picker treats that as "show the connect form".
    * Sample-data shows leave this `null`.
    */

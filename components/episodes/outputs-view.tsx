@@ -7,7 +7,6 @@ import { MemberRole } from "@/lib/enums";
 import { PlatformBadge } from "@/components/ui/platform-badge";
 import { VoiceStrengthBars } from "@/components/ui/voice-strength-bars";
 import { ClipMomentsPanel } from "@/components/episodes/clip-moments-panel";
-import { EditableTitle } from "@/components/episodes/editable-title";
 import { GeneratingPanel } from "@/components/episodes/generating-panel";
 import { ImportFailedPanel } from "@/components/episodes/import-failed-panel";
 import { ImportingPanel } from "@/components/episodes/importing-panel";
@@ -251,12 +250,12 @@ export function OutputsView({
    */
   readOnly?: boolean;
   /**
-   * Phase 3.3 — whether the agency has an active Buffer integration.
+   * Whether the agency has an active Buffer integration.
    * Gates the "Force Buffer" radio in the schedule popover.
    */
   bufferConnected?: boolean;
   /**
-   * Phase 3.3 — which platforms actually have a Buffer channel behind
+   * Which platforms actually have a Buffer channel behind
    * them. `bufferConnected` reflects the account-level OAuth; this list
    * reflects per-channel presence so the Buffer radio can gray out on
    * platforms Buffer hasn't been given a channel for.
@@ -283,7 +282,7 @@ export function OutputsView({
       justCopied: false,
       justApproved: false,
       failureReason: o.failureReason ?? null,
-      // Phase 3.3 — scheduling fields flow straight from the DB read so
+      // Scheduling fields flow straight from the DB read so
       // the OutputCard can render lifecycle rows + state-driven CTAs
       // without a second data fetch.
       scheduledForIso: o.scheduledForIso ?? null,
@@ -957,41 +956,24 @@ export function OutputsView({
   );
 
   return (
-    <div className="flex min-h-full">
-      {/* CONTENT */}
-      <div className="min-w-0 flex-1 px-4 pt-5 pb-14 sm:px-6 md:px-7 md:pt-[26px] md:pb-[60px]">
-        {/* Breadcrumb — `client` here is actually a SHOW (the prop name
-            is legacy from the pre-hierarchy days). Links go to /shows/*.
-            The tail crumb is the episode title (truncated); we drop the
-            old "Episode {dayOfMonth}" affordance — it confused users into
-            thinking it was an episode number. */}
-        <nav aria-label="Breadcrumb" className="text-muted-2 mb-[14px] text-[12.5px]">
-          <Link href="/shows" className="hover:text-ink">
-            Shows
-          </Link>
-          <span className="mx-[7px] text-[#C3CBD8]">/</span>
-          <Link href={`/shows/${client.key}`} className="hover:text-ink">
-            {client.name}
-          </Link>
-          <span className="mx-[7px] text-[#C3CBD8]">/</span>
-          <span className="text-muted inline-block max-w-[360px] truncate align-bottom">
-            {episode.episode || episode.episodeNo}
-          </span>
-        </nav>
-
-        {/* Episode header — title row + action buttons */}
-        <div className="mb-[14px] flex flex-wrap items-start justify-between gap-4">
-          {/* `min-w-0` lets the flex parent shrink us below the natural
-              content width on phones; the wide `min-w-[300px]` floor
-              re-applies at sm+ where the header can afford it and the
-              action row wants to sit inline. */}
-          <div className="min-w-0 flex-1 sm:min-w-[300px]">
-            <EditableTitle episodeId={episode.id} initial={episode.episode} />
-            <div className="text-muted mt-[6px] text-[13px]">
-              {client.name} · {episode.episodeMeta}
-            </div>
+    <div className="flex min-h-full flex-col xl:flex-row">
+      {/* CONTENT — full width on <xl screens (aside stacks below via
+          reversed flex-col); side-by-side on xl+ where the right rail
+          returns as a fixed-width sticky column. Padding matches the
+          shared header so breadcrumb + title + tab underlines align
+          with the content column. */}
+      <div className="min-w-0 flex-1 px-4 pb-14 sm:px-6 md:px-7 md:pb-[60px]">
+        {/* Breadcrumb + title + tab bar moved to the
+            shared episode layout. The Outputs tab now opens directly on
+            the outputs-specific action row: "Generate all" + optional
+            "Download for client". The Artwork/Clips/Audiograms buttons
+            are gone from here — they became tab entries. */}
+        <div className="mb-[18px] flex flex-wrap items-center justify-between gap-3">
+          <div className="text-muted-2 text-[13px]">
+            {outputs.length > 0
+              ? `${outputs.length} platform output${outputs.length === 1 ? "" : "s"}`
+              : "No outputs yet"}
           </div>
-
           <div className="flex flex-shrink-0 flex-wrap items-center gap-[10px]">
             <button
               type="button"
@@ -1022,7 +1004,7 @@ export function OutputsView({
                 ? "Generating…"
                 : pipelineRunning
                   ? "Waiting for episode…"
-                  : "Generate all"}
+                  : "Regenerate all"}
             </button>
 
             {/* Branded HTML export. Live mode only (sample-data mode would
@@ -1232,9 +1214,12 @@ export function OutputsView({
         })()}
       </div>
 
-      {/* RIGHT RAIL */}
+      {/* RIGHT RAIL — sticky on xl+ screens (>=1280px); stacks below the
+          content on smaller widths so the outputs grid can use the full
+          page width. `self-start` + `sticky top-0` keeps the rail
+          anchored while the content column scrolls. */}
       <aside
-        className="border-border bg-surface-2 sticky top-0 w-[336px] flex-shrink-0 self-start overflow-y-auto border-l px-[22px] py-6 pb-[60px]"
+        className="border-border bg-surface-2 border-t px-4 py-6 pb-[60px] sm:px-6 md:px-7 xl:sticky xl:top-0 xl:w-[336px] xl:flex-shrink-0 xl:self-start xl:overflow-y-auto xl:border-t-0 xl:border-l xl:px-[22px]"
         style={{ maxHeight: "calc(100vh - var(--topbar-height))" }}
       >
         {/* AI voice profile card */}
