@@ -166,12 +166,27 @@ export function RssFeedPicker({
                 key={ep.guid}
                 type="button"
                 onClick={() => onSelect({ guid: ep.guid, feedUrl: feedUrl!, title: ep.title })}
-                className="flex items-start justify-between gap-3 rounded-[8px] px-3 py-2 text-left transition-colors"
+                className="flex items-center gap-3 rounded-[8px] px-3 py-2 text-left transition-colors"
                 style={{
                   background: isSelected ? "var(--color-accent-soft)" : "transparent",
                   border: `1px solid ${isSelected ? "var(--color-accent)" : "transparent"}`,
                 }}
               >
+                {ep.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={ep.imageUrl}
+                    alt=""
+                    className="h-10 w-10 shrink-0 rounded-[6px] object-cover"
+                    style={{ background: "#EEF1F7" }}
+                  />
+                ) : (
+                  <span
+                    aria-hidden
+                    className="h-10 w-10 shrink-0 rounded-[6px]"
+                    style={{ background: "#EEF1F7" }}
+                  />
+                )}
                 <span className="min-w-0 flex-1">
                   <span className="text-ink block truncate font-sans text-[13px] font-semibold">
                     {ep.title}

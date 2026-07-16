@@ -44,6 +44,12 @@ export type FeedEpisodeForPicker = {
   enclosureUrl: string;
   enclosureType: string | null;
   hasTranscript: boolean;
+  /**
+   * Thumbnail URL for the picker. Publisher-supplied per-episode artwork
+   * when present, otherwise the show cover. Null when the feed exposes
+   * neither.
+   */
+  imageUrl: string | null;
 };
 
 export type ConnectFeedResult =
@@ -87,7 +93,7 @@ export async function connectRssFeedAction(raw: unknown): Promise<ConnectFeedRes
   // (or fetch a feed URL) about a show that isn't ours.
   const show = await prisma.show.findFirst({
     where: { id: parsed.data.showId, client: { agencyId: auth.agency.id } },
-    select: { id: true, rssUrl: true },
+    select: { id: true, rssUrl: true, artworkUrl: true },
   });
   if (!show) throw new NotFoundError(`Show ${parsed.data.showId} not found`);
 
@@ -105,11 +111,16 @@ export async function connectRssFeedAction(raw: unknown): Promise<ConnectFeedRes
   }
 
   const canonicalUrl = resolved.feed.url || parsed.data.rssUrl;
-  if (show.rssUrl !== canonicalUrl) {
-    await prisma.show.update({
-      where: { id: show.id },
-      data: { rssUrl: canonicalUrl },
-    });
+  const feedImage = resolved.feed.image ?? null;
+
+  // Persist the canonical URL, and seed the show cover from the feed if the
+  // operator hasn't uploaded one yet. We only auto-fill on null — never
+  // overwrite an existing operator-uploaded artwork.
+  const showUpdate: { rssUrl?: string; artworkUrl?: string } = {};
+  if (show.rssUrl !== canonicalUrl) showUpdate.rssUrl = canonicalUrl;
+  if (!show.artworkUrl && feedImage) showUpdate.artworkUrl = feedImage;
+  if (Object.keys(showUpdate).length > 0) {
+    await prisma.show.update({ where: { id: show.id }, data: showUpdate });
   }
 
   return {
@@ -117,7 +128,7 @@ export async function connectRssFeedAction(raw: unknown): Promise<ConnectFeedRes
     data: {
       feedUrl: canonicalUrl,
       feedTitle: resolved.feed.title,
-      episodes: resolved.episodes.map(toPickerRow),
+      episodes: resolved.episodes.map((ep) => toPickerRow(ep, feedImage)),
     },
   };
 }
@@ -158,12 +169,14 @@ export async function listFeedEpisodesAction(raw: unknown): Promise<ListFeedEpis
     };
   }
 
+  const feedImage = resolved.feed.image ?? null;
+
   return {
     ok: true,
     data: {
       feedUrl: show.rssUrl,
       feedTitle: resolved.feed.title,
-      episodes: resolved.episodes.map(toPickerRow),
+      episodes: resolved.episodes.map((ep) => toPickerRow(ep, feedImage)),
     },
   };
 }
@@ -174,7 +187,7 @@ function describeFeedError(err: unknown): string {
   return err instanceof Error ? err.message : "Couldn't reach the RSS feed.";
 }
 
-function toPickerRow(ep: PodcastIndexEpisode): FeedEpisodeForPicker {
+function toPickerRow(ep: PodcastIndexEpisode, feedImage: string | null): FeedEpisodeForPicker {
   return {
     guid: ep.guid,
     title: ep.title,
@@ -183,5 +196,6 @@ function toPickerRow(ep: PodcastIndexEpisode): FeedEpisodeForPicker {
     enclosureUrl: ep.enclosureUrl,
     enclosureType: ep.enclosureType ?? null,
     hasTranscript: ep.transcripts.length > 0,
+    imageUrl: ep.image ?? feedImage,
   };
 }

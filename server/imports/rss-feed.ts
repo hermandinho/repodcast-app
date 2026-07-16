@@ -258,8 +258,26 @@ function mapItem(item: unknown): PodcastIndexEpisode | null {
     enclosureType: typeof enclosure.type === "string" ? enclosure.type : undefined,
     enclosureLength,
     duration,
+    image: pickItemImage(item),
     transcripts,
   };
+}
+
+/**
+ * Per-episode artwork. `<itunes:image href="...">` is the standard slot
+ * (Substack uses this for post covers). `<media:thumbnail url="...">` is
+ * the Media RSS fallback some publishers ship instead.
+ */
+function pickItemImage(item: Bag): string | undefined {
+  const itunesImg = item["itunes:image"];
+  if (isBag(itunesImg) && typeof itunesImg.href === "string" && itunesImg.href.length > 0) {
+    return itunesImg.href;
+  }
+  const mediaThumb = item["media:thumbnail"];
+  if (isBag(mediaThumb) && typeof mediaThumb.url === "string" && mediaThumb.url.length > 0) {
+    return mediaThumb.url;
+  }
+  return undefined;
 }
 
 function parsePubDate(raw: string | undefined): number {

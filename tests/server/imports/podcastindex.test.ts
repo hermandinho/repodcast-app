@@ -144,6 +144,34 @@ describe("parseEpisodeEnvelope", () => {
     ]);
   });
 
+  it("surfaces episode-specific image only when it differs from the feed cover", () => {
+    const rows = parseEpisodeEnvelope({
+      items: [
+        // Distinct per-episode image — carry it through.
+        {
+          id: 1,
+          guid: "g1",
+          enclosureUrl: "https://x/1",
+          datePublished: 1_700_000_000,
+          image: "https://cdn.example.com/ep1.jpg",
+          feedImage: "https://cdn.example.com/cover.jpg",
+        },
+        // PI echoed the feed cover as the episode image — drop it so callers
+        // can distinguish "no per-episode art" from a duplicate.
+        {
+          id: 2,
+          guid: "g2",
+          enclosureUrl: "https://x/2",
+          datePublished: 1_700_000_100,
+          image: "https://cdn.example.com/cover.jpg",
+          feedImage: "https://cdn.example.com/cover.jpg",
+        },
+      ],
+    });
+    expect(rows[0]?.image).toBe("https://cdn.example.com/ep1.jpg");
+    expect(rows[1]?.image).toBeUndefined();
+  });
+
   it("falls back to legacy `transcriptUrl` as a single text/plain entry", () => {
     const rows = parseEpisodeEnvelope({
       items: [

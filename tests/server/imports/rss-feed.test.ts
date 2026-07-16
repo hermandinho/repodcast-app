@@ -17,6 +17,7 @@ const FIXTURE = `<?xml version="1.0" encoding="UTF-8"?>
      xmlns:podcast="https://podcastindex.org/namespace/1.0"
      xmlns:atom="http://www.w3.org/2005/Atom"
      xmlns:content="http://purl.org/rss/1.0/modules/content/"
+     xmlns:media="http://search.yahoo.com/mrss/"
      version="2.0">
   <channel>
     <title><![CDATA[The Founder's Cut]]></title>
@@ -32,6 +33,7 @@ const FIXTURE = `<?xml version="1.0" encoding="UTF-8"?>
       <pubDate>Fri, 10 Jul 2026 13:07:39 GMT</pubDate>
       <enclosure url="https://cdn.example.com/ep2.mp3" length="12345678" type="audio/mpeg"/>
       <itunes:duration>25:30</itunes:duration>
+      <itunes:image href="https://cdn.example.com/ep2-cover.jpg"/>
       <description><![CDATA[<p>Second episode.</p>]]></description>
       <podcast:transcript url="https://t.example.com/ep2.vtt" type="text/vtt"/>
       <podcast:transcript url="https://t.example.com/ep2.srt" type="application/srt"/>
@@ -49,6 +51,7 @@ const FIXTURE = `<?xml version="1.0" encoding="UTF-8"?>
       <pubDate>Wed, 01 Jul 2026 00:00:00 GMT</pubDate>
       <enclosure url="https://cdn.example.com/ep3.mp3" length="0" type="audio/mpeg"/>
       <itunes:duration>1:02:03</itunes:duration>
+      <media:thumbnail url="https://cdn.example.com/ep3-thumb.jpg"/>
     </item>
     <item>
       <title>Chapter-only, no enclosure — must be dropped</title>
@@ -141,6 +144,16 @@ describe("parseRssFeedXml — episode mapping", () => {
   it("drops rows missing guid or enclosure — they can't be imported", () => {
     const { episodes } = parseRssFeedXml(FIXTURE, FEED_URL);
     expect(episodes.some((e) => e.guid === "ep-no-enclosure")).toBe(false);
+  });
+
+  it("extracts per-item <itunes:image> and <media:thumbnail>", () => {
+    const { episodes } = parseRssFeedXml(FIXTURE, FEED_URL);
+    const byGuid = Object.fromEntries(episodes.map((e) => [e.guid, e.image]));
+    expect(byGuid["substack:post:200"]).toBe("https://cdn.example.com/ep2-cover.jpg");
+    expect(byGuid["episode-three"]).toBe("https://cdn.example.com/ep3-thumb.jpg");
+    // Item without either tag stays undefined — the caller falls back to the
+    // channel image on its own.
+    expect(byGuid["episode-one-plain"]).toBeUndefined();
   });
 
   it("defaults pubDate to now when missing (matches PI parser behaviour)", () => {
