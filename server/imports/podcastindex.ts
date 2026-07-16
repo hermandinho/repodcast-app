@@ -54,6 +54,13 @@ export type PodcastIndexEpisode = {
   /** Duration in seconds when reported by the feed. */
   duration?: number;
   /**
+   * Per-episode artwork when the publisher supplies one (Substack posts
+   * routinely do). Falls back to the show cover on the caller side; we don't
+   * bake that fallback in here so callers can distinguish "publisher shipped
+   * a unique image" from "same cover as every other episode".
+   */
+  image?: string;
+  /**
    * Publisher-attached transcripts (Podcasting 2.0 `<podcast:transcript>` tag).
    * Empty array when the publisher exposes none.
    */
@@ -112,6 +119,9 @@ type RawEpisode = {
   enclosureType?: string;
   enclosureLength?: number;
   duration?: number;
+  /** Podcast Index episode artwork; `feedImage` is the show cover fallback. */
+  image?: string;
+  feedImage?: string;
   transcripts?: Array<{ url?: string; type?: string }>;
   transcriptUrl?: string;
 };
@@ -287,6 +297,12 @@ export function parseEpisodeEnvelope(raw: RawEpisodeEnvelope): PodcastIndexEpiso
         transcripts.push({ url: it.transcriptUrl, type: "text/plain" });
       }
 
+      // Only surface `image` when it's actually episode-specific — if PI
+      // sent the same URL as the feed cover, dropping it here lets callers
+      // treat "no per-episode art" as null instead of quietly using the
+      // show cover.
+      const image = it.image && it.image !== it.feedImage ? it.image : undefined;
+
       return {
         id: it.id,
         title: it.title ?? "Untitled episode",
@@ -297,6 +313,7 @@ export function parseEpisodeEnvelope(raw: RawEpisodeEnvelope): PodcastIndexEpiso
         enclosureType: it.enclosureType,
         enclosureLength: it.enclosureLength,
         duration: it.duration,
+        image,
         transcripts,
       };
     });

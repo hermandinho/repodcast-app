@@ -595,6 +595,14 @@ model Episode {
   /// Kept so the UI can show "here's what we asked the model to draw"
   /// and so a "generate variants" flow can iterate on the same concept.
   artworkConcept   Json?
+  /// Publisher-supplied artwork captured at import time. Substack, Libsyn,
+  /// and other RSS publishers ship per-episode cover art via
+  /// `<itunes:image>` on the item — we mirror that URL here so the
+  /// artwork tab can show the original next to any AI variants without
+  /// overwriting either. Null on episodes whose source doesn't expose
+  /// per-item images (paste, upload, YouTube), or when the publisher
+  /// exposed only a show-level cover.
+  sourceImageUrl   String?
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 
