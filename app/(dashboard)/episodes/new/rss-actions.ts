@@ -149,7 +149,7 @@ export async function listFeedEpisodesAction(raw: unknown): Promise<ListFeedEpis
 
   const show = await prisma.show.findFirst({
     where: { id: parsed.data.showId, client: { agencyId: auth.agency.id } },
-    select: { id: true, rssUrl: true },
+    select: { id: true, rssUrl: true, artworkUrl: true },
   });
   if (!show) throw new NotFoundError(`Show ${parsed.data.showId} not found`);
   if (!show.rssUrl) {
@@ -170,6 +170,16 @@ export async function listFeedEpisodesAction(raw: unknown): Promise<ListFeedEpis
   }
 
   const feedImage = resolved.feed.image ?? null;
+
+  // Idempotent seed — same rule as connectRssFeedAction. Feeds that gain a
+  // cover between connect and later views still get picked up, but existing
+  // operator uploads are never overwritten.
+  if (!show.artworkUrl && feedImage) {
+    await prisma.show.update({
+      where: { id: show.id },
+      data: { artworkUrl: feedImage },
+    });
+  }
 
   return {
     ok: true,

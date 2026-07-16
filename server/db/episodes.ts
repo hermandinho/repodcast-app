@@ -106,6 +106,13 @@ export const createEpisodeInput = z
     externalUrl: z.string().min(1).nullish(),
     recordedAt: z.date().nullish(),
     durationSec: z.number().int().positive().nullish(),
+    /**
+     * Publisher-supplied artwork URL (RSS import). Persisted verbatim —
+     * the artwork tab renders it in its own "publisher artwork" section
+     * so AI-generated variants can coexist without either overwriting
+     * the other.
+     */
+    sourceImageUrl: z.string().url().nullish(),
   })
   .superRefine((data, ctx) => {
     if (data.source === TranscriptSource.PASTE && data.transcript.length < 500) {
@@ -599,6 +606,7 @@ export async function createEpisode(
       externalUrl: input.externalUrl ?? null,
       recordedAt: input.recordedAt ?? null,
       durationSec: input.durationSec ?? null,
+      sourceImageUrl: input.sourceImageUrl ?? null,
     },
   });
 }

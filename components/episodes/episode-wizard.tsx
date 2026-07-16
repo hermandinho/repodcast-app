@@ -286,7 +286,15 @@ export function EpisodeWizard({
     return shows[0]?.key ?? "ff";
   });
   const [title, setTitle] = useState("");
-  const [method, setMethod] = useState<Method>("paste");
+  const [method, setMethod] = useState<Method>(() => {
+    // Default to "rss" when the initially-selected show has a feed connected;
+    // otherwise fall back to "paste". Same show-resolution order as showId above.
+    const s =
+      seedShow ??
+      (seedClientId ? shows.find((sh) => sh.clientKey === seedClientId) : null) ??
+      shows[0];
+    return s?.rssUrl ? "rss" : "paste";
+  });
   const [transcript, setTranscript] = useState("");
   const [audio, setAudio] = useState<AudioUploadValue | null>(null);
   const [rssSelection, setRssSelection] = useState<RssSelection | null>(null);
@@ -413,6 +421,8 @@ export function EpisodeWizard({
           rssGuid: source === TranscriptSource.RSS ? rssSelection?.guid : undefined,
           rssFeedUrl: source === TranscriptSource.RSS ? rssSelection?.feedUrl : undefined,
           rssTitle: source === TranscriptSource.RSS ? rssSelection?.title : undefined,
+          rssImageUrl:
+            source === TranscriptSource.RSS ? (rssSelection?.imageUrl ?? undefined) : undefined,
           youtubeUrl: source === TranscriptSource.YOUTUBE ? ytUrl.trim() : undefined,
           platforms: selectedPlatforms.map((p) => PLATFORM_KEY_TO_ENUM[p.key]),
         });

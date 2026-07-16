@@ -40,6 +40,13 @@ const createInput = z
     /** Title pre-filled from the publisher feed — surfaced as default. */
     rssTitle: z.string().min(1).max(240).optional(),
     /**
+     * Publisher-supplied thumbnail URL from the picker. Written straight
+     * onto `Episode.sourceImageUrl` at create time — the artwork tab
+     * renders it as the "publisher artwork" section alongside any AI
+     * variants the operator later generates.
+     */
+    rssImageUrl: z.string().url().optional(),
+    /**
      * YouTube path. The wizard collects a full URL; the
      * importer parses it inside the Inngest fn so a mis-typed URL fails
      * with a clear error the episode page can render.
@@ -176,6 +183,7 @@ export async function createEpisodeAction(raw: unknown): Promise<CreateEpisodeRe
         : input.source === TranscriptSource.YOUTUBE
           ? (input.youtubeUrl ?? null)
           : null,
+    sourceImageUrl: input.source === TranscriptSource.RSS ? (input.rssImageUrl ?? null) : null,
   });
 
   if (input.source === TranscriptSource.UPLOAD) {

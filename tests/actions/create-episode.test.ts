@@ -158,6 +158,8 @@ describe("createEpisodeAction — live mode end-to-end", () => {
       audioUrl: null,
       // RSS pins the publisher GUID here; non-RSS paths null it.
       externalUrl: null,
+      // Publisher artwork only lands on RSS imports; other sources null it.
+      sourceImageUrl: null,
     });
 
     // Generation request goes out with the platforms the user selected,
@@ -237,6 +239,7 @@ describe("createEpisodeAction — live mode end-to-end", () => {
       source: TranscriptSource.UPLOAD,
       audioUrl: `audio/agency_smoke/${SHOW_ID}/${preMintedId}.mp3`,
       externalUrl: null,
+      sourceImageUrl: null,
     });
 
     expect(mocks.inngestSend).toHaveBeenCalledOnce();
@@ -318,6 +321,8 @@ describe("createEpisodeAction — live mode end-to-end", () => {
       audioUrl: null,
       // Publisher GUID — stable lookup key for the import pipeline + de-dupe basis.
       externalUrl: "ff-001-hire-four",
+      // Publisher artwork not provided in this input — nulled.
+      sourceImageUrl: null,
     });
 
     expect(mocks.inngestSend).toHaveBeenCalledOnce();

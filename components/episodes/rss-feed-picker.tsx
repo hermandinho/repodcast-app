@@ -29,6 +29,12 @@ export type RssSelection = {
   feedUrl: string;
   /** Publisher title — pre-fills the wizard's episode-title input. */
   title: string;
+  /**
+   * Publisher-supplied thumbnail (episode-specific if available, else the
+   * show cover). Persisted on `Episode.sourceImageUrl` at create time so
+   * the artwork tab can show it alongside any AI variants.
+   */
+  imageUrl: string | null;
 };
 
 export function RssFeedPicker({
@@ -165,7 +171,14 @@ export function RssFeedPicker({
               <button
                 key={ep.guid}
                 type="button"
-                onClick={() => onSelect({ guid: ep.guid, feedUrl: feedUrl!, title: ep.title })}
+                onClick={() =>
+                  onSelect({
+                    guid: ep.guid,
+                    feedUrl: feedUrl!,
+                    title: ep.title,
+                    imageUrl: ep.imageUrl,
+                  })
+                }
                 className="flex items-center gap-3 rounded-[8px] px-3 py-2 text-left transition-colors"
                 style={{
                   background: isSelected ? "var(--color-accent-soft)" : "transparent",
