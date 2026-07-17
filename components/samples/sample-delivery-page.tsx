@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { platforms, type PlatformKey } from "@/lib/sample-data/platforms";
 import type { ResolvedSample } from "@/lib/samples/registry";
@@ -348,26 +349,32 @@ function ArtworkSection({ sample }: { sample: ResolvedSample }) {
 function ArtworkFrame({ aspect }: { aspect: "16:9" | "1:1" | "9:16" }) {
   const style: React.CSSProperties = {
     aspectRatio: aspect.replace(":", " / "),
-    background: `linear-gradient(135deg, #F1E4C4 0%, #E9CFA0 40%, #3A5BA0 120%)`,
+    background: `radial-gradient(circle at 30% 25%, rgba(233,207,160,0.28) 0%, rgba(233,207,160,0) 55%), linear-gradient(160deg, ${INK} 0%, #14284A 60%, #1B345E 100%)`,
     border: `1px solid ${BORDER}`,
   };
+  // Logo shrinks proportionally to the shortest side of each frame so the
+  // mark holds visual weight without breaching the frame edges across
+  // 16:9 / 1:1 / 9:16.
+  const logoSize = aspect === "16:9" ? "34%" : aspect === "9:16" ? "44%" : "40%";
   return (
     <div className="relative overflow-hidden rounded-[10px]" style={style}>
-      {/* Grid overlay */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0"
-        style={{
-          backgroundImage:
-            "linear-gradient(0deg, rgba(10,30,60,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(10,30,60,0.1) 1px, transparent 1px)",
-          backgroundSize: "36px 36px",
-        }}
-      />
+      <div className="absolute inset-0 grid place-items-center">
+        <div className="relative" style={{ width: logoSize, aspectRatio: "1 / 1", maxWidth: 220 }}>
+          <Image
+            src="/logo.png"
+            alt="Repodcast"
+            fill
+            sizes="(max-width: 768px) 40vw, 220px"
+            style={{ objectFit: "contain" }}
+            priority={false}
+          />
+        </div>
+      </div>
       {/* Corner mark */}
       <div
         className="absolute bottom-3 left-3 rounded-md px-2 py-1 font-mono text-[10px] font-semibold"
         style={{
-          background: "rgba(255,255,255,0.7)",
+          background: "rgba(255,255,255,0.85)",
           color: INK,
           letterSpacing: "0.08em",
         }}
@@ -451,8 +458,25 @@ function AudiogramPoster({ caption, platformBadge }: { caption: string; platform
       >
         {platformBadge}
       </div>
-      {/* Waveform, centered horizontally */}
-      <div className="absolute inset-x-6 top-1/2 flex -translate-y-1/2 items-center justify-center gap-[3px]">
+      {/* Cover-art logo — sits in the upper third, mirroring how real
+          audiograms composite the show artwork above the waveform strip. */}
+      <div className="absolute inset-x-0 flex justify-center" style={{ top: "14%" }}>
+        <div className="relative" style={{ width: "42%", aspectRatio: "1 / 1", maxWidth: 140 }}>
+          <Image
+            src="/logo.png"
+            alt="Repodcast"
+            fill
+            sizes="(max-width: 768px) 30vw, 140px"
+            style={{ objectFit: "contain" }}
+            priority={false}
+          />
+        </div>
+      </div>
+      {/* Waveform, centered horizontally in the lower-middle band */}
+      <div
+        className="absolute inset-x-6 flex items-center justify-center gap-[3px]"
+        style={{ top: "62%", transform: "translateY(-50%)" }}
+      >
         {wave.map((h, i) => (
           <div
             key={i}
