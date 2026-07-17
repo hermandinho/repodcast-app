@@ -1,0 +1,167 @@
+# Self-hosted Inngest — prod only. Staging still uses Inngest Cloud.
+#
+# Invoked via scripts/push.ps1 (which calls scripts/deploy.sh over ssh):
+#   docker compose --env-file .env -p repodcast-inngest-prod up -d
+#
+# Why SQLite + embedded queue (not Postgres + Redis): single-node deployment
+# at solo-founder scale. The `inngest start` binary ships both drivers and
+# defaults to SQLite. main.db + WAL/SHM live on the `inngest_data` named
+# volume. Hourly snapshots land in ./backups (7-day local retention) and are
+# rclone'd to R2. If throughput ever justifies external state, set
+# INNGEST_POSTGRES_URI / INNGEST_REDIS_URI in .env — same compose, one-time
+# export migration from SQLite.
+#
+# What connects where:
+#   Vercel app     -> https://inngest.repodcastapp.com/...     (Access Service Auth — CF token)
+#   Team dashboard -> https://inngest.repodcastapp.com/        (Access Allow — SSO)
+#   Inngest server -> https://repodcastapp.com/api/inngest     (SDK verifies via signing key)
+#
+# ONE Cloudflare Tunnel + ONE Public Hostname routing to http://inngest:8288.
+# ONE Cloudflare Access application on the same hostname carrying two
+# policies (see README.md §2): a Service Auth policy that accepts the
+# `repodcast-inngest-sdk` service token (attached by inngest/client.ts on
+# every outbound SDK call — event send AND /fn/register), and an Allow
+# policy that requires SSO for human dashboard access.
+#
+# Why not a path-scoped Bypass on /e/*: the SDK also hits /fn/register
+# during app sync — any path-enumeration approach breaks on the next
+# endpoint Inngest ships.
+
+services:
+  inngest:
+    # Pin to a specific tag; bump deliberately. `latest` on Inngest moves fast
+    # and has had at least one storage-format bump between minor versions.
+    image: inngest/inngest:v1.37.0
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Override the default `./.inngest/main.db` so the DB lives on the
+      # named volume regardless of the container's working directory.
+      INNGEST_SQLITE_DIR: /data
+      # INNGEST_EVENT_KEY / INNGEST_SIGNING_KEY sourced from .env.
+    command: ["inngest", "start"]
+    volumes:
+      - inngest_data:/data
+    expose:
+      # HTTP: event ingest + dashboard + REST/GraphQL. Cloudflared reaches
+      # this over the compose network — never published to the host.
+      - "8288"
+      # 8289 (Connect WebSocket) intentionally unexposed — the app uses
+      # HTTP `serve()`, not Connect workers.
+    healthcheck:
+      # Runs the inngest binary a second time in-container. Bulletproof
+      # against distroless/scratch bases that lack curl/wget. Requires
+      # image >= v1.19.3 (v1.37.0 pinned above satisfies).
+      test: ["CMD", "inngest", "alpha", "doctor", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Hourly online snapshot using sqlite3's `.backup` command — safe against a
+  # live writer (opens a read transaction, streams pages out). Volume is
+  # mounted rw because SQLite in WAL mode needs to touch the -shm file even
+  # for read-only clients. That's expected, not a leak.
+  sqlite_backup:
+    image: alpine:3.20
+    restart: unless-stopped
+    depends_on:
+      - inngest
+    env_file: .env
+    volumes:
+      - inngest_data:/data
+      - ./backups:/backups
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        apk add --no-cache sqlite >/dev/null
+        INTERVAL="${BACKUP_INTERVAL_SECONDS:-3600}"
+        KEEP_HOURS="${BACKUP_KEEP_HOURS:-168}"
+        echo "==> sqlite snapshot every $${INTERVAL}s, retention $${KEEP_HOURS}h"
+        # Small first-tick delay lets inngest create main.db on a fresh volume.
+        sleep 30
+        while true; do
+          TS="$$(date -u +%Y%m%d-%H%M%S)"
+          OUT="/backups/main-$${TS}.db"
+          if [ -f /data/main.db ]; then
+            if sqlite3 /data/main.db ".backup '$${OUT}'"; then
+              SZ="$$(stat -c%s "$${OUT}")"
+              echo "==> snapshot $${OUT} ($${SZ} bytes)"
+            else
+              echo "==> WARN: sqlite3 .backup failed"
+              rm -f "$${OUT}"
+            fi
+          else
+            echo "==> /data/main.db not present yet — skipping tick"
+          fi
+          find /backups -maxdepth 1 -name 'main-*.db' -type f -mmin +$$((KEEP_HOURS * 60)) -delete
+          sleep "$${INTERVAL}"
+        done
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Mirrors ./backups to R2 on the same cadence. Uses `rclone sync`, so R2
+  # tracks the pruned local set — bump BACKUP_KEEP_HOURS if you want a
+  # longer offsite tail than the local one.
+  #
+  # Pinned to 1.71+ for the same TLS reason as infra/db/docker-compose.yml:
+  # older rclone releases negotiate a cipher set R2's edge no longer accepts.
+  backup_offsite:
+    image: rclone/rclone:1.71
+    restart: unless-stopped
+    depends_on:
+      - sqlite_backup
+    env_file: .env
+    volumes:
+      - ./backups:/backups:ro
+      - ./rclone/rclone.conf:/config/rclone/rclone.conf:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        REMOTE="${OFFSITE_REMOTE:?OFFSITE_REMOTE missing from .env (e.g. r2:repodcast-inngest-backups-prod)}"
+        INTERVAL="${OFFSITE_INTERVAL_SECONDS:-3600}"
+        echo "==> offsite sync every $${INTERVAL}s to $${REMOTE}"
+        while true; do
+          rclone sync /backups "$${REMOTE}" \
+            --config /config/rclone/rclone.conf \
+            --transfers 4 --checkers 8 \
+            --log-level INFO
+          sleep "$${INTERVAL}"
+        done
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Single tunnel, two Public Hostnames configured in the Zero Trust dashboard
+  # (see README.md §3). Both route to http://inngest:8288 — split at the edge
+  # by two distinct CF Access applications.
+  cloudflared:
+    image: cloudflare/cloudflared:2024.11.0
+    restart: unless-stopped
+    depends_on:
+      - inngest
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN missing from .env}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  inngest_data:

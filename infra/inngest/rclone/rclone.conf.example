@@ -1,0 +1,19 @@
+# Copy to rclone.conf.prod on your laptop, fill in creds, then push.ps1
+# uploads it to the VPS as ./rclone/rclone.conf. NEVER commit filled-in
+# copies — infra/inngest/rclone/rclone.conf.prod is gitignored.
+#
+# The OFFSITE_REMOTE value in .env picks which remote+bucket to sync to
+# (e.g. "r2:repodcast-inngest-backups-prod").
+#
+# Cloudflare R2 credentials come from: dash.cloudflare.com → R2 → Manage API tokens.
+# Endpoint format: https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+
+[r2]
+type = s3
+provider = Cloudflare
+access_key_id = REPLACE_ME
+secret_access_key = REPLACE_ME
+endpoint = https://REPLACE_ACCOUNT_ID.r2.cloudflarestorage.com
+region = auto
+acl = private
+no_check_bucket = true
