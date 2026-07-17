@@ -80,7 +80,7 @@ export function VoiceProgressCard({ progress }: { progress: VoiceProgressResult 
           marginBottom: 0,
         }}
       >
-        % posted unedited — the share of outputs you shipped without meaningful edits. This is the
+        Post-ready rate — the share of outputs you shipped without meaningful edits. This is the
         number that climbs as the voice learns.
       </p>
     </div>
@@ -213,7 +213,7 @@ function ChartBody({
     <div>
       <svg
         role="img"
-        aria-label={`% posted unedited across ${n} episodes`}
+        aria-label={`Post-ready rate across ${n} episodes`}
         viewBox={`0 0 ${CHART_W} ${CHART_H}`}
         preserveAspectRatio="none"
         style={{ width: "100%", height: 96, display: "block" }}

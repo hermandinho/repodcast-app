@@ -55,3 +55,4 @@ docs/architecture.png
 /.lego/
 /infra/db/rclone/rclone.conf.staging
 /infra/db/rclone/rclone.conf.prod
+/infra/inngest/rclone/rclone.conf.prod
