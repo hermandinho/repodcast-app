@@ -18,6 +18,9 @@ export const metadata: Metadata = {
   title: "Pricing — Repodcast",
   description:
     "One plan per studio, one price. Seven posts, vertical clips, hero artwork, and audiograms per episode — everything included, no per-render fees.",
+  alternates: {
+    canonical: "/pricing",
+  },
 };
 
 export const dynamic = "force-dynamic";

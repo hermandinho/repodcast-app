@@ -18,6 +18,9 @@ export const metadata: Metadata = {
   title: "Privacy — Repodcast",
   description:
     "How Repodcast collects, uses, stores, and shares the personal data of agencies, their clients, and their audiences.",
+  alternates: {
+    canonical: "/legal/privacy",
+  },
 };
 
 export default async function PrivacyPage() {

@@ -17,6 +17,9 @@ export const metadata: Metadata = {
   title: "Terms — Repodcast",
   description:
     "The rules that govern your use of Repodcast — acceptable use, billing, content ownership, warranties, and how the agreement ends.",
+  alternates: {
+    canonical: "/legal/terms",
+  },
 };
 
 export default async function TermsPage() {

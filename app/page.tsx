@@ -8,11 +8,15 @@ export const metadata: Metadata = {
   title: "Repodcast — A full launch kit per episode, in your show's voice.",
   description:
     "Every episode ships seven written posts, vertical clips, hero artwork, and audiograms — all in your show's voice, ready in a minute.",
+  alternates: {
+    canonical: "/",
+  },
   openGraph: {
     title: "Repodcast — A full launch kit per episode",
     description:
       "Seven posts, vertical clips, hero artwork, and audiograms — every episode, in your show's voice.",
     type: "website",
+    url: "/",
   },
   twitter: {
     card: "summary_large_image",

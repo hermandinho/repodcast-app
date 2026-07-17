@@ -20,6 +20,9 @@ export const metadata: Metadata = {
   title: "Security — Repodcast",
   description:
     "How Repodcast protects your audio, transcripts, voice profiles, and generated content — from infrastructure to operator access to incident response.",
+  alternates: {
+    canonical: "/legal/security",
+  },
 };
 
 export default async function SecurityPage() {

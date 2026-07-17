@@ -39,13 +39,23 @@ export async function generateMetadata({
   }
   const title = `${sample.episodeTitle} — sample launch kit · Repodcast`;
   const description = `See one full launch kit from a single 52-minute episode of ${sample.show.name}: seven platform posts, vertical clips, hero artwork, and audiograms — all in the host's voice.`;
+  const path = `/samples/${sample.slug}`;
   return {
     title,
     description,
+    alternates: {
+      canonical: path,
+    },
+    // Samples are demo-only surfaces reachable from sales flows and shared
+    // links; they duplicate marketing/landing copy and would compete with
+    // it in search. Keep them fetchable (so shared links still preview) but
+    // out of the index. Also excluded from `sitemap.ts` for the same reason.
+    robots: { index: false, follow: true },
     openGraph: {
       title,
       description,
       type: "article",
+      url: path,
     },
     twitter: {
       card: "summary_large_image",

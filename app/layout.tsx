@@ -66,6 +66,23 @@ export const metadata: Metadata = {
   description: "Turn podcast episodes into platform-ready content in your client's voice.",
 };
 
+/**
+ * Site-wide `Organization` JSON-LD. Injected once in the root layout so
+ * every crawlable page inherits it — Google collapses duplicates across
+ * pages when the `url` matches. `sameAs` is intentionally empty until we
+ * have canonical social profiles to point at (adding fake/placeholder
+ * profiles hurts the knowledge-panel signal more than omitting them).
+ */
+const organizationJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  name: "Repodcast",
+  url: metadataBase.toString(),
+  logo: new URL("/logo-512.png", metadataBase).toString(),
+  description:
+    "Repodcast turns every podcast episode into a full launch kit — seven platform posts, vertical clips, hero artwork, and audiograms — in your show's voice.",
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -82,6 +99,10 @@ export default function RootLayout({
           <AttributionCapture />
           <ConsentBanner />
           <AnalyticsWithFilter />
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+          />
         </body>
       </html>
     </ClerkProvider>
