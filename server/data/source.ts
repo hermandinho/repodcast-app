@@ -890,7 +890,7 @@ export async function getDashboardForUI(ctx: TenantContext): Promise<DashboardDa
 
   const kpis: DashboardKpi[] = [
     {
-      label: "Posted unedited",
+      label: "Post-ready rate",
       value: `${summary.unedited}%`,
       // Last-30-shipped window (see `percentPostedUnedited` in dashboard.ts)
       // — a rolling number, not lifetime. Deltas aren't meaningful for a
