@@ -115,7 +115,7 @@ function Hero({ isSignedIn }: { isSignedIn: boolean }) {
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <Link
-              href={isSignedIn ? "/after-sign-in" : "/pricing"}
+              href={isSignedIn ? "/after-sign-in" : "/sign-up"}
               className="rounded-[9px] px-5 py-3 text-[14px] font-semibold text-white no-underline transition-[filter] hover:brightness-110 sm:px-6 sm:py-[13px] sm:text-[15px]"
               style={{ background: INK }}
             >
@@ -840,7 +840,7 @@ function FinalCTA({ isSignedIn }: { isSignedIn: boolean }) {
           Give your contractor hours back.
         </div>
         <Link
-          href={isSignedIn ? "/after-sign-in" : "/pricing"}
+          href={isSignedIn ? "/after-sign-in" : "/sign-up"}
           className="rounded-[9px] px-5 py-3 text-[14px] font-semibold text-white no-underline transition-[filter] hover:brightness-110 sm:px-[22px] sm:py-3 sm:text-[15px]"
           style={{ background: "var(--color-accent)" }}
         >

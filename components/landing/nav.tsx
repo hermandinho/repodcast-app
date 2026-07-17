@@ -142,7 +142,7 @@ export function LandingNav({
                 Sign in
               </Link>
               <Link
-                href="/pricing"
+                href="/sign-up"
                 className="rounded-lg px-4 py-[9px] text-[13.5px] font-medium no-underline transition-colors sm:px-[17px] sm:text-[14px]"
                 style={{
                   background: "#1A2A4A",
