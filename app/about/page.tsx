@@ -17,6 +17,9 @@ export const metadata: Metadata = {
   title: "About — Repodcast",
   description:
     "Repodcast turns every episode into a full launch kit — posts, clips, artwork, and audiograms — in your client's voice. Built for podcast agencies.",
+  alternates: {
+    canonical: "/about",
+  },
 };
 
 export default async function AboutPage() {

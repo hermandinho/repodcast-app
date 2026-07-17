@@ -18,6 +18,9 @@ export const metadata: Metadata = {
   title: "Contact — Repodcast",
   description:
     "How to reach us — sales, support, privacy, security, legal — plus where to report abusive content.",
+  alternates: {
+    canonical: "/contact",
+  },
 };
 
 type Card = {
