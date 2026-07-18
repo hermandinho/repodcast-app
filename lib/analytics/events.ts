@@ -8,7 +8,7 @@
  * caller to pass a payload that matches.
  */
 
-import type { Plan, Platform } from "@prisma/client";
+import type { Plan, Platform, SupportTicketCategory } from "@prisma/client";
 
 export type EventMap = {
   /**
@@ -256,6 +256,20 @@ export type EventMap = {
   first_launch_kit_completed: {
     agencyId: string;
     episodeId: string;
+  };
+
+  /**
+   * Public `/contact` support form submission. Fires server-side from
+   * `submitSupportTicketAction` after the DB write succeeds, so a
+   * spam/Turnstile reject never lands in the funnel. `fromSignedInUser`
+   * distinguishes tenant-side "I need help" from a cold marketing
+   * inbound; `agencyId` is set only in the signed-in case.
+   */
+  support_ticket_submitted: {
+    ticketId: string;
+    refCode: string;
+    category: SupportTicketCategory;
+    fromSignedInUser: boolean;
   };
 };
 

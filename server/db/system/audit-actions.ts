@@ -14,6 +14,8 @@
  *   config.*       — actions on SystemConfig / AgencyLimitOverride
  *   support.*      — actions taken on a customer's behalf (resend welcome, ...)
  *   abuse.*        — actions on AbuseReport rows
+ *   suggestion.*   — status transitions on Suggestion rows (in-app feedback)
+ *   support_ticket.* — status transitions on SupportTicket rows (/contact form)
  *   impersonate.*  — impersonation envelope lifecycle (start, end, write-promote)
  */
 export const SYSTEM_AUDIT_ACTIONS = {
@@ -55,6 +57,9 @@ export const SYSTEM_AUDIT_ACTIONS = {
 
   SUGGESTION_STATUS_CHANGE: "suggestion.status_change",
   SUGGESTION_RESOLVE: "suggestion.resolve",
+
+  SUPPORT_TICKET_STATUS_CHANGE: "support_ticket.status_change",
+  SUPPORT_TICKET_RESOLVE: "support_ticket.resolve",
 
   IMPERSONATE_START: "impersonate.start",
   IMPERSONATE_END: "impersonate.end",

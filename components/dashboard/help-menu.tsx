@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { SuggestionType } from "@prisma/client";
 import { Modal, ModalBody, ModalFooter, ModalHeader } from "@/components/ui/modal";
@@ -20,16 +21,28 @@ const TYPE_OPTIONS: readonly { value: SuggestionType; label: string; hint: strin
 ];
 
 /**
- * Floating "Send feedback" affordance on every dashboard page. Opens a
- * modal with a type picker + title + body, submits via a server action
- * that creates the `Suggestion` row and mirrors to the feedback inbox.
+ * Floating "?" help affordance on every dashboard page. Opens a small
+ * popover with two entries:
+ *
+ *   - Send feedback — the existing Suggestion form, delivered inline
+ *     via a modal that submits to `submitSuggestionAction`.
+ *   - Contact support — links to `/contact?ref=dashboard` where the
+ *     public support form lives; signed-in visitors get name/email
+ *     prefilled by the page.
+ *
+ * The two routes go to different inboxes (feedback → product triage,
+ * support → ops), so they're kept as sibling entries rather than
+ * collapsed into one form.
  *
  * Placement — bottom-right, above the fold on scrollable pages. Sits
  * inside the dashboard main scroller so it doesn't fight the sidebar or
  * the impersonation / trial banners at the top of the layout.
  */
-export function FeedbackButton() {
+export function HelpMenu() {
   const pathname = usePathname();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<SuggestionType>("BUG");
   const [title, setTitle] = useState("");
@@ -37,6 +50,27 @@ export function FeedbackButton() {
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
   const [pending, startTransition] = useTransition();
+
+  // Close the popover on outside-click or Escape. Standard popover UX;
+  // the modal itself owns its own focus trap once opened.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (menuRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    window.addEventListener("mousedown", onClick);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onClick);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
 
   // Reset the form each time the modal closes so a follow-up open starts
   // fresh rather than showing the previous submission.
@@ -84,8 +118,11 @@ export function FeedbackButton() {
     <>
       <button
         type="button"
-        aria-label="Send feedback"
-        onClick={() => setOpen(true)}
+        ref={triggerRef}
+        aria-label="Help"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen((v) => !v)}
         className="fixed right-5 bottom-5 z-40 flex items-center gap-2 rounded-full shadow-lg transition-[filter] hover:brightness-95"
         style={{
           background: ACCENT,
@@ -103,15 +140,58 @@ export function FeedbackButton() {
           viewBox="0 0 14 14"
           fill="none"
           stroke="currentColor"
-          strokeWidth="1.6"
+          strokeWidth="1.7"
           strokeLinecap="round"
           strokeLinejoin="round"
           aria-hidden
         >
-          <path d="M2 3.5h10v6H5.5L3 12V9.5H2z" />
+          <path d="M5 5a2 2 0 1 1 3 1.7c-.7.4-1 .8-1 1.6" />
+          <circle cx="7" cy="10.5" r="0.4" fill="currentColor" stroke="none" />
         </svg>
-        Feedback
+        Help
       </button>
+
+      {menuOpen ? (
+        <div
+          ref={menuRef}
+          role="menu"
+          aria-label="Help"
+          className="fixed right-5 bottom-[62px] z-40 flex flex-col overflow-hidden rounded-xl"
+          style={{
+            background: "#fff",
+            border: `1px solid ${OUTLINE}`,
+            boxShadow: "0 12px 32px rgba(10,30,60,0.14)",
+            minWidth: 220,
+          }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setMenuOpen(false);
+              setOpen(true);
+            }}
+            style={menuItemStyle}
+          >
+            <span style={{ color: INK, fontWeight: 600 }}>Send feedback</span>
+            <span className="text-[11.5px]" style={{ color: MUTED }}>
+              Bugs, ideas, small tweaks.
+            </span>
+          </button>
+          <div style={{ height: 1, background: "#F0F3F8" }} />
+          <Link
+            href="/contact?ref=dashboard"
+            role="menuitem"
+            onClick={() => setMenuOpen(false)}
+            style={{ ...menuItemStyle, textDecoration: "none" }}
+          >
+            <span style={{ color: INK, fontWeight: 600 }}>Contact support</span>
+            <span className="text-[11.5px]" style={{ color: MUTED }}>
+              Help from a human within one business day.
+            </span>
+          </Link>
+        </div>
+      ) : null}
 
       <Modal open={open} onClose={() => setOpen(false)} ariaLabel="Send feedback">
         {sent ? (
@@ -270,6 +350,20 @@ export function FeedbackButton() {
     </>
   );
 }
+
+const menuItemStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-start",
+  gap: 2,
+  padding: "12px 14px",
+  background: "transparent",
+  border: "none",
+  cursor: "pointer",
+  textAlign: "left",
+  fontFamily: "inherit",
+  fontSize: 13.5,
+};
 
 function buttonStyle({
   variant,
