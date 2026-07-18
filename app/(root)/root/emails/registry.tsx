@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { Plan } from "@prisma/client";
+import { BillingCadence, Plan } from "@prisma/client";
 
 import { AgencyInviteEmail } from "@/server/email/templates/agency-invite";
 import { ClientRenewalReminderEmail } from "@/server/email/templates/client-renewal-reminder";
@@ -9,6 +9,9 @@ import { OnboardingFirstClientEmail } from "@/server/email/templates/onboarding-
 import { PasswordResetEmail } from "@/server/email/templates/password-reset";
 import { PortalLinkShareEmail } from "@/server/email/templates/portal-link-share";
 import { PostPublishedEmail } from "@/server/email/templates/post-published";
+import { SupportOnboardingCompleteEmail } from "@/server/email/templates/support-onboarding-complete";
+import { SupportPlanChangedEmail } from "@/server/email/templates/support-plan-changed";
+import { SupportUserSignupEmail } from "@/server/email/templates/support-user-signup";
 import { TrialConvertedEmail } from "@/server/email/templates/trial-converted";
 import { TrialDay2Email } from "@/server/email/templates/trial-day-2";
 import { TrialEndingSoonEmail } from "@/server/email/templates/trial-ending-soon";
@@ -39,7 +42,7 @@ const DEMO_INVITER = "Marcus Chen";
 const TRIAL_END = new Date("2026-07-18T09:00:00Z");
 const RENEWAL_DATE_LABEL = "2026-08-14";
 
-export type EmailJourneyKey = "trial" | "onboarding" | "product" | "team" | "support";
+export type EmailJourneyKey = "trial" | "onboarding" | "product" | "team" | "support" | "internal";
 
 export type EmailTriggerType = "webhook" | "cron" | "manual";
 
@@ -103,6 +106,12 @@ export const EMAIL_JOURNEYS: Record<
     title: "Support-initiated",
     blurb:
       "Manual sends triggered by a ROOT/OPERATOR from the /root admin panel. Every send lands an audit row.",
+  },
+  internal: {
+    order: 6,
+    title: "Internal notifications",
+    blurb:
+      "Team-facing pings routed to CONTACT_EMAILS.support so ops notices signups, completed onboardings, and plan changes without polling the DB.",
   },
 };
 
@@ -508,6 +517,102 @@ export const EMAILS: readonly EmailEntry[] = [
       signInUrl: `${PREVIEW_ORIGIN}/sign-in?__clerk_ticket=sit_2Kq9L3mNpXr8`,
       initiatedBy: "Marcus (Repodcast support)",
       expiresAtIso: "2026-07-03T15:30:00Z",
+    }),
+  },
+
+  // ------------------------------------------------------------
+  // Internal notifications — routed to CONTACT_EMAILS.support
+  // ------------------------------------------------------------
+  {
+    slug: "support-user-signup",
+    name: "Signup ping (internal)",
+    journey: "internal",
+    subject: `[Signup] ${DEMO_AGENCY} · owner@example.com`,
+    purpose:
+      "Notifies the support inbox the moment a new agency is created — the earliest signal that someone is on board.",
+    rationale:
+      "Fires from `createAgencyForUser` alongside the user-facing WelcomeEmail. The durable record is the Agency + first Member row; this email exists so ops notices the signup in real time without polling. Skipped for synthetic `@clerk.local` addresses so pre-verified stubs don't page.",
+    trigger: {
+      type: "webhook",
+      label: "Server action · createAgencyForUser (self-serve signup)",
+      source: "server/db/agencies.ts:136",
+    },
+    recipient: {
+      label: "CONTACT_EMAILS.support",
+      lookup: "Static — `support@repodcastapp.com` (overridable via CONTACT_EMAIL_SUPPORT).",
+    },
+    cadence: "Once per agency, at the moment the founding OWNER is created.",
+    senderFn: "sendSupportUserSignupEmail",
+    element: SupportUserSignupEmail({
+      agencyName: DEMO_AGENCY,
+      ownerName: `${DEMO_FIRST_NAME} Vega`,
+      ownerEmail: "sarah@acme.example.com",
+      signedUpAt: new Date("2026-07-18T09:00:00Z"),
+      rootUsersUrl: `${PREVIEW_ORIGIN}/root/users`,
+    }),
+  },
+  {
+    slug: "support-onboarding-complete",
+    name: "Onboarding complete (internal)",
+    journey: "internal",
+    subject: `[Onboarding ✓] ${DEMO_AGENCY} → ${Plan.STUDIO} (trial)`,
+    purpose:
+      "Notifies the support inbox when a new agency finishes onboarding by completing Checkout — trial or direct paid.",
+    rationale:
+      "Fires from the Stripe `subscription.created` handler in the same block as the user-facing Trial Welcome email. Covers both flavours (trialing / paid) so the team sees not just that the signup arrived (that's the earlier ping) but that they actually crossed the paywall.",
+    trigger: {
+      type: "webhook",
+      label: "Stripe webhook · subscription.created (all statuses)",
+      source: "app/api/webhooks/stripe/route.ts:250",
+    },
+    recipient: {
+      label: "CONTACT_EMAILS.support",
+      lookup: "Static — `support@repodcastapp.com` (overridable via CONTACT_EMAIL_SUPPORT).",
+    },
+    cadence: "Once per subscription create — the transition happens once per agency.",
+    senderFn: "sendSupportOnboardingCompleteEmail",
+    element: SupportOnboardingCompleteEmail({
+      agencyName: DEMO_AGENCY,
+      ownerName: `${DEMO_FIRST_NAME} Vega`,
+      ownerEmail: "sarah@acme.example.com",
+      plan: Plan.STUDIO,
+      cadence: BillingCadence.MONTHLY,
+      status: "trialing",
+      trialEndsAt: TRIAL_END,
+      rootUsersUrl: `${PREVIEW_ORIGIN}/root/users`,
+    }),
+  },
+  {
+    slug: "support-plan-changed",
+    name: "Plan change (internal)",
+    journey: "internal",
+    subject: `[Plan Upgrade] ${DEMO_AGENCY}: ${Plan.STUDIO} → ${Plan.AGENCY}`,
+    purpose:
+      "Notifies the support inbox when an already-onboarded agency switches plan or cadence on Stripe.",
+    rationale:
+      "Fires from the Stripe `subscription.updated` handler when the derived (plan, cadence) differs from what we have on file. Skipped on subscription-create (that's onboarding, above) and skipped on trial → active (that's the trial-converted email). Direction (upgrade / downgrade / cadence) is baked into the subject so triage is instant.",
+    trigger: {
+      type: "webhook",
+      label: "Stripe webhook · subscription.updated (plan or cadence delta)",
+      source: "app/api/webhooks/stripe/route.ts:288",
+    },
+    recipient: {
+      label: "CONTACT_EMAILS.support",
+      lookup: "Static — `support@repodcastapp.com` (overridable via CONTACT_EMAIL_SUPPORT).",
+    },
+    cadence: "One per plan/cadence change. No dedupe — Stripe's own event-id dedupe is upstream.",
+    senderFn: "sendSupportPlanChangedEmail",
+    element: SupportPlanChangedEmail({
+      agencyName: DEMO_AGENCY,
+      ownerName: `${DEMO_FIRST_NAME} Vega`,
+      ownerEmail: "sarah@acme.example.com",
+      previousPlan: Plan.STUDIO,
+      previousCadence: BillingCadence.MONTHLY,
+      newPlan: Plan.AGENCY,
+      newCadence: BillingCadence.MONTHLY,
+      direction: "upgrade",
+      changedAt: new Date("2026-07-18T09:00:00Z"),
+      rootUsersUrl: `${PREVIEW_ORIGIN}/root/users`,
     }),
   },
 ];

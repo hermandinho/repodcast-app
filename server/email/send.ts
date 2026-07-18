@@ -1,6 +1,7 @@
 import "server-only";
 
 import { render } from "@react-email/render";
+import { CONTACT_EMAILS } from "@/lib/contact-emails";
 import { FROM_EMAIL, getResendClient } from "./client";
 import { AgencyInviteEmail, type AgencyInviteEmailProps } from "./templates/agency-invite";
 import {
@@ -32,6 +33,18 @@ import {
   SupportTicketConfirmationEmail,
   type SupportTicketConfirmationEmailProps,
 } from "./templates/support-ticket-confirmation";
+import {
+  SupportUserSignupEmail,
+  type SupportUserSignupEmailProps,
+} from "./templates/support-user-signup";
+import {
+  SupportOnboardingCompleteEmail,
+  type SupportOnboardingCompleteEmailProps,
+} from "./templates/support-onboarding-complete";
+import {
+  SupportPlanChangedEmail,
+  type SupportPlanChangedEmailProps,
+} from "./templates/support-plan-changed";
 import {
   OnboardingFirstClientEmail,
   type OnboardingFirstClientEmailProps,
@@ -436,6 +449,74 @@ export async function sendSupportTicketConfirmationEmail(
   return send({
     to,
     subject: `We got your message — reference ${props.refCode}`,
+    html,
+  });
+}
+
+// ============================================================
+// Support notifications — user lifecycle
+// ------------------------------------------------------------
+// Delivered to `CONTACT_EMAILS.support` so the team notices signups,
+// completed onboardings, and plan changes without polling the DB.
+// All three are fire-and-forget; the durable record lives in Postgres.
+// ============================================================
+
+/**
+ * Fired from `createAgencyForUser` the moment a founding OWNER is
+ * created — the earliest signal of a new signup. Sent to
+ * `CONTACT_EMAILS.support` and independent of whether the user then
+ * completes Checkout.
+ */
+export async function sendSupportUserSignupEmail(
+  props: Omit<SupportUserSignupEmailProps, "rootUsersUrl">,
+): Promise<SendResult> {
+  const rootUsersUrl = `${APP_BASE_URL}/root/users`;
+  const html = await render(SupportUserSignupEmail({ ...props, rootUsersUrl }));
+  return send({
+    to: CONTACT_EMAILS.support,
+    subject: `[Signup] ${props.agencyName} · ${props.ownerEmail}`,
+    html,
+  });
+}
+
+/**
+ * Fired from the Stripe `subscription.created` handler — the moment the
+ * user finishes onboarding by completing Checkout. Covers both trial
+ * activations and direct paid subscribes.
+ */
+export async function sendSupportOnboardingCompleteEmail(
+  props: Omit<SupportOnboardingCompleteEmailProps, "rootUsersUrl">,
+): Promise<SendResult> {
+  const rootUsersUrl = `${APP_BASE_URL}/root/users`;
+  const html = await render(SupportOnboardingCompleteEmail({ ...props, rootUsersUrl }));
+  const flavour = props.status === "trialing" ? "trial" : "paid";
+  return send({
+    to: CONTACT_EMAILS.support,
+    subject: `[Onboarding ✓] ${props.agencyName} → ${props.plan} (${flavour})`,
+    html,
+  });
+}
+
+/**
+ * Fired from the Stripe `subscription.updated` handler when either the
+ * plan or the cadence changes on an already-onboarded agency. The
+ * trial → active transition is intentionally not routed through this
+ * email — that's an onboarding milestone, not a plan change.
+ */
+export async function sendSupportPlanChangedEmail(
+  props: Omit<SupportPlanChangedEmailProps, "rootUsersUrl">,
+): Promise<SendResult> {
+  const rootUsersUrl = `${APP_BASE_URL}/root/users`;
+  const html = await render(SupportPlanChangedEmail({ ...props, rootUsersUrl }));
+  const label =
+    props.direction === "upgrade"
+      ? "Upgrade"
+      : props.direction === "downgrade"
+        ? "Downgrade"
+        : "Cadence";
+  return send({
+    to: CONTACT_EMAILS.support,
+    subject: `[Plan ${label}] ${props.agencyName}: ${props.previousPlan} → ${props.newPlan}`,
     html,
   });
 }

@@ -6,7 +6,7 @@ import { NotFoundError } from "@/server/auth/errors";
 import { requireRole, type TenantContext } from "@/server/auth/tenant";
 import { SUPPORTED_CURRENCIES } from "@/lib/currencies";
 import { assertMinPlan, getAgencyPlan, hasActiveAccess } from "@/server/billing/limits";
-import { sendWelcomeEmail } from "@/server/email/send";
+import { sendSupportUserSignupEmail, sendWelcomeEmail } from "@/server/email/send";
 import { prisma } from "./client";
 
 export const createAgencyInput = z.object({
@@ -125,6 +125,19 @@ export async function createAgencyForUser(input: CreateAgencyForUserInput): Prom
       firstName: input.name?.split(" ")[0] ?? "there",
       agencyName: agency.name,
       dashboardUrl: dashboardBaseUrl(),
+    });
+  }
+
+  // Best-effort support notification — lands in CONTACT_EMAILS.support so
+  // the team notices the arrival in real time. Skipped for synthetic
+  // Clerk email addresses so noise-only signups (test accounts,
+  // pre-verification stubs) don't page.
+  if (input.email && !input.email.endsWith("@clerk.local")) {
+    void sendSupportUserSignupEmail({
+      agencyName: agency.name,
+      ownerName: input.name,
+      ownerEmail: input.email,
+      signedUpAt: agency.createdAt,
     });
   }
 
