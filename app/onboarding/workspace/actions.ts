@@ -83,8 +83,15 @@ export async function createWorkspaceAction(formData: FormData): Promise<void> {
     cookieStore.delete("repodcast_attr");
   }
 
-  // Funnel event. Fire before the redirect so PostHog gets
-  // the step-1 completion even if the plan page 4xxs.
+  // Funnel events. Fire before the redirect so PostHog gets both the
+  // signup-completion signal AND the step-1 tick even if the plan page
+  // 4xxs. `agency_created` is the /root/funnels row "Signup completed
+  // (agency created)" — without it, the funnel row shows 0 forever.
+  void trackServer(
+    "agency_created",
+    { agencyId: agency.id, plan: Plan.STUDIO },
+    { distinctId: `agency:${agency.id}`, agencyId: agency.id },
+  );
   void trackServer(
     "onboarding_step_completed",
     { agencyId: agency.id, step: 1, stepName: "workspace" },
