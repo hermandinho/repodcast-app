@@ -1,23 +1,24 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { auth } from "@clerk/nextjs/server";
+import { currentUser } from "@clerk/nextjs/server";
 import { LandingFooter } from "@/components/landing/footer";
 import { LandingNav } from "@/components/landing/nav";
 import { CONTACT_EMAILS } from "@/lib/contact-emails";
+import { SupportForm } from "./support-form";
 
 /**
- * `/contact` — one landing spot for every inbound path. No form: mailtos
- * convert better for B2B, avoid a spam vector, and — importantly —
- * inbound goes straight to the mailbox that owns the topic.
- *
- * Addresses come from `lib/contact-emails.ts` so an alias change doesn't
- * require touching this file.
+ * `/contact` — a real support form on top for the "product support"
+ * conversation, with the specialised mailboxes (sales, privacy, security,
+ * legal, abuse) still accessible below. The form writes a durable
+ * `SupportTicket` row + mails `CONTACT_EMAILS.support`; Cloudflare
+ * Turnstile gates the write against bots. See
+ * `submitSupportTicketAction` for the server side.
  */
 
 export const metadata: Metadata = {
   title: "Contact — Repodcast",
   description:
-    "How to reach us — sales, support, privacy, security, legal — plus where to report abusive content.",
+    "Send us a support ticket, or reach the right team directly — sales, privacy, security, legal, or abuse reports.",
   alternates: {
     canonical: "/contact",
   },
@@ -31,36 +32,33 @@ type Card = {
 };
 
 export default async function ContactPage() {
-  const { userId } = await auth();
-  const isSignedIn = !!userId;
+  // We tolerate a failed lookup — /contact must render even if Clerk is
+  // in a bad way. `currentUser()` throws on 5xx; we swallow to a null
+  // prefill.
+  const user = await currentUser().catch(() => null);
+  const isSignedIn = !!user;
+  const initialName = [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim() || "";
+  const initialEmail = user?.primaryEmailAddress?.emailAddress ?? "";
 
-  const cards: Card[] = [
+  const otherChannels: Card[] = [
     {
       label: "Sales & general questions",
       email: CONTACT_EMAILS.hello,
       blurb:
-        "Curious whether Repodcast fits your agency? Want a walkthrough, a scoped pilot, or the answer to a question the site doesn't cover?",
-      responseHint: "Usually a same-day reply on business days.",
-    },
-    {
-      label: "Product support",
-      email: CONTACT_EMAILS.support,
-      blurb:
-        "Something broken, confusing, or slower than it should be? Please include the workspace name, the client if it's client-scoped, and a screenshot or URL if you have one.",
-      responseHint: "First response within one business day.",
+        "Walkthroughs, pilots, or questions the site doesn't cover. If you're not sure it fits, we'll tell you.",
+      responseHint: "Usually same-day on business days.",
     },
     {
       label: "Privacy & data requests",
       email: CONTACT_EMAILS.privacy,
       blurb:
-        "Access, export, correction, or deletion requests — from you or from a data subject you're routing on behalf of. See our Privacy Policy for what we hold and how long.",
-      responseHint: "Response within 30 days, faster where required by law.",
+        "Access, export, correction, or deletion requests — from you or from a data subject you're routing.",
+      responseHint: "Response within 30 days.",
     },
     {
       label: "Security",
       email: CONTACT_EMAILS.security,
-      blurb:
-        "Report a suspected vulnerability, ask a security question, or request a data-processing addendum or vendor questionnaire.",
+      blurb: "Report a suspected vulnerability, or request a DPA or vendor questionnaire.",
       responseHint: "Acknowledgement within two business days.",
     },
     {
@@ -104,12 +102,35 @@ export default async function ContactPage() {
             className="m-0 text-[15px] sm:text-[16.5px]"
             style={{ color: "#5A6473", lineHeight: 1.7, maxWidth: 640 }}
           >
-            Pick the mailbox that fits — messages route straight to the person who owns that area,
-            not into a shared inbox that nobody watches.
+            Send a support ticket below and a human will get back to you. If you&rsquo;d rather
+            route directly to sales, privacy, security, or legal, the specialist mailboxes are just
+            under the form.
           </p>
 
-          <div className="mt-8 grid grid-cols-1 gap-4 sm:mt-12 sm:grid-cols-2 sm:gap-5">
-            {cards.map((card) => (
+          <div className="mt-10 sm:mt-12">
+            <SupportForm
+              initialName={initialName}
+              initialEmail={initialEmail}
+              isSignedIn={isSignedIn}
+            />
+          </div>
+
+          <h2
+            className="mt-14 mb-2 text-[18px] font-semibold sm:text-[20px]"
+            style={{
+              fontFamily: "var(--font-display)",
+              color: "#1A2A4A",
+              letterSpacing: "-0.01em",
+            }}
+          >
+            Prefer a specialist mailbox?
+          </h2>
+          <p className="m-0 text-[14px]" style={{ color: "#5A6473", lineHeight: 1.65 }}>
+            These go straight to the person who owns that area — not into a shared inbox.
+          </p>
+
+          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5">
+            {otherChannels.map((card) => (
               <ContactCard key={card.email} card={card} />
             ))}
             <AbuseCard />

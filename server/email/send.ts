@@ -25,6 +25,14 @@ import {
   type SuggestionReceivedEmailProps,
 } from "./templates/suggestion-received";
 import {
+  SupportTicketAdminEmail,
+  type SupportTicketAdminEmailProps,
+} from "./templates/support-ticket-admin";
+import {
+  SupportTicketConfirmationEmail,
+  type SupportTicketConfirmationEmailProps,
+} from "./templates/support-ticket-confirmation";
+import {
   OnboardingFirstClientEmail,
   type OnboardingFirstClientEmailProps,
 } from "./templates/onboarding-first-client";
@@ -378,6 +386,55 @@ export async function sendSuggestionReceivedEmail(
   return send({
     to,
     subject: `${SUGGESTION_SUBJECT_PREFIX[props.type]} ${props.title}`,
+    html,
+  });
+}
+
+// ============================================================
+// Public support ticket — /contact form
+// ============================================================
+
+const SUPPORT_CATEGORY_PREFIX: Record<SupportTicketAdminEmailProps["category"], string> = {
+  BUG: "[Bug]",
+  QUESTION: "[Question]",
+  BILLING: "[Billing]",
+  ACCOUNT: "[Account]",
+  FEATURE_REQUEST: "[Feature]",
+  OTHER: "[Support]",
+};
+
+/**
+ * Sent to `CONTACT_EMAILS.support` when someone submits the public
+ * `/contact` support form. Fire-and-forget from the server action —
+ * the `SupportTicket` row is the source of truth. `replyMailto` gives
+ * the responder a one-click reply with the ref code pre-filled.
+ */
+export async function sendSupportTicketAdminEmail(
+  to: string | string[],
+  props: Omit<SupportTicketAdminEmailProps, "replyMailto">,
+): Promise<SendResult> {
+  const replyMailto = `mailto:${encodeURIComponent(props.submitterEmail)}?subject=${encodeURIComponent(`Re: [${props.refCode}] ${props.subject}`)}`;
+  const html = await render(SupportTicketAdminEmail({ ...props, replyMailto }));
+  return send({
+    to,
+    subject: `${SUPPORT_CATEGORY_PREFIX[props.category]} ${props.refCode} · ${props.subject}`,
+    html,
+  });
+}
+
+/**
+ * Confirmation to the submitter with their reference code. Fire-and-
+ * forget from the server action — if it never lands, they still see the
+ * ref code on the success screen.
+ */
+export async function sendSupportTicketConfirmationEmail(
+  to: string,
+  props: SupportTicketConfirmationEmailProps,
+): Promise<SendResult> {
+  const html = await render(SupportTicketConfirmationEmail(props));
+  return send({
+    to,
+    subject: `We got your message — reference ${props.refCode}`,
     html,
   });
 }
