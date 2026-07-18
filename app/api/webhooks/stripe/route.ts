@@ -8,11 +8,14 @@ import { prisma } from "@/server/db/client";
 import { markWebhookProcessed, unmarkWebhookProcessed } from "@/server/db/webhook-deliveries";
 import { captureWebhookFailure } from "@/server/observability/sentry";
 import {
+  sendSupportOnboardingCompleteEmail,
+  sendSupportPlanChangedEmail,
   sendTrialConvertedEmail,
   sendTrialEndingSoonEmail,
   sendTrialExpiredEmail,
   sendTrialWelcomeEmail,
 } from "@/server/email/send";
+import { PLAN_ORDER } from "@/lib/plans";
 
 // Webhook handlers must never be cached.
 export const dynamic = "force-dynamic";
@@ -156,9 +159,14 @@ async function syncSubscription(
   // transition `ACTIVE → CONVERTED` (`trialing → active` on first successful
   // charge). Other transitions land here too: a `trialing` sub → ACTIVE, a
   // paid sub with no trial → leave trial fields alone.
+  //
+  // `plan` + `billingCadence` are read on the same query so a `subscription.
+  // updated` event can detect when the user actually switched tiers vs a
+  // no-op update (Stripe fires updates for lots of non-tier fields — cancel
+  // scheduling, discount attach/remove, etc.).
   const current = await prisma.agency.findUnique({
     where: { id: agencyId },
-    select: { trialStatus: true },
+    select: { trialStatus: true, plan: true, billingCadence: true },
   });
 
   const trialUpdate: {
@@ -236,6 +244,15 @@ async function syncSubscription(
         trialEndsAt: new Date(sub.trial_end * 1000),
       });
     }
+    // Support notification — the user just finished onboarding by
+    // completing Checkout. Fires for both `trialing` and paid subscribes;
+    // handler picks a distinct subject per flavour.
+    await sendSupportOnboardingCompleteForAgency(agencyId, {
+      plan,
+      cadence: billingCadence,
+      status: isTrial ? "trialing" : "paid",
+      trialEndsAt: isTrial && sub.trial_end ? new Date(sub.trial_end * 1000) : null,
+    });
   } else if (trialUpdate.trialStatus === TrialStatus.CONVERTED) {
     // Fires exactly once per agency — the trialing → active transition can
     // only happen once. Marketing uses this to measure conversion rate.
@@ -252,6 +269,30 @@ async function syncSubscription(
     // Day-15 conversion email — event-driven off the same transition as the
     // analytics event above.
     await sendTrialConvertedForAgency(agencyId, { plan });
+  }
+
+  // Support notification on real plan/cadence changes. Skipped on
+  // `subscription.created` (that's an onboarding milestone, handled
+  // above) and skipped when the previous row was null (first sync).
+  // Skipped when the trialing → active transition is the ONLY change —
+  // Stripe fires an `updated` event for that, and it's not a plan pick.
+  if (!fireUpgradeCompleted && current && current.plan && current.billingCadence) {
+    const planChanged = current.plan !== plan;
+    const cadenceChanged = current.billingCadence !== billingCadence;
+    if (planChanged || cadenceChanged) {
+      const direction: "upgrade" | "downgrade" | "cadence" = planChanged
+        ? PLAN_ORDER.indexOf(plan) > PLAN_ORDER.indexOf(current.plan)
+          ? "upgrade"
+          : "downgrade"
+        : "cadence";
+      await sendSupportPlanChangedForAgency(agencyId, {
+        previousPlan: current.plan,
+        previousCadence: current.billingCadence,
+        newPlan: plan,
+        newCadence: billingCadence,
+        direction,
+      });
+    }
   }
 }
 
@@ -324,6 +365,86 @@ async function sendTrialWelcomeForAgency(
     agencyName: agency.name,
     plan: props.plan,
     trialEndsAt: props.trialEndsAt,
+  });
+}
+
+/**
+ * Loader + dispatcher for the support-side "onboarding complete" ping.
+ * Resolves the founding OWNER so support has a name/email to reply to; a
+ * missing OWNER (edge case: manual DB seed) collapses to the agency name
+ * only and still goes out.
+ */
+async function sendSupportOnboardingCompleteForAgency(
+  agencyId: string,
+  props: {
+    plan: Plan;
+    cadence: BillingCadence;
+    status: "trialing" | "paid";
+    trialEndsAt: Date | null;
+  },
+): Promise<void> {
+  const agency = await prisma.agency.findUnique({
+    where: { id: agencyId },
+    select: {
+      name: true,
+      members: {
+        where: { role: "OWNER" },
+        orderBy: { createdAt: "asc" },
+        select: { email: true, name: true },
+        take: 1,
+      },
+    },
+  });
+  if (!agency) return;
+  const owner = agency.members[0];
+  await sendSupportOnboardingCompleteEmail({
+    agencyName: agency.name,
+    ownerName: owner?.name ?? null,
+    ownerEmail: owner?.email ?? "unknown@repodcastapp.com",
+    plan: props.plan,
+    cadence: props.cadence,
+    status: props.status,
+    trialEndsAt: props.trialEndsAt,
+  });
+}
+
+/**
+ * Loader + dispatcher for the support-side plan-change ping.
+ */
+async function sendSupportPlanChangedForAgency(
+  agencyId: string,
+  props: {
+    previousPlan: Plan;
+    previousCadence: BillingCadence;
+    newPlan: Plan;
+    newCadence: BillingCadence;
+    direction: "upgrade" | "downgrade" | "cadence";
+  },
+): Promise<void> {
+  const agency = await prisma.agency.findUnique({
+    where: { id: agencyId },
+    select: {
+      name: true,
+      members: {
+        where: { role: "OWNER" },
+        orderBy: { createdAt: "asc" },
+        select: { email: true, name: true },
+        take: 1,
+      },
+    },
+  });
+  if (!agency) return;
+  const owner = agency.members[0];
+  await sendSupportPlanChangedEmail({
+    agencyName: agency.name,
+    ownerName: owner?.name ?? null,
+    ownerEmail: owner?.email ?? "unknown@repodcastapp.com",
+    previousPlan: props.previousPlan,
+    previousCadence: props.previousCadence,
+    newPlan: props.newPlan,
+    newCadence: props.newCadence,
+    direction: props.direction,
+    changedAt: new Date(),
   });
 }
 
