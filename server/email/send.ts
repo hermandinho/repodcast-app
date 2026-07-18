@@ -411,10 +411,11 @@ const SUPPORT_CATEGORY_PREFIX: Record<SupportTicketAdminEmailProps["category"], 
  */
 export async function sendSupportTicketAdminEmail(
   to: string | string[],
-  props: Omit<SupportTicketAdminEmailProps, "replyMailto">,
+  props: Omit<SupportTicketAdminEmailProps, "replyMailto" | "triageUrl">,
 ): Promise<SendResult> {
   const replyMailto = `mailto:${encodeURIComponent(props.submitterEmail)}?subject=${encodeURIComponent(`Re: [${props.refCode}] ${props.subject}`)}`;
-  const html = await render(SupportTicketAdminEmail({ ...props, replyMailto }));
+  const triageUrl = `${APP_BASE_URL}/root/support`;
+  const html = await render(SupportTicketAdminEmail({ ...props, replyMailto, triageUrl }));
   return send({
     to,
     subject: `${SUPPORT_CATEGORY_PREFIX[props.category]} ${props.refCode} · ${props.subject}`,

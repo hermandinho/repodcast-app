@@ -32,6 +32,8 @@ export type SupportTicketAdminEmailProps = {
   contextUrl: string | null;
   /** Direct reply-to helper — mailto pre-filled with the ref code in the subject. */
   replyMailto: string;
+  /** Deep link into the `/root/support` triage queue. */
+  triageUrl: string;
 };
 
 const CATEGORY_LABEL: Record<SupportTicketAdminEmailProps["category"], string> = {
@@ -53,6 +55,7 @@ export function SupportTicketAdminEmail({
   agencyName,
   contextUrl,
   replyMailto,
+  triageUrl,
 }: SupportTicketAdminEmailProps) {
   const label = CATEGORY_LABEL[category];
   return (
@@ -168,10 +171,16 @@ export function SupportTicketAdminEmail({
           ) : null}
 
           <Hr style={{ borderColor: "#E6EBF3", margin: "20px 0 14px" }} />
-          <Text style={{ fontSize: 12, color: MUTED, margin: 0 }}>
+          <Text style={{ fontSize: 12, color: MUTED, margin: "0 0 6px" }}>
             Reply directly:{" "}
             <Link href={replyMailto} style={{ color: ACCENT }}>
               {submitterEmail}
+            </Link>
+          </Text>
+          <Text style={{ fontSize: 12, color: MUTED, margin: 0 }}>
+            Open in ROOT:{" "}
+            <Link href={triageUrl} style={{ color: ACCENT }}>
+              {triageUrl}
             </Link>
           </Text>
         </Container>
