@@ -235,9 +235,12 @@ async function probeResend(): Promise<HealthProbe> {
 }
 
 async function probeAnthropic(): Promise<HealthProbe> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return unconfigured("anthropic", "Anthropic", "ANTHROPIC_API_KEY not set");
+  const viaGateway = Boolean(process.env.AI_GATEWAY_API_KEY);
+  const hasDirect = Boolean(process.env.ANTHROPIC_API_KEY);
+  if (!viaGateway && !hasDirect) {
+    return unconfigured("anthropic", "Anthropic", "AI_GATEWAY_API_KEY / ANTHROPIC_API_KEY not set");
   }
+  const via = viaGateway ? "via Vercel AI Gateway" : "direct";
   // We don't ping Anthropic on every page load — inference is metered. Use
   // the freshest `UsageLog.createdAt` as a proxy for "the pipeline can reach
   // Anthropic". `degraded` if nothing's been generated in the last N hours.
@@ -249,7 +252,7 @@ async function probeAnthropic(): Promise<HealthProbe> {
     if (!latest) {
       return {
         status: "degraded",
-        detail: "No UsageLog rows yet — status will resolve after the first generation",
+        detail: `${via} · no UsageLog rows yet — status will resolve after the first generation`,
       };
     }
     const ageMs = Date.now() - latest.createdAt.getTime();
@@ -257,12 +260,12 @@ async function probeAnthropic(): Promise<HealthProbe> {
     if (ageHours > ANTHROPIC_DEGRADED_AFTER_HOURS) {
       return {
         status: "degraded",
-        detail: `Last successful call ${Math.round(ageHours)}h ago (proxy — no live ping to avoid billing every render)`,
+        detail: `${via} · last successful call ${Math.round(ageHours)}h ago (proxy — no live ping to avoid billing every render)`,
       };
     }
     return {
       status: "ok",
-      detail: `Last successful call ${formatRelative(ageMs)} (proxy — no live ping)`,
+      detail: `${via} · last successful call ${formatRelative(ageMs)} (proxy — no live ping)`,
     };
   });
 }
