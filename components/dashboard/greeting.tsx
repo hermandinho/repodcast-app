@@ -32,7 +32,8 @@ export function Greeting({ firstName }: { firstName: string }) {
 
   return (
     <h1 className="font-display text-ink text-[26px] font-semibold tracking-[-0.5px]">
-      {phrase}, {firstName}
+      {phrase}
+      {firstName ? `, ${firstName}` : ""}
     </h1>
   );
 }

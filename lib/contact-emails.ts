@@ -20,7 +20,7 @@ export const CONTACT_EMAILS = {
    * / etc.) from the tenant dashboard's Feedback button. Also surfaced on
    * `/root/feedback` for triage — email is a best-effort mirror.
    */
-  feedback: process.env.CONTACT_EMAIL_FEEDBACK ?? "feedback@repodcastapp.com",
+  feedback: process.env.CONTACT_EMAIL_SUPPORT ?? "support@repodcastapp.com",
 } as const;
 
 export type ContactEmailKey = keyof typeof CONTACT_EMAILS;
